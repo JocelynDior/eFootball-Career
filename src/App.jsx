@@ -1,1 +1,45 @@
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { AdminProvider } from "./context/AdminContext";
+import FeedPage from "./pages/FeedPage";
+import PremierLeaguePage from "./pages/PremierLeaguePage";
+import LaLigaPage from "./pages/LaLigaPage";
+import SerieAPage from "./pages/SerieAPage";
+import ChampionsLeaguePage from "./pages/ChampionsLeaguePage";
+import EuropaLeaguePage from "./pages/EuropaLeaguePage";
+import WorldCupPage from "./pages/WorldCupPage";
+import ClubWorldCupPage from "./pages/ClubWorldCupPage";
+import SuperCupPage from "./pages/SuperCupPage";
+import CreateAccountPage from "./pages/CreateAccountPage";
+import TransferMarketPage from "./pages/TransferMarketPage";
+import TeamManagementPage from "./pages/TeamManagementPage";
+import CalendarPage from "./pages/CalendarPage";
+import ManagerRankingsPage from "./pages/ManagerRankingsPage";
+import TermsOfServicePage from "./pages/TermsOfServicePage";
+import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 
+export default function App() {
+  return (
+    <AdminProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<FeedPage />} />
+          <Route path="/premier-league" element={<PremierLeaguePage />} />
+          <Route path="/la-liga" element={<LaLigaPage />} />
+          <Route path="/serie-a" element={<SerieAPage />} />
+          <Route path="/champions-league" element={<ChampionsLeaguePage />} />
+          <Route path="/europa-league" element={<EuropaLeaguePage />} />
+          <Route path="/world-cup" element={<WorldCupPage />} />
+          <Route path="/club-world-cup" element={<ClubWorldCupPage />} />
+          <Route path="/super-cup" element={<SuperCupPage />} />
+          <Route path="/create-account" element={<CreateAccountPage />} />
+          <Route path="/transfer-market" element={<TransferMarketPage />} />
+          <Route path="/team-management" element={<TeamManagementPage />} />
+          <Route path="/calendar" element={<CalendarPage />} />
+          <Route path="/manager-rankings" element={<ManagerRankingsPage />} />
+          <Route path="/terms" element={<TermsOfServicePage />} />
+          <Route path="/privacy" element={<PrivacyPolicyPage />} />
+        </Routes>
+      </BrowserRouter>
+    </AdminProvider>
+  );
+}
