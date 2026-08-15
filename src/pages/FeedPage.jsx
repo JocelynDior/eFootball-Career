@@ -7,17 +7,17 @@ import StoryCarousel from "../components/StoryCarousel";
 import Feed from "../components/Feed";
 import CountdownTimers from "../components/CountdownTimers";
 import Modal from "../components/Modal";
+import BackgroundVideo from "../components/BackgroundVideo";
 
 export default function FeedPage() {
   const { isAdmin } = useAdmin();
-  const [bgVideo, setBgVideo] = useState("");
   const [videoInput, setVideoInput] = useState("");
   const [videoModalOpen, setVideoModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     const unsub = onValue(ref(db, `${PATHS.globalSettings}/backgroundVideo`), snap => {
-      if (snap.val()) setBgVideo(snap.val());
+      if (snap.val()) setVideoInput(snap.val());
     });
     return () => unsub();
   }, []);
@@ -25,31 +25,24 @@ export default function FeedPage() {
   async function handleSaveVideo() {
     setSaving(true);
     await set(ref(db, `${PATHS.globalSettings}/backgroundVideo`), videoInput.trim());
-    setBgVideo(videoInput.trim());
     setSaving(false);
     setVideoModalOpen(false);
   }
 
   return (
     <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #000033 0%, #000020 100%)", fontFamily: "'Inter', sans-serif", position: "relative" }}>
-      {bgVideo && (
-        <>
-          <video autoPlay muted loop playsInline style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", objectFit: "cover", zIndex: -2, opacity: 0.35 }} src={bgVideo} />
-          <div style={{ position: "fixed", inset: 0, zIndex: -1, background: "linear-gradient(135deg, rgba(0,0,51,0.75) 0%, rgba(0,0,30,0.85) 100%)" }} />
-        </>
-      )}
-
+      <BackgroundVideo />
       <Navbar />
       <StoryCarousel />
       <CountdownTimers />
 
       {isAdmin && (
         <div style={{ display: "flex", justifyContent: "center", padding: "10px 16px 0" }}>
-          <button onClick={() => { setVideoInput(bgVideo); setVideoModalOpen(true); }} style={{
+          <button onClick={() => setVideoModalOpen(true)} style={{
             background: "rgba(255,20,147,0.15)", border: "1px solid rgba(255,20,147,0.4)",
             color: "#FF1493", padding: "10px 24px", borderRadius: "30px",
             cursor: "pointer", fontWeight: 600, fontSize: "0.85rem", fontFamily: "inherit"
-          }}>🎬 {bgVideo ? "Change Background Video" : "Set Background Video"}</button>
+          }}>🎬 Set Background Video</button>
         </div>
       )}
 
