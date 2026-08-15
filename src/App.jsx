@@ -4,11 +4,13 @@ import FeedPage from "./pages/FeedPage";
 import PremierLeaguePage from "./pages/PremierLeaguePage";
 import LaLigaPage from "./pages/LaLigaPage";
 import SerieAPage from "./pages/SerieAPage";
+import BundesligaPage from "./pages/BundesligaPage";
+import Ligue1Page from "./pages/Ligue1Page";
 import ChampionsLeaguePage from "./pages/ChampionsLeaguePage";
 import EuropaLeaguePage from "./pages/EuropaLeaguePage";
-import WorldCupPage from "./pages/WorldCupPage";
 import ClubWorldCupPage from "./pages/ClubWorldCupPage";
 import SuperCupPage from "./pages/SuperCupPage";
+import TokyoPage from "./pages/TokyoPage";
 import CreateAccountPage from "./pages/CreateAccountPage";
 import TransferMarketPage from "./pages/TransferMarketPage";
 import TeamManagementPage from "./pages/TeamManagementPage";
@@ -26,11 +28,13 @@ export default function App() {
           <Route path="/premier-league" element={<PremierLeaguePage />} />
           <Route path="/la-liga" element={<LaLigaPage />} />
           <Route path="/serie-a" element={<SerieAPage />} />
+          <Route path="/bundesliga" element={<BundesligaPage />} />
+          <Route path="/ligue-1" element={<Ligue1Page />} />
           <Route path="/champions-league" element={<ChampionsLeaguePage />} />
           <Route path="/europa-league" element={<EuropaLeaguePage />} />
-          <Route path="/world-cup" element={<WorldCupPage />} />
           <Route path="/club-world-cup" element={<ClubWorldCupPage />} />
           <Route path="/super-cup" element={<SuperCupPage />} />
+          <Route path="/tokyo" element={<TokyoPage />} />
           <Route path="/create-account" element={<CreateAccountPage />} />
           <Route path="/transfer-market" element={<TransferMarketPage />} />
           <Route path="/team-management" element={<TeamManagementPage />} />
