@@ -24,6 +24,7 @@ export const PATHS = {
   rankings: "career_rankings",
   transfers: "career_transfers",
   accounts: "career_accounts",
+  globalSettings: "career_global_settings",
   leagueSettings: (league) => `career_${league}_settings`,
   table: (league, season) => `career_${league}/seasons/season_${season}/table`,
   results: (league, season) => `career_${league}/seasons/season_${season}/results`,
