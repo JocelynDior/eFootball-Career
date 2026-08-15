@@ -2,7 +2,7 @@ import { useState } from "react";
 import SideMenu from "./SideMenu";
 import LeagueGrid from "./LeagueGrid";
 
-export default function Navbar({ title = "Career League" }) {
+export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [leagueOpen, setLeagueOpen] = useState(false);
 
@@ -22,12 +22,6 @@ export default function Navbar({ title = "Career League" }) {
           fontSize: "0.85rem", cursor: "pointer", transition: "all 0.3s",
           fontFamily: "inherit"
         }}>View League</button>
-
-        <span style={{
-          fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem",
-          letterSpacing: "3px", color: "#fff",
-          textShadow: "0 2px 8px rgba(0,0,0,0.3)"
-        }}>{title}</span>
 
         <button onClick={() => setMenuOpen(true)} style={{
           background: "#000033", border: "1.5px solid #FF1493",
@@ -53,7 +47,7 @@ export default function Navbar({ title = "Career League" }) {
           justifyContent: "flex-end"
         }}>
           <div onClick={e => e.stopPropagation()} style={{
-            width: "min(360px, 100vw)", height: "100%",
+            width: "min(380px, 100vw)", height: "100%",
             background: "rgba(0,0,40,0.95)", backdropFilter: "blur(20px)",
             borderLeft: "1px solid rgba(255,20,147,0.3)",
             overflowY: "auto", padding: "20px"
@@ -62,7 +56,7 @@ export default function Navbar({ title = "Career League" }) {
               <span style={{ color: "#FF1493", fontWeight: 700, fontSize: "1rem", letterSpacing: "2px", textTransform: "uppercase" }}>Leagues & Cups</span>
               <button onClick={() => setLeagueOpen(false)} style={{ background: "none", border: "none", color: "#fff", fontSize: "1.4rem", cursor: "pointer" }}>✕</button>
             </div>
-            <LeagueGrid />
+            <LeagueGrid onClose={() => setLeagueOpen(false)} />
           </div>
         </div>
       )}
