@@ -30,7 +30,7 @@ export default function FeedPage() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #000033 0%, #000020 100%)", fontFamily: "'Inter', sans-serif", position: "relative" }}>
+    <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
       <BackgroundVideo />
       <Navbar />
       <StoryCarousel />
