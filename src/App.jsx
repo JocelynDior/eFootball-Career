@@ -18,7 +18,6 @@ import CalendarPage from "./pages/CalendarPage";
 import ManagerRankingsPage from "./pages/ManagerRankingsPage";
 import TermsOfServicePage from "./pages/TermsOfServicePage";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
-import DebugPage from "./pages/DebugPage";
 
 export default function App() {
   return (
@@ -43,7 +42,6 @@ export default function App() {
           <Route path="/manager-rankings" element={<ManagerRankingsPage />} />
           <Route path="/terms" element={<TermsOfServicePage />} />
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
-          <Route path="/debug" element={<DebugPage />} />
         </Routes>
       </BrowserRouter>
     </AdminProvider>
