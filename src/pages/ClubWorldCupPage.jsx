@@ -13,32 +13,31 @@ import LoadingSpinner from "../components/LoadingSpinner";
 
 const LEAGUE = "cwc";
 const LEAGUE_NAME = "Club World Cup";
-const TABS = [{ id: "results", label: "Results" }, { id: "watch", label: "Watch" }];
+const LEAGUE_EMOJI = "🌍";
+const TABS = [{ id: "results", label: "RESULTS" }, { id: "watch", label: "WATCH" }];
 
 export default function ClubWorldCupPage() {
   const { isAdmin, teamIconsCache } = useAdmin();
   const [tab, setTab] = useState("results");
   const [results, setResults] = useState([]);
-  const [backgroundVideo, setBackgroundVideo] = useState("");
   const [loading, setLoading] = useState(true);
   const [adminOpen, setAdminOpen] = useState(false);
 
   useEffect(() => {
-    onValue(ref(db, `career_${LEAGUE}_settings`), snap => { const d = snap.val(); if (d?.backgroundVideo) setBackgroundVideo(d.backgroundVideo); });
     const unsub = onValue(ref(db, `career_${LEAGUE}_results`), snap => { const d = snap.val(); setResults(d ? Object.entries(d).map(([k, v]) => ({ key: k, ...v })) : []); setLoading(false); });
     return () => unsub();
   }, []);
 
   return (
-    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #000033 0%, #000020 100%)", fontFamily: "'Inter', sans-serif" }}>
-      <BackgroundVideo videoUrl={backgroundVideo} />
-      <Navbar title={LEAGUE_NAME} />
-      <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "20px 16px" }}>
-        <div style={{ textAlign: "center", marginBottom: "24px" }}>
-          <span style={{ fontSize: "4rem" }}>🏆</span>
-          <h1 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.5rem", letterSpacing: "4px", color: "#FF1493", margin: "8px 0 0" }}>{LEAGUE_NAME}</h1>
+    <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif" }}>
+      <BackgroundVideo />
+      <Navbar />
+      <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "24px 32px" }}>
+        <div style={{ textAlign: "center", marginBottom: "32px" }}>
+          <div style={{ fontSize: "4rem", marginBottom: "8px" }}>{LEAGUE_EMOJI}</div>
+          <h1 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.5rem", letterSpacing: "6px", color: "#FF1493", margin: 0, textShadow: "0 0 30px rgba(255,20,147,0.5)" }}>{LEAGUE_NAME}</h1>
         </div>
-        {isAdmin && <div style={{ display: "flex", justifyContent: "center", marginBottom: "20px" }}><button onClick={() => setAdminOpen(true)} style={{ background: "rgba(255,20,147,0.15)", border: "1px solid rgba(255,20,147,0.4)", color: "#FF1493", padding: "10px 20px", borderRadius: "30px", cursor: "pointer", fontWeight: 600, fontFamily: "inherit" }}>⚙️ Admin</button></div>}
+        {isAdmin && <div style={{ display: "flex", justifyContent: "center", marginBottom: "24px" }}><button onClick={() => setAdminOpen(true)} style={{ background: "rgba(255,20,147,0.15)", border: "1px solid rgba(255,20,147,0.4)", color: "#FF1493", padding: "12px 24px", borderRadius: "30px", cursor: "pointer", fontWeight: 700, fontSize: "0.9rem", fontFamily: "inherit" }}>⚙️ Admin</button></div>}
         <TabBar tabs={TABS} activeTab={tab} onTabChange={setTab} />
         {loading ? <LoadingSpinner /> : (
           <>
@@ -47,7 +46,7 @@ export default function ClubWorldCupPage() {
           </>
         )}
       </div>
-      <Modal active={adminOpen} onClose={() => setAdminOpen(false)} wide><AdminSettingsModal league={LEAGUE} season="1" onClose={() => setAdminOpen(false)} backgroundVideo={backgroundVideo} onSaveVideo={setBackgroundVideo} onAddSeason={() => {}} onRenameSeason={() => {}} onSetActiveSeason={() => {}} /></Modal>
+      <Modal active={adminOpen} onClose={() => setAdminOpen(false)} wide><AdminSettingsModal league={LEAGUE} season="1" onClose={() => setAdminOpen(false)} backgroundVideo="" onSaveVideo={() => {}} onAddSeason={() => {}} onRenameSeason={() => {}} onSetActiveSeason={() => {}} /></Modal>
     </div>
   );
 }
