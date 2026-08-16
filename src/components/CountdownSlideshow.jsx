@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 
 function useCountdown(target) {
   const [parts, setParts] = useState({ d: "00", h: "00", m: "00", s: "00" });
@@ -35,34 +35,38 @@ function SingleCountdown({ countdown }) {
   ];
 
   return (
-    <div style={{ textAlign: "center", padding: "16px" }}>
+    <div style={{ textAlign: "center", padding: "12px 16px" }}>
       <div style={{
         color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif",
-        fontSize: "1.3rem", letterSpacing: "3px", marginBottom: "16px",
+        fontSize: "1.2rem", letterSpacing: "3px", marginBottom: "14px",
         textShadow: "0 0 20px rgba(255,20,147,0.5)"
       }}>{countdown.name}</div>
       <div style={{
         display: "flex", justifyContent: "center",
-        gap: "10px", flexWrap: "nowrap", padding: "0 16px"
+        gap: "8px", padding: "0 8px"
       }}>
         {units.map(({ label, val }) => (
           <div key={label} style={{
             display: "flex", flexDirection: "column",
-            alignItems: "center", gap: "6px", flex: "0 0 auto"
+            alignItems: "center", gap: "5px"
           }}>
             <div style={{
-              width: "68px", height: "68px", borderRadius: "50%",
-              background: "#FF1493",
-              boxShadow: "0 0 18px rgba(255,20,147,0.4)",
+              width: "18vw", height: "18vw",
+              maxWidth: "68px", maxHeight: "68px",
+              minWidth: "48px", minHeight: "48px",
+              borderRadius: "50%", background: "#FF1493",
+              boxShadow: "0 0 16px rgba(255,20,147,0.4)",
               display: "flex", alignItems: "center", justifyContent: "center"
             }}>
               <span style={{
                 color: "#000033", fontFamily: "'Bebas Neue', sans-serif",
-                fontSize: "1.7rem", fontWeight: 900, lineHeight: 1
+                fontSize: "clamp(1rem, 4vw, 1.6rem)",
+                fontWeight: 900, lineHeight: 1
               }}>{val}</span>
             </div>
             <span style={{
-              color: "rgba(255,255,255,0.6)", fontSize: "0.65rem",
+              color: "rgba(255,255,255,0.6)",
+              fontSize: "clamp(0.55rem, 2vw, 0.65rem)",
               fontWeight: 700, letterSpacing: "2px"
             }}>{label}</span>
           </div>
@@ -107,7 +111,7 @@ export default function CountdownSlideshow({ countdowns }) {
         <SingleCountdown countdown={countdowns[idx]} />
       </div>
       {countdowns.length > 1 && (
-        <div style={{ display: "flex", justifyContent: "center", gap: "8px", paddingBottom: "12px" }}>
+        <div style={{ display: "flex", justifyContent: "center", gap: "8px", paddingBottom: "10px" }}>
           {countdowns.map((_, i) => (
             <span key={i} onClick={() => setIdx(i)} style={{
               width: "7px", height: "7px", borderRadius: "50%",
