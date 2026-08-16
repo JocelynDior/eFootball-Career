@@ -16,13 +16,32 @@ const leagues = [
   { id: "tokyo", name: "Tokyo Off Season", path: "/tokyo", emoji: "🗼" },
 ];
 
+const CACHE_KEY = "careerLeagueImages";
+
+function getCache() {
+  try { return JSON.parse(localStorage.getItem(CACHE_KEY) || "{}"); } catch { return {}; }
+}
+
+function saveCache(data) {
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch {}
+}
+
 export default function LeagueGrid({ onClose }) {
   const navigate = useNavigate();
-  const [leagueImages, setLeagueImages] = useState({});
+  const [leagueImages, setLeagueImages] = useState(getCache);
 
   useEffect(() => {
+    const cached = getCache();
     const unsub = onValue(ref(db, `${PATHS.globalSettings}/leagueImages`), snap => {
-      if (snap.val()) setLeagueImages(snap.val());
+      const data = snap.val();
+      if (!data) return;
+      // Only update if something changed
+      const hasChanges = Object.entries(data).some(([k, v]) => cached[k] !== v);
+      if (hasChanges) {
+        const merged = { ...cached, ...data };
+        setLeagueImages(merged);
+        saveCache(merged);
+      }
     });
     return () => unsub();
   }, []);
@@ -39,19 +58,30 @@ export default function LeagueGrid({ onClose }) {
           <div style={{
             background: "rgba(255,255,255,0.05)", backdropFilter: "blur(10px)",
             border: "1px solid rgba(255,20,147,0.25)", borderRadius: "14px",
-            aspectRatio: "1/1", display: "flex", alignItems: "center",
-            justifyContent: "center", fontSize: "3rem", transition: "all 0.3s",
-            overflow: "hidden"
+            aspectRatio: "1/1", overflow: "hidden",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: "3rem", transition: "all 0.3s", position: "relative"
           }}
-            onMouseOver={e => { e.currentTarget.style.background = "rgba(255,20,147,0.15)"; e.currentTarget.style.borderColor = "#FF1493"; e.currentTarget.style.transform = "scale(1.04)"; }}
-            onMouseOut={e => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.borderColor = "rgba(255,20,147,0.25)"; e.currentTarget.style.transform = "scale(1)"; }}
+            onMouseOver={e => { e.currentTarget.style.borderColor = "#FF1493"; e.currentTarget.style.transform = "scale(1.04)"; }}
+            onMouseOut={e => { e.currentTarget.style.borderColor = "rgba(255,20,147,0.25)"; e.currentTarget.style.transform = "scale(1)"; }}
           >
             {leagueImages[league.id]
-              ? <img src={leagueImages[league.id]} alt={league.name} style={{ width: "75%", height: "75%", objectFit: "contain" }} />
+              ? <img
+                  src={leagueImages[league.id]}
+                  alt={league.name}
+                  style={{
+                    width: "100%", height: "100%",
+                    objectFit: "cover",
+                    position: "absolute", inset: 0
+                  }}
+                />
               : <span>{league.emoji}</span>
             }
           </div>
-          <div style={{ color: "#fff", fontSize: "0.75rem", fontWeight: 700, textAlign: "center", marginTop: "8px", letterSpacing: "0.3px" }}>{league.name}</div>
+          <div style={{
+            color: "#fff", fontSize: "0.75rem", fontWeight: 700,
+            textAlign: "center", marginTop: "8px", letterSpacing: "0.3px"
+          }}>{league.name}</div>
         </div>
       ))}
     </div>
