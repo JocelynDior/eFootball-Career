@@ -12,6 +12,7 @@ export default function Feed() {
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [editPost, setEditPost] = useState(null);
+  const [selectedPost, setSelectedPost] = useState(null);
   const { isAdmin } = useAdmin();
   const [likedPosts, setLikedPosts] = useState(() => {
     try { return new Set(JSON.parse(localStorage.getItem("careerLikedPosts") || "[]")); } catch { return new Set(); }
@@ -45,12 +46,13 @@ export default function Feed() {
   async function handleDelete(postId) {
     if (!confirm("Delete this post?")) return;
     await remove(ref(db, `${PATHS.posts}/${postId}`));
+    if (selectedPost?.id === postId) setSelectedPost(null);
   }
 
   if (loading) return <LoadingSpinner />;
 
   return (
-    <div style={{ maxWidth: "480px", margin: "0 auto", padding: "16px" }}>
+    <div style={{ maxWidth: "700px", margin: "0 auto", padding: "16px" }}>
       {isAdmin && (
         <button onClick={() => setCreateOpen(true)} style={{
           width: "100%", padding: "14px", marginBottom: "20px",
@@ -60,25 +62,120 @@ export default function Feed() {
           boxShadow: "0 4px 16px rgba(255,20,147,0.35)"
         }}>➕ Create New Post</button>
       )}
+
       {!posts.length ? (
         <div style={{ textAlign: "center", padding: "60px 20px", color: "rgba(255,255,255,0.4)", fontSize: "1.1rem" }}>
           No posts yet.
         </div>
       ) : (
-        posts.map(post => (
-          <FeedPost key={post.id} post={post}
-            onLike={handleLike}
-            onDelete={handleDelete}
-            onEdit={p => setEditPost(p)}
-          />
-        ))
+        <>
+          {/* Instagram-style 3-column grid */}
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, 1fr)",
+            gap: "3px",
+          }}>
+            {posts.map(post => {
+              const media = post.media || (post.imageUrl ? [{ type: "image", url: post.imageUrl }] : []);
+              const thumb = media[0];
+              return (
+                <div
+                  key={post.id}
+                  onClick={() => setSelectedPost(post)}
+                  style={{
+                    aspectRatio: "1/1",
+                    overflow: "hidden",
+                    cursor: "pointer",
+                    position: "relative",
+                    background: "rgba(255,255,255,0.04)",
+                    borderRadius: "4px",
+                  }}
+                >
+                  {thumb ? (
+                    thumb.type === "video" ? (
+                      <div style={{
+                        width: "100%", height: "100%",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        background: "#111",
+                        fontSize: "2.5rem"
+                      }}>▶️</div>
+                    ) : (
+                      <img
+                        src={thumb.url}
+                        alt=""
+                        style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                      />
+                    )
+                  ) : (
+                    <div style={{
+                      width: "100%", height: "100%",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      background: "rgba(255,20,147,0.08)",
+                      fontSize: "1.6rem"
+                    }}>📝</div>
+                  )}
+
+                  {/* Hover overlay */}
+                  <div className="grid-overlay" style={{
+                    position: "absolute", inset: 0,
+                    background: "rgba(0,0,0,0)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    gap: "12px",
+                    transition: "background 0.2s"
+                  }}>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Post detail modal */}
+          {selectedPost && (
+            <div
+              onClick={() => setSelectedPost(null)}
+              style={{
+                position: "fixed", inset: 0,
+                background: "rgba(0,0,20,0.85)",
+                backdropFilter: "blur(10px)",
+                zIndex: 900,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                padding: "20px"
+              }}
+            >
+              <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: "500px" }}>
+                <FeedPost
+                  post={selectedPost}
+                  onLike={handleLike}
+                  onDelete={handleDelete}
+                  onEdit={p => { setEditPost(p); setSelectedPost(null); }}
+                />
+                <button
+                  onClick={() => setSelectedPost(null)}
+                  style={{
+                    display: "block", margin: "0 auto",
+                    background: "rgba(255,255,255,0.08)",
+                    border: "1px solid rgba(255,20,147,0.3)",
+                    color: "#fff", padding: "10px 28px",
+                    borderRadius: "20px", cursor: "pointer",
+                    fontSize: "0.9rem", fontWeight: 600
+                  }}
+                >Close</button>
+              </div>
+            </div>
+          )}
+        </>
       )}
+
       <Modal active={createOpen} onClose={() => setCreateOpen(false)}>
         <CreatePostModal onClose={() => setCreateOpen(false)} />
       </Modal>
       <Modal active={!!editPost} onClose={() => setEditPost(null)}>
         <CreatePostModal post={editPost} onClose={() => setEditPost(null)} />
       </Modal>
+
+      <style>{`
+        .grid-overlay:hover { background: rgba(0,0,0,0.35) !important; }
+      `}</style>
     </div>
   );
 }
