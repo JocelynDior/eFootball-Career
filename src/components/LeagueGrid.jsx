@@ -26,6 +26,17 @@ function saveCache(data) {
   try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch {}
 }
 
+// Place leagues in a circular pattern
+// We have 10 leagues — we'll put 5 on top arc, 5 on bottom arc
+// Arranged like positions on a clock face
+function getCirclePosition(index, total, radiusPx) {
+  // Start from top (-90deg) and go clockwise
+  const angle = (index / total) * 2 * Math.PI - Math.PI / 2;
+  const x = Math.cos(angle) * radiusPx;
+  const y = Math.sin(angle) * radiusPx;
+  return { x, y };
+}
+
 export default function LeagueGrid({ onClose }) {
   const navigate = useNavigate();
   const [leagueImages, setLeagueImages] = useState(getCache);
@@ -35,7 +46,6 @@ export default function LeagueGrid({ onClose }) {
     const unsub = onValue(ref(db, `${PATHS.globalSettings}/leagueImages`), snap => {
       const data = snap.val();
       if (!data) return;
-      // Only update if something changed
       const hasChanges = Object.entries(data).some(([k, v]) => cached[k] !== v);
       if (hasChanges) {
         const merged = { ...cached, ...data };
@@ -51,39 +61,71 @@ export default function LeagueGrid({ onClose }) {
     if (onClose) onClose();
   }
 
+  const circleSize = 80;    // diameter of each league circle in px
+  const radius = 160;        // radius of the arrangement circle
+  const containerSize = (radius + circleSize) * 2 + 20; // total container size
+
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
-      {leagues.map(league => (
-        <div key={league.id} onClick={() => handleNav(league.path)} style={{ cursor: "pointer" }}>
-          <div style={{
-            background: "rgba(255,255,255,0.05)", backdropFilter: "blur(10px)",
-            border: "1px solid rgba(255,20,147,0.25)", borderRadius: "14px",
-            aspectRatio: "1/1", overflow: "hidden",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: "3rem", transition: "all 0.3s", position: "relative"
-          }}
-            onMouseOver={e => { e.currentTarget.style.borderColor = "#FF1493"; e.currentTarget.style.transform = "scale(1.04)"; }}
-            onMouseOut={e => { e.currentTarget.style.borderColor = "rgba(255,20,147,0.25)"; e.currentTarget.style.transform = "scale(1)"; }}
+    <div style={{
+      position: "relative",
+      width: `${containerSize}px`,
+      height: `${containerSize}px`,
+    }}>
+      {leagues.map((league, i) => {
+        const { x, y } = getCirclePosition(i, leagues.length, radius);
+        const cx = containerSize / 2 + x - circleSize / 2;
+        const cy = containerSize / 2 + y - circleSize / 2;
+
+        return (
+          <div
+            key={league.id}
+            onClick={() => handleNav(league.path)}
+            style={{
+              position: "absolute",
+              left: `${cx}px`,
+              top: `${cy}px`,
+              width: `${circleSize}px`,
+              height: `${circleSize}px`,
+              borderRadius: "50%",
+              overflow: "hidden",
+              cursor: "pointer",
+              border: "2.5px solid rgba(255,20,147,0.5)",
+              background: "rgba(0,0,40,0.85)",
+              boxShadow: "0 0 18px rgba(255,20,147,0.3)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "2rem",
+              transition: "all 0.25s",
+            }}
+            onMouseOver={e => {
+              e.currentTarget.style.borderColor = "#FF1493";
+              e.currentTarget.style.transform = "scale(1.18)";
+              e.currentTarget.style.boxShadow = "0 0 28px rgba(255,20,147,0.7)";
+            }}
+            onMouseOut={e => {
+              e.currentTarget.style.borderColor = "rgba(255,20,147,0.5)";
+              e.currentTarget.style.transform = "scale(1)";
+              e.currentTarget.style.boxShadow = "0 0 18px rgba(255,20,147,0.3)";
+            }}
           >
-            {leagueImages[league.id]
-              ? <img
-                  src={leagueImages[league.id]}
-                  alt={league.name}
-                  style={{
-                    width: "100%", height: "100%",
-                    objectFit: "cover",
-                    position: "absolute", inset: 0
-                  }}
-                />
-              : <span>{league.emoji}</span>
-            }
+            {leagueImages[league.id] ? (
+              <img
+                src={leagueImages[league.id]}
+                alt={league.name}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  borderRadius: "50%"
+                }}
+              />
+            ) : (
+              <span>{league.emoji}</span>
+            )}
           </div>
-          <div style={{
-            color: "#fff", fontSize: "0.75rem", fontWeight: 700,
-            textAlign: "center", marginTop: "8px", letterSpacing: "0.3px"
-          }}>{league.name}</div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
