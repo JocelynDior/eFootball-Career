@@ -37,20 +37,20 @@ export default function SideMenu({ open, onClose }) {
     <>
       {open && <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 700, backdropFilter: "blur(4px)" }} />}
       <div style={{
-        position: "fixed", top: 0, right: open ? 0 : "-320px", width: "300px",
+        position: "fixed", top: 0, right: open ? 0 : "-620px", width: "600px",
         height: "100%", background: "rgba(0,0,40,0.97)", backdropFilter: "blur(20px)",
         borderLeft: "1px solid rgba(255,20,147,0.3)", zIndex: 800,
-        padding: "30px 20px", transition: "right 0.35s cubic-bezier(.4,0,.2,1)",
+        padding: "40px 32px", transition: "right 0.35s cubic-bezier(.4,0,.2,1)",
         overflowY: "auto"
       }}>
-        <button onClick={onClose} style={{ background: "none", border: "none", color: "#fff", fontSize: "1.8rem", cursor: "pointer", float: "right", marginBottom: "30px" }}>✕</button>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: "#fff", fontSize: "3.2rem", cursor: "pointer", float: "right", marginBottom: "40px" }}>✕</button>
         <div style={{ clear: "both", marginTop: "10px" }}>
           {menuItems.map(item => (
             <div key={item.path} onClick={() => handleNav(item.path)} style={{
-              padding: "16px 18px", margin: "8px 0",
+              padding: "30px 32px", margin: "14px 0",
               background: "rgba(255,20,147,0.08)", backdropFilter: "blur(10px)",
-              border: "1px solid rgba(255,20,147,0.2)", borderRadius: "14px",
-              cursor: "pointer", color: "#fff", fontWeight: 600, fontSize: "0.95rem",
+              border: "1px solid rgba(255,20,147,0.2)", borderRadius: "18px",
+              cursor: "pointer", color: "#fff", fontWeight: 700, fontSize: "1.6rem",
               transition: "all 0.2s"
             }}
               onMouseOver={e => { e.currentTarget.style.background = "rgba(255,20,147,0.2)"; e.currentTarget.style.transform = "translateX(6px)"; }}
@@ -59,21 +59,21 @@ export default function SideMenu({ open, onClose }) {
           ))}
 
           <div onClick={handleAdminToggle} style={{
-            padding: "16px 18px", margin: "8px 0",
+            padding: "30px 32px", margin: "14px 0",
             background: isAdmin ? "rgba(255,20,147,0.25)" : "rgba(255,20,147,0.08)",
             border: `1px solid ${isAdmin ? "#FF1493" : "rgba(255,20,147,0.2)"}`,
-            borderRadius: "14px", cursor: "pointer", color: "#FF1493",
-            fontWeight: 700, fontSize: "0.95rem", transition: "all 0.2s"
+            borderRadius: "18px", cursor: "pointer", color: "#FF1493",
+            fontWeight: 700, fontSize: "1.6rem", transition: "all 0.2s"
           }}>🔐 {isAdmin ? "Exit Admin Mode" : "Admin Mode"}</div>
 
           {showKeyInput && (
-            <div style={{ marginTop: "12px", padding: "16px", background: "rgba(0,0,0,0.3)", borderRadius: "14px", border: "1px solid rgba(255,20,147,0.3)" }}>
+            <div style={{ marginTop: "16px", padding: "20px", background: "rgba(0,0,0,0.3)", borderRadius: "18px", border: "1px solid rgba(255,20,147,0.3)" }}>
               <input value={keyInput} onChange={e => setKeyInput(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && submitKey()}
                 type="password" placeholder="Enter admin key"
-                style={{ width: "100%", padding: "10px 14px", background: "rgba(255,255,255,0.06)", border: "1px solid #FF1493", borderRadius: "10px", color: "#fff", fontFamily: "inherit", fontSize: "1rem", outline: "none", boxSizing: "border-box" }} />
-              {keyError && <div style={{ color: "#ff6b6b", fontSize: "0.85rem", marginTop: "6px" }}>{keyError}</div>}
-              <button onClick={submitKey} style={{ width: "100%", marginTop: "10px", padding: "10px", background: "#FF1493", border: "none", borderRadius: "10px", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "0.9rem" }}>Verify</button>
+                style={{ width: "100%", padding: "14px 18px", background: "rgba(255,255,255,0.06)", border: "1px solid #FF1493", borderRadius: "12px", color: "#fff", fontFamily: "inherit", fontSize: "1.2rem", outline: "none", boxSizing: "border-box" }} />
+              {keyError && <div style={{ color: "#ff6b6b", fontSize: "1rem", marginTop: "8px" }}>{keyError}</div>}
+              <button onClick={submitKey} style={{ width: "100%", marginTop: "14px", padding: "16px", background: "#FF1493", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1.2rem" }}>Verify</button>
             </div>
           )}
         </div>
