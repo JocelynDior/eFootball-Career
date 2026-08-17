@@ -36,14 +36,10 @@ function SingleCountdown({ countdown }) {
 
   return (
     <div style={{ textAlign: "center", padding: "16px 16px" }}>
-      <div style={{
-        color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif",
-        fontSize: "1.2rem", letterSpacing: "3px", marginBottom: "18px",
-        textShadow: "0 0 20px rgba(255,20,147,0.5)"
-      }}>{countdown.name}</div>
+      {/* Circles */}
       <div style={{
         display: "flex", justifyContent: "center",
-        gap: "12px", padding: "0 8px"
+        gap: "12px", padding: "0 8px", marginBottom: "22px"
       }}>
         {units.map(({ label, val }) => (
           <div key={label} style={{
@@ -72,6 +68,13 @@ function SingleCountdown({ countdown }) {
           </div>
         ))}
       </div>
+
+      {/* Title below circles — 2x bigger */}
+      <div style={{
+        color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif",
+        fontSize: "2.4rem", letterSpacing: "3px",
+        textShadow: "0 0 20px rgba(255,20,147,0.5)"
+      }}>{countdown.name}</div>
     </div>
   );
 }
@@ -110,17 +113,7 @@ export default function CountdownSlideshow({ countdowns }) {
       }}>
         <SingleCountdown countdown={countdowns[idx]} />
       </div>
-      {countdowns.length > 1 && (
-        <div style={{ display: "flex", justifyContent: "center", gap: "8px", paddingBottom: "10px" }}>
-          {countdowns.map((_, i) => (
-            <span key={i} onClick={() => setIdx(i)} style={{
-              width: "7px", height: "7px", borderRadius: "50%",
-              background: i === idx ? "#FF1493" : "rgba(255,255,255,0.3)",
-              cursor: "pointer", display: "block", transition: "all 0.3s"
-            }} />
-          ))}
-        </div>
-      )}
+      {/* Dots removed — navigation by auto-slide only */}
     </div>
   );
 }
