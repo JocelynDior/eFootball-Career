@@ -19,6 +19,8 @@ import ManagerRankingsPage from "./pages/ManagerRankingsPage";
 import TermsOfServicePage from "./pages/TermsOfServicePage";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import AdminCalendarPage from "./pages/AdminCalendarPage";
+import ManagerProfilePage from "./pages/ManagerProfilePage";
+import AdminProfilePage from "./pages/AdminProfilePage";
 
 export default function App() {
   return (
@@ -44,6 +46,8 @@ export default function App() {
           <Route path="/terms" element={<TermsOfServicePage />} />
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
           <Route path="/admin-calendar" element={<AdminCalendarPage />} />
+          <Route path="/manager-profile" element={<ManagerProfilePage />} />
+          <Route path="/admin-profile" element={<AdminProfilePage />} />
         </Routes>
       </BrowserRouter>
     </AdminProvider>
