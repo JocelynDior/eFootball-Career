@@ -35,38 +35,38 @@ function SingleCountdown({ countdown }) {
   ];
 
   return (
-    <div style={{ textAlign: "center", padding: "12px 16px" }}>
+    <div style={{ textAlign: "center", padding: "16px 16px" }}>
       <div style={{
         color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif",
-        fontSize: "1.2rem", letterSpacing: "3px", marginBottom: "14px",
+        fontSize: "1.2rem", letterSpacing: "3px", marginBottom: "18px",
         textShadow: "0 0 20px rgba(255,20,147,0.5)"
       }}>{countdown.name}</div>
       <div style={{
         display: "flex", justifyContent: "center",
-        gap: "8px", padding: "0 8px"
+        gap: "12px", padding: "0 8px"
       }}>
         {units.map(({ label, val }) => (
           <div key={label} style={{
             display: "flex", flexDirection: "column",
-            alignItems: "center", gap: "5px"
+            alignItems: "center", gap: "8px"
           }}>
             <div style={{
-              width: "18vw", height: "18vw",
-              maxWidth: "68px", maxHeight: "68px",
-              minWidth: "48px", minHeight: "48px",
+              width: "36vw", height: "36vw",
+              maxWidth: "136px", maxHeight: "136px",
+              minWidth: "96px", minHeight: "96px",
               borderRadius: "50%", background: "#FF1493",
-              boxShadow: "0 0 16px rgba(255,20,147,0.4)",
+              boxShadow: "0 0 24px rgba(255,20,147,0.4)",
               display: "flex", alignItems: "center", justifyContent: "center"
             }}>
               <span style={{
                 color: "#000033", fontFamily: "'Bebas Neue', sans-serif",
-                fontSize: "clamp(1rem, 4vw, 1.6rem)",
+                fontSize: "clamp(1.8rem, 8vw, 3.2rem)",
                 fontWeight: 900, lineHeight: 1
               }}>{val}</span>
             </div>
             <span style={{
               color: "rgba(255,255,255,0.6)",
-              fontSize: "clamp(0.55rem, 2vw, 0.65rem)",
+              fontSize: "clamp(0.9rem, 3vw, 1.1rem)",
               fontWeight: 700, letterSpacing: "2px"
             }}>{label}</span>
           </div>
