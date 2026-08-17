@@ -69,11 +69,11 @@ export default function Feed() {
         </div>
       ) : (
         <>
-          {/* Instagram-style 3-column grid */}
+          {/* 3-column grid — cells 3× bigger via explicit row height */}
           <div style={{
             display: "grid",
             gridTemplateColumns: "repeat(3, 1fr)",
-            gap: "3px",
+            gap: "6px",
           }}>
             {posts.map(post => {
               const media = post.media || (post.imageUrl ? [{ type: "image", url: post.imageUrl }] : []);
@@ -84,11 +84,22 @@ export default function Feed() {
                   onClick={() => setSelectedPost(post)}
                   style={{
                     aspectRatio: "1/1",
+                    minHeight: "210px",
                     overflow: "hidden",
                     cursor: "pointer",
                     position: "relative",
                     background: "rgba(255,255,255,0.04)",
-                    borderRadius: "4px",
+                    borderRadius: "10px",
+                    border: "1px solid rgba(255,20,147,0.12)",
+                    transition: "transform 0.2s, box-shadow 0.2s",
+                  }}
+                  onMouseOver={e => {
+                    e.currentTarget.style.transform = "scale(1.03)";
+                    e.currentTarget.style.boxShadow = "0 0 24px rgba(255,20,147,0.35)";
+                  }}
+                  onMouseOut={e => {
+                    e.currentTarget.style.transform = "scale(1)";
+                    e.currentTarget.style.boxShadow = "none";
                   }}
                 >
                   {thumb ? (
@@ -97,7 +108,7 @@ export default function Feed() {
                         width: "100%", height: "100%",
                         display: "flex", alignItems: "center", justifyContent: "center",
                         background: "#111",
-                        fontSize: "2.5rem"
+                        fontSize: "3.5rem"
                       }}>▶️</div>
                     ) : (
                       <img
@@ -111,7 +122,7 @@ export default function Feed() {
                       width: "100%", height: "100%",
                       display: "flex", alignItems: "center", justifyContent: "center",
                       background: "rgba(255,20,147,0.08)",
-                      fontSize: "1.6rem"
+                      fontSize: "2.8rem"
                     }}>📝</div>
                   )}
 
@@ -122,14 +133,13 @@ export default function Feed() {
                     display: "flex", alignItems: "center", justifyContent: "center",
                     gap: "12px",
                     transition: "background 0.2s"
-                  }}>
-                  </div>
+                  }} />
                 </div>
               );
             })}
           </div>
 
-          {/* Post detail modal */}
+          {/* Post detail modal — 3× bigger (maxWidth 1500px) */}
           {selectedPost && (
             <div
               onClick={() => setSelectedPost(null)}
@@ -142,7 +152,20 @@ export default function Feed() {
                 padding: "20px"
               }}
             >
-              <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: "500px" }}>
+              <div
+                onClick={e => e.stopPropagation()}
+                style={{
+                  width: "100%",
+                  maxWidth: "1500px",
+                  maxHeight: "90vh",
+                  overflowY: "auto",
+                  borderRadius: "24px",
+                  background: "rgba(0,0,30,0.6)",
+                  backdropFilter: "blur(24px)",
+                  border: "1px solid rgba(255,20,147,0.2)",
+                  padding: "8px",
+                }}
+              >
                 <FeedPost
                   post={selectedPost}
                   onLike={handleLike}
@@ -152,12 +175,12 @@ export default function Feed() {
                 <button
                   onClick={() => setSelectedPost(null)}
                   style={{
-                    display: "block", margin: "0 auto",
+                    display: "block", margin: "0 auto 12px",
                     background: "rgba(255,255,255,0.08)",
                     border: "1px solid rgba(255,20,147,0.3)",
-                    color: "#fff", padding: "10px 28px",
+                    color: "#fff", padding: "12px 40px",
                     borderRadius: "20px", cursor: "pointer",
-                    fontSize: "0.9rem", fontWeight: 600
+                    fontSize: "1rem", fontWeight: 600
                   }}
                 >Close</button>
               </div>
