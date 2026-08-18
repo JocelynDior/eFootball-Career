@@ -1,4 +1,5 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
+import { useEffect } from "react";
 import { AdminProvider } from "./context/AdminContext";
 import FeedPage from "./pages/FeedPage";
 import PremierLeaguePage from "./pages/PremierLeaguePage";
@@ -30,10 +31,40 @@ import RequestLoanModal from "./modals/RequestLoanModal";
 import AuctionBidModal from "./modals/AuctionBidModal";
 import PlayerPopupModal from "./modals/PlayerPopupModal";
 
+const INACTIVITY_LIMIT = 30 * 60 * 1000; // 30 minutes
+
+function InactivityWatcher() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    let timer;
+
+    const reset = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        navigate("/");
+        window.location.reload();
+      }, INACTIVITY_LIMIT);
+    };
+
+    const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "click"];
+    events.forEach((e) => window.addEventListener(e, reset));
+    reset();
+
+    return () => {
+      clearTimeout(timer);
+      events.forEach((e) => window.removeEventListener(e, reset));
+    };
+  }, [navigate]);
+
+  return null;
+}
+
 export default function App() {
   return (
     <AdminProvider>
       <BrowserRouter>
+        <InactivityWatcher />
         <Routes>
           <Route path="/" element={<FeedPage />} />
           <Route path="/premier-league" element={<PremierLeaguePage />} />
