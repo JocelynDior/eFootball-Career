@@ -52,137 +52,58 @@ export default function Feed() {
   if (loading) return <LoadingSpinner />;
 
   return (
-    <div style={{ maxWidth: "700px", margin: "0 auto", padding: "16px" }}>
+    <div style={{ width: "100%", padding: "0 0 40px" }}>
       {isAdmin && (
-        <button onClick={() => setCreateOpen(true)} style={{
-          width: "100%", padding: "14px", marginBottom: "20px",
-          background: "linear-gradient(135deg, #FF1493, #FF69B4)",
-          border: "none", borderRadius: "14px", color: "#fff",
-          fontWeight: 700, fontSize: "0.95rem", cursor: "pointer",
-          boxShadow: "0 4px 16px rgba(255,20,147,0.35)"
-        }}>➕ Create New Post</button>
+        <div style={{ padding: "0 16px 20px" }}>
+          <button onClick={() => setCreateOpen(true)} style={{ width: "100%", padding: "18px", background: "linear-gradient(135deg, #FF1493, #FF69B4)", border: "none", borderRadius: "16px", color: "#fff", fontWeight: 700, fontSize: "1.1rem", cursor: "pointer", boxShadow: "0 4px 20px rgba(255,20,147,0.4)", transition: "transform 0.2s, box-shadow 0.2s" }}
+            onMouseOver={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 8px 28px rgba(255,20,147,0.5)"; }}
+            onMouseOut={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 4px 20px rgba(255,20,147,0.4)"; }}>
+            ➕ Create New Post
+          </button>
+        </div>
       )}
 
       {!posts.length ? (
-        <div style={{ textAlign: "center", padding: "60px 20px", color: "rgba(255,255,255,0.4)", fontSize: "1.1rem" }}>
-          No posts yet.
-        </div>
+        <div style={{ textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.4)", fontSize: "1.2rem" }}>No posts yet.</div>
       ) : (
         <>
-          {/* 3-column grid — cells 3× bigger via explicit row height */}
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: "6px",
-          }}>
+          {/* 3-column Instagram-style grid, full width */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "3px" }}>
             {posts.map(post => {
               const media = post.media || (post.imageUrl ? [{ type: "image", url: post.imageUrl }] : []);
               const thumb = media[0];
               return (
-                <div
-                  key={post.id}
-                  onClick={() => setSelectedPost(post)}
-                  style={{
-                    aspectRatio: "1/1",
-                    minHeight: "210px",
-                    overflow: "hidden",
-                    cursor: "pointer",
-                    position: "relative",
-                    background: "rgba(255,255,255,0.04)",
-                    borderRadius: "10px",
-                    border: "1px solid rgba(255,20,147,0.12)",
-                    transition: "transform 0.2s, box-shadow 0.2s",
-                  }}
-                  onMouseOver={e => {
-                    e.currentTarget.style.transform = "scale(1.03)";
-                    e.currentTarget.style.boxShadow = "0 0 24px rgba(255,20,147,0.35)";
-                  }}
-                  onMouseOut={e => {
-                    e.currentTarget.style.transform = "scale(1)";
-                    e.currentTarget.style.boxShadow = "none";
-                  }}
-                >
+                <div key={post.id} onClick={() => setSelectedPost(post)} style={{ aspectRatio: "1/2", overflow: "hidden", cursor: "pointer", position: "relative", background: "rgba(255,255,255,0.04)", transition: "transform 0.2s, filter 0.2s" }}
+                  onMouseOver={e => { e.currentTarget.style.filter = "brightness(0.75)"; }}
+                  onMouseOut={e => { e.currentTarget.style.filter = "brightness(1)"; }}>
                   {thumb ? (
                     thumb.type === "video" ? (
-                      <div style={{
-                        width: "100%", height: "100%",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        background: "#111",
-                        fontSize: "3.5rem"
-                      }}>▶️</div>
+                      <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "#111", fontSize: "4rem" }}>▶️</div>
                     ) : (
-                      <img
-                        src={thumb.url}
-                        alt=""
-                        style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-                      />
+                      <img src={thumb.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                     )
                   ) : (
-                    <div style={{
-                      width: "100%", height: "100%",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      background: "rgba(255,20,147,0.08)",
-                      fontSize: "2.8rem"
-                    }}>📝</div>
+                    <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,20,147,0.08)", fontSize: "3.5rem" }}>📝</div>
                   )}
-
-                  {/* Hover overlay */}
-                  <div className="grid-overlay" style={{
-                    position: "absolute", inset: 0,
-                    background: "rgba(0,0,0,0)",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    gap: "12px",
-                    transition: "background 0.2s"
-                  }} />
+                  {/* Multi-media indicator */}
+                  {media.length > 1 && (
+                    <div style={{ position: "absolute", top: "10px", right: "10px", background: "rgba(0,0,0,0.6)", borderRadius: "6px", padding: "4px 8px", fontSize: "0.85rem", color: "#fff" }}>⧉</div>
+                  )}
                 </div>
               );
             })}
           </div>
 
-          {/* Post detail modal — 3× bigger (maxWidth 1500px) */}
+          {/* Post detail modal */}
           {selectedPost && (
-            <div
-              onClick={() => setSelectedPost(null)}
-              style={{
-                position: "fixed", inset: 0,
-                background: "rgba(0,0,20,0.85)",
-                backdropFilter: "blur(10px)",
-                zIndex: 900,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                padding: "20px"
-              }}
-            >
-              <div
-                onClick={e => e.stopPropagation()}
-                style={{
-                  width: "100%",
-                  maxWidth: "1500px",
-                  maxHeight: "90vh",
-                  overflowY: "auto",
-                  borderRadius: "24px",
-                  background: "rgba(0,0,30,0.6)",
-                  backdropFilter: "blur(24px)",
-                  border: "1px solid rgba(255,20,147,0.2)",
-                  padding: "8px",
-                }}
-              >
-                <FeedPost
-                  post={selectedPost}
-                  onLike={handleLike}
-                  onDelete={handleDelete}
-                  onEdit={p => { setEditPost(p); setSelectedPost(null); }}
-                />
-                <button
-                  onClick={() => setSelectedPost(null)}
-                  style={{
-                    display: "block", margin: "0 auto 12px",
-                    background: "rgba(255,255,255,0.08)",
-                    border: "1px solid rgba(255,20,147,0.3)",
-                    color: "#fff", padding: "12px 40px",
-                    borderRadius: "20px", cursor: "pointer",
-                    fontSize: "1rem", fontWeight: 600
-                  }}
-                >Close</button>
+            <div onClick={() => setSelectedPost(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,20,0.88)", backdropFilter: "blur(12px)", zIndex: 900, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px", animation: "fadeIn 0.2s ease" }}>
+              <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: "680px", maxHeight: "92vh", overflowY: "auto", borderRadius: "28px", background: "rgba(0,0,30,0.6)", backdropFilter: "blur(24px)", border: "1px solid rgba(255,20,147,0.2)", padding: "8px", animation: "scaleIn 0.25s ease" }}>
+                <FeedPost post={selectedPost} onLike={handleLike} onDelete={handleDelete} onEdit={p => { setEditPost(p); setSelectedPost(null); }} hideLikes />
+                <button onClick={() => setSelectedPost(null)} style={{ display: "block", margin: "0 auto 12px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,20,147,0.3)", color: "#fff", padding: "14px 48px", borderRadius: "22px", cursor: "pointer", fontSize: "1rem", fontWeight: 600, transition: "background 0.2s" }}
+                  onMouseOver={e => e.currentTarget.style.background = "rgba(255,255,255,0.14)"}
+                  onMouseOut={e => e.currentTarget.style.background = "rgba(255,255,255,0.08)"}>
+                  Close
+                </button>
               </div>
             </div>
           )}
@@ -197,7 +118,8 @@ export default function Feed() {
       </Modal>
 
       <style>{`
-        .grid-overlay:hover { background: rgba(0,0,0,0.35) !important; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes scaleIn { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: scale(1); } }
       `}</style>
     </div>
   );
