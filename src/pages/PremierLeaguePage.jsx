@@ -19,7 +19,7 @@ import ManagerKeyModal from "../modals/ManagerKeyModal";
 import LeagueRulesModal from "../modals/LeagueRulesModal";
 import LeagueAdminSettingsModal from "../modals/LeagueAdminSettingsModal";
 import ResultsHistoryModal from "../modals/ResultsHistoryModal";
-import ManagerSubmitResultModal from "../modals/ManagerSubmitResultModal";
+import ManagerSubmitResultModal from "../modals/SubmitResultModal";
 import LoadingSpinner from "../components/LoadingSpinner";
 import LeagueHeadlineSlideshow from "../components/LeagueHeadlineSlideshow";
 import { useManagerKey } from "../hooks/useManagerKey";
