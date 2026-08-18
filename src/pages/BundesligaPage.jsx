@@ -15,78 +15,125 @@ import Modal from "../components/Modal";
 import AddTeamModal from "../modals/AddTeamModal";
 import AddResultModal from "../modals/AddResultModal";
 import StatPlayerModal from "../modals/StatPlayerModal";
-import AdminSettingsModal from "../modals/AdminSettingsModal";
 import ManagerKeyModal from "../modals/ManagerKeyModal";
-import ManagerActionHub from "../modals/ManagerActionHub";
 import LeagueRulesModal from "../modals/LeagueRulesModal";
+import LeagueAdminSettingsModal from "../modals/LeagueAdminSettingsModal";
+import ResultsHistoryModal from "../modals/ResultsHistoryModal";
+import ManagerSubmitResultModal from "../modals/ManagerSubmitResultModal";
 import LoadingSpinner from "../components/LoadingSpinner";
+import LeagueHeadlineSlideshow from "../components/LeagueHeadlineSlideshow";
 import { useManagerKey } from "../hooks/useManagerKey";
 
 const LEAGUE = "bundesliga";
 const LEAGUE_NAME = "Bundesliga";
-const LEAGUE_EMOJI = "🇩🇪";
-const TABS = [{ id: "table", label: "TABLE" }, { id: "results", label: "RESULTS" }, { id: "scorers", label: "TOP SCORERS" }, { id: "assists", label: "ASSISTS" }, { id: "watch", label: "WATCH" }];
+const TABS = [
+  { id: "table", label: "TABLE" },
+  { id: "results", label: "RESULTS" },
+  { id: "scorers", label: "TOP SCORERS" },
+  { id: "assists", label: "ASSISTS" },
+  { id: "watch", label: "WATCH" },
+  { id: "records", label: "RECORDS" },
+  { id: "champions", label: "CHAMPIONS" },
+];
 
 export default function BundesligaPage() {
-  const { isAdmin, teamIconsCache } = useAdmin();
+  const { isAdmin, manager, teamIconsCache } = useAdmin();
   const { savedKey } = useManagerKey();
-  const [season, setSeason] = useState("1"); const [seasons, setSeasons] = useState(["1"]);
-  const [tab, setTab] = useState("table"); const [teams, setTeams] = useState([]); const [results, setResults] = useState([]);
-  const [scorers, setScorers] = useState([]); const [assistants, setAssistants] = useState([]);
-  const [loading, setLoading] = useState(true); const [editTeam, setEditTeam] = useState(undefined);
-  const [editResult, setEditResult] = useState(undefined); const [editStat, setEditStat] = useState(undefined);
-  const [statType, setStatType] = useState("scorer"); const [adminOpen, setAdminOpen] = useState(false);
-  const [managerOpen, setManagerOpen] = useState(false); const [managerData, setManagerData] = useState(null);
+  const [season, setSeason] = useState("1");
+  const [seasons, setSeasons] = useState(["1"]);
+  const [tab, setTab] = useState("table");
+  const [teams, setTeams] = useState([]);
+  const [results, setResults] = useState([]);
+  const [scorers, setScorers] = useState([]);
+  const [assistants, setAssistants] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editTeam, setEditTeam] = useState(undefined);
+  const [editResult, setEditResult] = useState(undefined);
+  const [editStat, setEditStat] = useState(undefined);
+  const [statType, setStatType] = useState("scorer");
+  const [adminOpen, setAdminOpen] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [managerOpen, setManagerOpen] = useState(false);
+  const [submitOpen, setSubmitOpen] = useState(false);
 
-  useEffect(() => { onValue(ref(db, `career_${LEAGUE}_settings`), snap => { const d = snap.val(); if (d?.seasons) setSeasons(d.seasons.map(String)); }); }, []);
+  useEffect(() => {
+    onValue(ref(db, `career_${LEAGUE}_settings`), snap => {
+      const d = snap.val();
+      if (d?.seasons) setSeasons(d.seasons.map(String));
+    });
+  }, []);
+
   useEffect(() => {
     setLoading(true);
     const unsubs = [
-      onValue(ref(db, PATHS.table(LEAGUE, season)), snap => { setTeams(snap.val() ? Object.entries(snap.val()).map(([k, v]) => ({ key: k, ...v })) : []); setLoading(false); }),
-      onValue(ref(db, PATHS.results(LEAGUE, season)), snap => setResults(snap.val() ? Object.entries(snap.val()).map(([k, v]) => ({ key: k, ...v })) : [])),
-      onValue(ref(db, PATHS.topScorers(LEAGUE, season)), snap => setScorers(snap.val() ? Object.entries(snap.val()).map(([k, v]) => ({ key: k, ...v })) : [])),
-      onValue(ref(db, PATHS.topAssistants(LEAGUE, season)), snap => setAssistants(snap.val() ? Object.entries(snap.val()).map(([k, v]) => ({ key: k, ...v })) : [])),
+      onValue(ref(db, PATHS.table(LEAGUE, season)), snap => {
+        setTeams(snap.val() ? Object.entries(snap.val()).map(([k, v]) => ({ key: k, ...v })) : []);
+        setLoading(false);
+      }),
+      onValue(ref(db, PATHS.results(LEAGUE, season)), snap =>
+        setResults(snap.val() ? Object.entries(snap.val()).map(([k, v]) => ({ key: k, ...v })) : [])),
+      onValue(ref(db, PATHS.topScorers(LEAGUE, season)), snap =>
+        setScorers(snap.val() ? Object.entries(snap.val()).map(([k, v]) => ({ key: k, ...v })) : [])),
+      onValue(ref(db, PATHS.topAssistants(LEAGUE, season)), snap =>
+        setAssistants(snap.val() ? Object.entries(snap.val()).map(([k, v]) => ({ key: k, ...v })) : [])),
     ];
     return () => unsubs.forEach(u => u());
   }, [season]);
 
-  async function handleAddSeason() { const n = prompt("New season:"); if (!n) return; const u = [...seasons, n]; setSeasons(u); setSeason(n); await set(ref(db, `career_${LEAGUE}_settings/seasons`), u); }
+  async function handleAddSeason() {
+    const n = prompt("New season number:");
+    if (!n) return;
+    const updated = [...seasons, n];
+    setSeasons(updated);
+    setSeason(n);
+    await set(ref(db, `career_${LEAGUE}_settings/seasons`), updated);
+  }
+
+  function handleAddResults() {
+    if (manager && manager.team) setSubmitOpen(true);
+    else setManagerOpen(true);
+  }
 
   return (
     <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif" }}>
       <BackgroundVideo />
-      <Navbar />
-      <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "24px 32px" }}>
-        <div style={{ textAlign: "center", marginBottom: "24px" }}>
-          <div style={{ fontSize: "3rem", marginBottom: "8px" }}>{LEAGUE_EMOJI}</div>
-          <h1 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3rem", letterSpacing: "6px", color: "#FF1493", margin: 0, textShadow: "0 0 30px rgba(255,20,147,0.5)" }}>{LEAGUE_NAME}</h1>
-        </div>
-        <SeasonSelector currentSeason={season} seasons={seasons} onPrev={() => { const i = seasons.indexOf(season); if (i > 0) setSeason(seasons[i - 1]); }} onNext={() => { const i = seasons.indexOf(season); if (i < seasons.length - 1) setSeason(seasons[i + 1]); }} onAdd={handleAddSeason} onRename={() => {}} onSetActive={() => {}} />
-        <div style={{ display: "flex", justifyContent: "center", gap: "12px", flexWrap: "wrap", marginBottom: "24px" }}>
-          <button onClick={() => setRulesOpen(true)} style={{ background: "rgba(255,20,147,0.15)", border: "1px solid rgba(255,20,147,0.4)", color: "#FF1493", padding: "12px 24px", borderRadius: "30px", cursor: "pointer", fontWeight: 700, fontSize: "0.9rem", fontFamily: "inherit" }}>📜 League Rules</button>
-          {!isAdmin && <button onClick={() => savedKey ? setManagerData(savedKey) : setManagerOpen(true)} style={{ background: "rgba(255,20,147,0.15)", border: "1px solid rgba(255,20,147,0.4)", color: "#FF1493", padding: "12px 24px", borderRadius: "30px", cursor: "pointer", fontWeight: 700, fontSize: "0.9rem", fontFamily: "inherit" }}>🔑 {savedKey ? "Submit Result" : "Manager Login"}</button>}
-          {isAdmin && <button onClick={() => setAdminOpen(true)} style={{ background: "rgba(255,20,147,0.15)", border: "1px solid rgba(255,20,147,0.4)", color: "#FF1493", padding: "12px 24px", borderRadius: "30px", cursor: "pointer", fontWeight: 700, fontSize: "0.9rem", fontFamily: "inherit" }}>⚙️ Admin</button>}
-          {isAdmin && tab === "results" && <button onClick={() => setEditResult(null)} style={{ background: "#FF1493", border: "none", color: "#fff", padding: "12px 24px", borderRadius: "30px", cursor: "pointer", fontWeight: 700, fontSize: "0.9rem", fontFamily: "inherit" }}>+ Add Result</button>}
-        </div>
+      <Navbar
+        showPlusMenu
+        onPlusAddResults={handleAddResults}
+        onPlusLeagueRules={() => setRulesOpen(true)}
+        onPlusAdminSettings={() => setAdminOpen(true)}
+        onPlusResultsHistory={() => setHistoryOpen(true)}
+      />
+      <LeagueHeadlineSlideshow league={LEAGUE} />
+      <div style={{ padding: "28px 20px" }}>
+        <SeasonSelector
+          currentSeason={season} seasons={seasons}
+          onPrev={() => { const i = seasons.indexOf(season); if (i > 0) setSeason(seasons[i - 1]); }}
+          onNext={() => { const i = seasons.indexOf(season); if (i < seasons.length - 1) setSeason(seasons[i + 1]); }}
+          onAdd={handleAddSeason} onRename={() => {}} onSetActive={() => {}}
+        />
         <TabBar tabs={TABS} activeTab={tab} onTabChange={setTab} />
         {loading ? <LoadingSpinner /> : (
           <>
             {tab === "table" && <LeagueTable teams={teams} onEdit={setEditTeam} onDelete={async k => { if (confirm("Delete?")) await remove(ref(db, `${PATHS.table(LEAGUE, season)}/${k}`)); }} showLast5 results={results} />}
-            {tab === "results" && <ResultsList results={results} onEdit={setEditResult} onDelete={async k => { if (confirm("Delete?")) await remove(ref(db, `${PATHS.results(LEAGUE, season)}/${k}`)); }} teamIconsCache={teamIconsCache} />}
+            {tab === "results" && <ResultsList results={results} onEdit={isAdmin ? setEditResult : () => {}} onDelete={isAdmin ? async k => { if (confirm("Delete?")) await remove(ref(db, `${PATHS.results(LEAGUE, season)}/${k}`)); } : () => {}} teamIconsCache={teamIconsCache} />}
             {tab === "scorers" && <TopScorers scorers={scorers} onAdd={() => { setStatType("scorer"); setEditStat(null); }} onEdit={p => { setStatType("scorer"); setEditStat(p); }} onDelete={async k => await remove(ref(db, `${PATHS.topScorers(LEAGUE, season)}/${k}`))} teamIconsCache={teamIconsCache} />}
             {tab === "assists" && <TopAssistants assistants={assistants} onAdd={() => { setStatType("assistant"); setEditStat(null); }} onEdit={p => { setStatType("assistant"); setEditStat(p); }} onDelete={async k => await remove(ref(db, `${PATHS.topAssistants(LEAGUE, season)}/${k}`))} teamIconsCache={teamIconsCache} />}
             {tab === "watch" && <WatchMatch league={LEAGUE} />}
+            {tab === "records" && <div style={{ textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.35)", fontSize: "1.1rem" }}>Records coming soon…</div>}
+            {tab === "champions" && <div style={{ textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.35)", fontSize: "1.1rem" }}>Champions history coming soon…</div>}
           </>
         )}
       </div>
       <Modal active={editTeam !== undefined} onClose={() => setEditTeam(undefined)}><AddTeamModal league={LEAGUE} season={season} team={editTeam} onClose={() => setEditTeam(undefined)} /></Modal>
       <Modal active={editResult !== undefined} onClose={() => setEditResult(undefined)}><AddResultModal league={LEAGUE} season={season} teams={teams} result={editResult} onClose={() => setEditResult(undefined)} /></Modal>
       <Modal active={editStat !== undefined} onClose={() => setEditStat(undefined)}><StatPlayerModal league={LEAGUE} season={season} type={statType} teams={teams} player={editStat} onClose={() => setEditStat(undefined)} /></Modal>
-      <Modal active={adminOpen} onClose={() => setAdminOpen(false)} wide><AdminSettingsModal league={LEAGUE} season={season} onClose={() => setAdminOpen(false)} backgroundVideo="" onSaveVideo={() => {}} onAddSeason={handleAddSeason} onRenameSeason={() => {}} onSetActiveSeason={() => {}} /></Modal>
-      <Modal active={managerOpen} onClose={() => setManagerOpen(false)}><ManagerKeyModal onVerified={d => { setManagerData(d); setManagerOpen(false); }} onClose={() => setManagerOpen(false)} /></Modal>
-      <Modal active={!!managerData && !managerOpen} onClose={() => setManagerData(null)}>{managerData && <ManagerActionHub managerData={managerData} league={LEAGUE} season={season} teams={teams} onClose={() => setManagerData(null)} />}</Modal>
-      <Modal active={rulesOpen} onClose={() => setRulesOpen(false)}><LeagueRulesModal league={LEAGUE_NAME} onClose={() => setRulesOpen(false)} /></Modal>
+      <Modal active={adminOpen} onClose={() => setAdminOpen(false)}><LeagueAdminSettingsModal league={LEAGUE} season={season} teams={teams} onClose={() => setAdminOpen(false)} /></Modal>
+      <Modal active={rulesOpen} onClose={() => setRulesOpen(false)}><LeagueRulesModal league={LEAGUE} leagueName={LEAGUE_NAME} onClose={() => setRulesOpen(false)} /></Modal>
+      <Modal active={historyOpen} onClose={() => setHistoryOpen(false)} wide><ResultsHistoryModal league={LEAGUE} season={season} onClose={() => setHistoryOpen(false)} /></Modal>
+      <Modal active={managerOpen} onClose={() => setManagerOpen(false)}><ManagerKeyModal onVerified={() => { setManagerOpen(false); setSubmitOpen(true); }} onClose={() => setManagerOpen(false)} /></Modal>
+      <Modal active={submitOpen} onClose={() => setSubmitOpen(false)}><ManagerSubmitResultModal league={LEAGUE} season={season} teams={teams} onClose={() => setSubmitOpen(false)} /></Modal>
     </div>
   );
 }
