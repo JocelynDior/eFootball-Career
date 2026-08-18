@@ -22,6 +22,14 @@ import AdminCalendarPage from "./pages/AdminCalendarPage";
 import ManagerProfilePage from "./pages/ManagerProfilePage";
 import AdminProfilePage from "./pages/AdminProfilePage";
 
+// Newly created files
+import { groq } from "./utils/groq"; // adjust import style if it's default or named
+import AddPlayerModal from "./modals/AddPlayerModal";
+import RequestBuyModal from "./modals/RequestBuyModal";
+import RequestLoanModal from "./modals/RequestLoanModal";
+import AuctionBidModal from "./modals/AuctionBidModal";
+import PlayerPopupModal from "./modals/PlayerPopupModal";
+
 export default function App() {
   return (
     <AdminProvider>
