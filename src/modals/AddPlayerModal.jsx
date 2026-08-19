@@ -52,7 +52,7 @@ export default function AddPlayerModal({ onClose, defaultTab = "topTargets" }) {
       setStats(data);
       setPrice(data.value?.replace(/[^0-9]/g, "") || "");
     } catch (e) {
-      setError("Could not fetch player data. Try again.");
+      setError(`Error: ${e.message || "Unknown error"} | API Key loaded: ${!!import.meta.env.VITE_Career_Groq1}`);
     }
     setSearching(false);
   }
