@@ -44,7 +44,7 @@ Return exactly this JSON structure:
 }`;
 
   const raw = await askGroq(system, `Player: ${playerName}`);
-  const clean = raw.replace(/```json|```/g, "").trim();
+  const clean = raw.replace(/<think>[\s\S]*?<\/think>/g, "").replace(/```json|```/g, "").trim();
   return JSON.parse(clean);
 }
 
