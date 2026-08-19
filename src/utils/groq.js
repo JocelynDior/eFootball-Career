@@ -1,3 +1,4 @@
+```js
 const GROQ_API_KEY = import.meta.env.VITE_Career_Groq1;
 const GROQ_MODEL = "qwen/qwen3.6-27b";
 const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
@@ -108,6 +109,7 @@ Return exactly this JSON structure:
   "capacity": 75000,
   "location": "City, Country",
   "ticketPrice": 65,
+  "vipTicketPrice": 250,
   "stadiumExpensesPerGame": 500000,
   "sponsorshipDeals": "€10,000,000/year"
 }`;
@@ -168,3 +170,4 @@ export function getClubColors(clubName) {
   }
   return { primary: "#FF1493", secondary: "#000033", text: "#fff" };
 }
+```
