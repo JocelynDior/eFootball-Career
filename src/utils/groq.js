@@ -1,5 +1,5 @@
 const GROQ_API_KEY = import.meta.env.VITE_Career_Groq1;
-const GROQ_MODEL = "llama3-70b-8192";
+const GROQ_MODEL = "qwen/qwen3.6-27b";
 const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
 
 export async function askGroq(systemPrompt, userPrompt) {
