@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { db, PATHS } from "../firebase";
-import { ref, onValue, set, push, remove, update } from "firebase/database";
+import { ref, onValue, push } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
 import Navbar from "../components/Navbar";
 import BackgroundVideo from "../components/BackgroundVideo";
@@ -8,6 +8,8 @@ import TabBar from "../components/TabBar";
 import Modal from "../components/Modal";
 import CountdownSlideshow from "../components/CountdownSlideshow";
 import PlayerPopupModal from "../modals/PlayerPopupModal";
+import AddPlayerModal from "../modals/AddPlayerModal";
+import ListPlayerModal from "../modals/ListPlayerModal";
 import { getClubColors } from "../utils/groq";
 
 const TABS = [
@@ -27,13 +29,13 @@ const GLASS = {
 };
 
 const inputStyle = {
-  padding: "12px 18px",
+  padding: "20px 24px",
   background: "rgba(255,255,255,0.06)",
   border: "1px solid rgba(255,20,147,0.35)",
-  borderRadius: "12px",
+  borderRadius: "14px",
   color: "#fff",
   fontFamily: "inherit",
-  fontSize: "0.95rem",
+  fontSize: "1.2rem",
   outline: "none",
 };
 
@@ -42,7 +44,6 @@ function ShirtSVG({ clubName, playerName, squadNumber }) {
   const num = squadNumber || "?";
   const nameParts = (playerName || "").toUpperCase().split(" ");
   const displayName = nameParts[nameParts.length - 1] || "";
-
   return (
     <svg viewBox="0 0 200 220" xmlns="http://www.w3.org/2000/svg" style={{ width: "100%", height: "100%" }}>
       <defs>
@@ -50,15 +51,9 @@ function ShirtSVG({ clubName, playerName, squadNumber }) {
           <stop offset="0%" stopColor={colors.primary} />
           <stop offset="100%" stopColor={colors.secondary} stopOpacity="0.85" />
         </linearGradient>
-        <linearGradient id={`ss-${num}`} x1="0%" y1="0%" x2="30%" y2="100%">
-          <stop offset="0%" stopColor="rgba(255,255,255,0.22)" />
-          <stop offset="100%" stopColor="rgba(255,255,255,0)" />
-        </linearGradient>
       </defs>
       <path d="M 50 40 L 20 70 L 45 80 L 45 190 L 155 190 L 155 80 L 180 70 L 150 40 Q 130 30 115 38 Q 100 55 85 38 Q 70 30 50 40 Z"
         fill={`url(#sg-${num})`} />
-      <path d="M 50 40 L 20 70 L 45 80 L 45 190 L 155 190 L 155 80 L 180 70 L 150 40 Q 130 30 115 38 Q 100 55 85 38 Q 70 30 50 40 Z"
-        fill={`url(#ss-${num})`} />
       <text x="100" y="135" textAnchor="middle" fontFamily="'Bebas Neue', sans-serif"
         fontSize="52" fontWeight="900" fill={colors.text} opacity="0.95">{num}</text>
       <text x="100" y="172" textAnchor="middle" fontFamily="'Bebas Neue', sans-serif"
@@ -69,62 +64,74 @@ function ShirtSVG({ clubName, playerName, squadNumber }) {
   );
 }
 
-function PlayerCard({ player, playerId, playerTab, teamIcons, onClick }) {
+// Big grid card — 3 columns like home page
+function PlayerGridCard({ player, teamIcons, onClick }) {
   const clubLogo = teamIcons?.[player.club];
-
   return (
-    <div onClick={onClick} style={{
-      display: "flex", alignItems: "center", gap: "16px",
-      padding: "12px 16px",
+    <div style={{
       background: "rgba(255,255,255,0.04)",
-      border: "1px solid rgba(255,20,147,0.15)",
-      borderRadius: "16px",
+      border: "1px solid rgba(255,20,147,0.18)",
+      borderRadius: "20px",
+      overflow: "hidden",
       cursor: "pointer",
       transition: "all 0.25s",
-      userSelect: "none",
+      display: "flex",
+      flexDirection: "column",
     }}
-      onMouseOver={e => {
-        e.currentTarget.style.background = "rgba(255,20,147,0.1)";
-        e.currentTarget.style.borderColor = "rgba(255,20,147,0.4)";
-        e.currentTarget.style.transform = "translateY(-2px)";
-      }}
-      onMouseOut={e => {
-        e.currentTarget.style.background = "rgba(255,255,255,0.04)";
-        e.currentTarget.style.borderColor = "rgba(255,20,147,0.15)";
-        e.currentTarget.style.transform = "translateY(0)";
-      }}
+      onMouseOver={e => { e.currentTarget.style.background = "rgba(255,20,147,0.08)"; e.currentTarget.style.borderColor = "rgba(255,20,147,0.5)"; e.currentTarget.style.transform = "translateY(-4px)"; }}
+      onMouseOut={e => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; e.currentTarget.style.borderColor = "rgba(255,20,147,0.18)"; e.currentTarget.style.transform = "translateY(0)"; }}
     >
-      {/* Image / Shirt */}
-      <div style={{ width: "56px", height: "56px", borderRadius: "12px", overflow: "hidden", flexShrink: 0, background: "rgba(0,0,0,0.3)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      {/* Image / Shirt area */}
+      <div style={{ width: "100%", aspectRatio: "1/1", background: "rgba(0,0,0,0.3)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative" }}>
         {player.imageUrl ? (
           <img src={player.imageUrl} alt={player.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         ) : (
-          <ShirtSVG clubName={player.club} playerName={player.name} squadNumber={player.squadNumber} />
+          <div style={{ width: "70%", height: "70%" }}>
+            <ShirtSVG clubName={player.club} playerName={player.name} squadNumber={player.squadNumber} />
+          </div>
+        )}
+        {/* OVR badge */}
+        {player.overall && (
+          <div style={{ position: "absolute", top: "10px", left: "10px", background: "rgba(255,20,147,0.9)", borderRadius: "8px", padding: "4px 10px", color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1rem", letterSpacing: "1px" }}>
+            OVR {player.overall}
+          </div>
+        )}
+        {/* Listed by badge */}
+        {player.listedBy && (
+          <div style={{ position: "absolute", top: "10px", right: "10px", background: "rgba(0,0,0,0.7)", borderRadius: "8px", padding: "4px 10px", color: "rgba(255,255,255,0.7)", fontSize: "0.7rem", fontWeight: 700 }}>
+            by {player.listedBy}
+          </div>
         )}
       </div>
 
       {/* Info */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ color: "#fff", fontWeight: 700, fontSize: "1rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{player.name}</div>
-        <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "3px" }}>
+      <div style={{ padding: "16px", flex: 1, display: "flex", flexDirection: "column", gap: "8px" }}>
+        <div style={{ color: "#fff", fontWeight: 800, fontSize: "1.1rem", lineHeight: 1.2 }}>{player.name}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           {clubLogo ? (
-            <img src={clubLogo} alt={player.club} style={{ width: "16px", height: "16px", objectFit: "contain" }} />
-          ) : (
-            <span style={{ fontSize: "0.75rem" }}>⚽</span>
-          )}
-          <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.8rem" }}>{player.club}</span>
-          <span style={{ color: "rgba(255,20,147,0.5)", fontSize: "0.75rem" }}>·</span>
-          <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.78rem" }}>{player.position}</span>
+            <img src={clubLogo} alt={player.club} style={{ width: "20px", height: "20px", objectFit: "contain" }} />
+          ) : <span>⚽</span>}
+          <span style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.9rem" }}>{player.club}</span>
         </div>
-      </div>
+        <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "1px" }}>
+          {player.value || player.price || "—"}
+        </div>
 
-      {/* Price */}
-      <div style={{ textAlign: "right", flexShrink: 0 }}>
-        <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.1rem", letterSpacing: "1px" }}>{player.value || player.price}</div>
-        {player.overall && <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.75rem" }}>OVR {player.overall}</div>}
+        {/* More Info button */}
+        <button
+          onClick={e => { e.stopPropagation(); onClick(); }}
+          style={{
+            marginTop: "auto", padding: "12px", background: "rgba(255,20,147,0.12)",
+            border: "1px solid rgba(255,20,147,0.4)", borderRadius: "12px",
+            color: "#FF1493", fontWeight: 700, fontSize: "0.95rem",
+            cursor: "pointer", transition: "all 0.2s",
+          }}
+          onMouseOver={e => { e.currentTarget.style.background = "#FF1493"; e.currentTarget.style.color = "#fff"; }}
+          onMouseOut={e => { e.currentTarget.style.background = "rgba(255,20,147,0.12)"; e.currentTarget.style.color = "#FF1493"; }}
+        >
+          More Info →
+        </button>
       </div>
-
-      <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "1.2rem", flexShrink: 0 }}>›</div>
     </div>
   );
 }
@@ -132,52 +139,37 @@ function PlayerCard({ player, playerId, playerTab, teamIcons, onClick }) {
 function NegotiationCard({ offer, isOwn }) {
   const statusColors = { pending: "#ffaa44", accepted: "#00ff88", rejected: "#ff6b6b" };
   const statusColor = statusColors[offer.status] || "#ffaa44";
-
   return (
     <div style={{
-      padding: "16px 20px",
+      padding: "24px 28px",
       background: isOwn ? "rgba(255,20,147,0.1)" : "rgba(255,255,255,0.03)",
       border: `1px solid ${isOwn ? "rgba(255,20,147,0.4)" : "rgba(255,255,255,0.08)"}`,
-      borderRadius: "16px",
-      marginBottom: "10px",
+      borderRadius: "20px", marginBottom: "14px",
     }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "10px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "14px" }}>
         <div>
-          <div style={{ color: "#fff", fontWeight: 700, fontSize: "1rem" }}>{offer.playerName}</div>
-          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.8rem" }}>{offer.playerClub}</div>
+          <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.3rem" }}>{offer.playerName}</div>
+          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1rem", marginTop: "4px" }}>{offer.playerClub}</div>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px" }}>
-          <span style={{ background: offer.type === "buy" ? "rgba(255,20,147,0.2)" : offer.type === "loan" ? "rgba(0,150,255,0.2)" : "rgba(255,170,0,0.2)", color: offer.type === "buy" ? "#FF1493" : offer.type === "loan" ? "#44aaff" : "#ffaa44", padding: "3px 10px", borderRadius: "20px", fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase" }}>{offer.type}</span>
-          <span style={{ background: `${statusColor}22`, color: statusColor, padding: "3px 10px", borderRadius: "20px", fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase" }}>{offer.status}</span>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "6px" }}>
+          <span style={{ background: offer.type === "buy" ? "rgba(255,20,147,0.2)" : offer.type === "loan" ? "rgba(0,150,255,0.2)" : "rgba(255,170,0,0.2)", color: offer.type === "buy" ? "#FF1493" : offer.type === "loan" ? "#44aaff" : "#ffaa44", padding: "5px 14px", borderRadius: "20px", fontSize: "0.9rem", fontWeight: 700, textTransform: "uppercase" }}>{offer.type}</span>
+          <span style={{ background: `${statusColor}22`, color: statusColor, padding: "5px 14px", borderRadius: "20px", fontSize: "0.9rem", fontWeight: 700, textTransform: "uppercase" }}>{offer.status}</span>
         </div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-        <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: "10px", padding: "8px 12px" }}>
-          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.68rem", textTransform: "uppercase", letterSpacing: "0.8px" }}>From</div>
-          <div style={{ color: "#fff", fontWeight: 700, fontSize: "0.85rem" }}>{offer.fromClub || offer.fromManagerName}</div>
-        </div>
-        <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: "10px", padding: "8px 12px" }}>
-          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.68rem", textTransform: "uppercase", letterSpacing: "0.8px" }}>
-            {offer.type === "auction" ? "Bid" : offer.type === "loan" ? "Loan Fee" : "Offer"}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+        {[
+          ["From", offer.fromClub || offer.fromManagerName],
+          [offer.type === "auction" ? "Bid" : offer.type === "loan" ? "Loan Fee" : "Offer", offer.offerAmount || offer.loanAmount || offer.bidAmount],
+          offer.contractLength && ["Contract", offer.contractLength],
+          offer.loanTerm && ["Loan Term", offer.loanTerm],
+        ].filter(Boolean).map(([label, value]) => (
+          <div key={label} style={{ background: "rgba(255,255,255,0.05)", borderRadius: "12px", padding: "12px 16px" }}>
+            <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "4px" }}>{label}</div>
+            <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.1rem" }}>{value || "—"}</div>
           </div>
-          <div style={{ color: "#FF1493", fontWeight: 700, fontSize: "0.85rem" }}>{offer.offerAmount || offer.loanAmount || offer.bidAmount}</div>
-        </div>
-        {offer.contractLength && (
-          <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: "10px", padding: "8px 12px" }}>
-            <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.68rem", textTransform: "uppercase", letterSpacing: "0.8px" }}>Contract</div>
-            <div style={{ color: "#fff", fontWeight: 700, fontSize: "0.85rem" }}>{offer.contractLength}</div>
-          </div>
-        )}
-        {offer.loanTerm && (
-          <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: "10px", padding: "8px 12px" }}>
-            <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.68rem", textTransform: "uppercase", letterSpacing: "0.8px" }}>Loan Term</div>
-            <div style={{ color: "#fff", fontWeight: 700, fontSize: "0.85rem" }}>{offer.loanTerm}</div>
-          </div>
-        )}
+        ))}
       </div>
-      {isOwn && (
-        <div style={{ marginTop: "8px", color: "#FF1493", fontSize: "0.75rem", fontWeight: 700 }}>YOUR OFFER</div>
-      )}
+      {isOwn && <div style={{ marginTop: "10px", color: "#FF1493", fontSize: "0.9rem", fontWeight: 700 }}>YOUR OFFER</div>}
     </div>
   );
 }
@@ -195,6 +187,9 @@ export default function TransferMarketPage() {
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [selectedPlayerId, setSelectedPlayerId] = useState(null);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showListModal, setShowListModal] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(12);
 
   useEffect(() => {
     const tabs = ["topTargets", "listed", "scouts", "signings", "auction"];
@@ -244,18 +239,38 @@ export default function TransferMarketPage() {
     return filters.priceSort === "asc" ? av - bv : bv - av;
   });
 
+  const visiblePlayers = filteredPlayers.slice(0, visibleCount);
+  const hasMore = filteredPlayers.length > visibleCount;
+
   const myNegotiations = negotiations.filter(n => n.fromManagerUid === manager?.uid);
   const otherNegotiations = negotiations.filter(n => n.fromManagerUid !== manager?.uid);
   const sortedNegotiations = [...myNegotiations, ...otherNegotiations];
-
   const allClubs = [...new Set(currentTabPlayers.map(p => p.club).filter(Boolean))];
   const allNationalities = [...new Set(currentTabPlayers.map(p => p.nationality).filter(Boolean))];
   const allPositions = [...new Set(currentTabPlayers.map(p => p.position).filter(Boolean))];
+  const mergedIcons = { ...teamIconsCache, ...teamIcons };
 
   return (
     <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
       <BackgroundVideo />
-      <Navbar />
+      <Navbar
+        extraActions={
+          <div style={{ display: "flex", gap: "10px" }}>
+            {/* Manager can list their own players */}
+            {manager && (
+              <button onClick={() => setShowListModal(true)} style={{ padding: "10px 18px", background: "rgba(255,20,147,0.15)", border: "1px solid rgba(255,20,147,0.5)", borderRadius: "10px", color: "#FF1493", fontWeight: 700, cursor: "pointer", fontSize: "0.95rem" }}>
+                📋 List Player
+              </button>
+            )}
+            {/* Admin add player */}
+            {isAdmin && (
+              <button onClick={() => setShowAddModal(true)} style={{ padding: "10px 18px", background: "#FF1493", border: "none", borderRadius: "10px", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "0.95rem" }}>
+                ➕ Add Player
+              </button>
+            )}
+          </div>
+        }
+      />
 
       {/* Headline Video */}
       {headlineVideo ? (
@@ -263,8 +278,6 @@ export default function TransferMarketPage() {
           <video autoPlay muted loop playsInline style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}>
             <source src={headlineVideo} type="video/mp4" />
           </video>
-          <div style={{ position: "absolute", top: 0, left: 0, width: "80px", height: "100%", background: "linear-gradient(to right, rgba(0,0,20,0.8), transparent)", pointerEvents: "none" }} />
-          <div style={{ position: "absolute", top: 0, right: 0, width: "80px", height: "100%", background: "linear-gradient(to left, rgba(0,0,20,0.8), transparent)", pointerEvents: "none" }} />
           <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "60%", background: "linear-gradient(to top, rgba(0,0,20,0.75), transparent)", pointerEvents: "none" }} />
           <div style={{ position: "absolute", bottom: "20px", left: "20px", color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "3px", textShadow: "0 2px 12px rgba(0,0,0,0.8)" }}>
             💸 Transfer Window
@@ -277,24 +290,21 @@ export default function TransferMarketPage() {
         </div>
       )}
 
-      {/* Countdown */}
       {countdowns.length > 0 && <CountdownSlideshow countdowns={countdowns} />}
 
       {/* Full-width content */}
-      <div style={{ padding: "24px 20px 60px" }}>
-
-        {/* Tab bar */}
+      <div style={{ padding: "24px 20px 80px" }}>
         <div style={{ marginBottom: "24px" }}>
-          <TabBar tabs={TABS} activeTab={tab} onTabChange={t => { setTab(t); setSearch(""); setFilters({ club: "", nationality: "", position: "", priceSort: "" }); }} />
+          <TabBar tabs={TABS} activeTab={tab} onTabChange={t => { setTab(t); setSearch(""); setFilters({ club: "", nationality: "", position: "", priceSort: "" }); setVisibleCount(12); }} />
         </div>
 
         {/* Negotiations tab */}
         {tab === "negotiations" ? (
-          <div style={{ maxWidth: "800px", margin: "0 auto" }}>
+          <div style={{ width: "100%" }}>
             {sortedNegotiations.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "60px 20px", color: "rgba(255,255,255,0.3)" }}>
-                <div style={{ fontSize: "3rem", marginBottom: "12px" }}>📋</div>
-                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "2px" }}>No Negotiations Yet</div>
+              <div style={{ textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.3)" }}>
+                <div style={{ fontSize: "4rem", marginBottom: "16px" }}>📋</div>
+                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px" }}>No Negotiations Yet</div>
               </div>
             ) : sortedNegotiations.map(offer => (
               <NegotiationCard key={offer.id} offer={offer} isOwn={offer.fromManagerUid === manager?.uid} />
@@ -302,14 +312,14 @@ export default function TransferMarketPage() {
           </div>
         ) : (
           <>
-            {/* Search & Filter bar */}
-            <div style={{ display: "flex", gap: "12px", marginBottom: "20px", flexWrap: "wrap" }}>
-              <div style={{ flex: 1, minWidth: "220px", position: "relative" }}>
+            {/* Search bar — 2x bigger */}
+            <div style={{ display: "flex", gap: "14px", marginBottom: "22px", flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: "280px" }}>
                 <input
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                   placeholder="🔍 Search players by name..."
-                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box", paddingLeft: "16px" }}
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
                 />
               </div>
               <button
@@ -320,7 +330,7 @@ export default function TransferMarketPage() {
                   background: showFilterPanel ? "rgba(255,20,147,0.2)" : "rgba(255,255,255,0.06)",
                   borderColor: showFilterPanel ? "#FF1493" : "rgba(255,20,147,0.35)",
                   color: "#fff", fontWeight: 700, whiteSpace: "nowrap",
-                  padding: "12px 20px",
+                  padding: "20px 28px", fontSize: "1.1rem",
                 }}
               >
                 ⚙️ Filters {Object.values(filters).some(Boolean) ? "●" : ""}
@@ -329,18 +339,18 @@ export default function TransferMarketPage() {
 
             {/* Filter panel */}
             {showFilterPanel && (
-              <div style={{ ...GLASS, borderRadius: "16px", padding: "20px", marginBottom: "20px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "14px" }}>
+              <div style={{ ...GLASS, borderRadius: "18px", padding: "24px", marginBottom: "24px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px" }}>
                 {[
                   { key: "club", label: "Club", options: allClubs },
                   { key: "nationality", label: "Nationality", options: allNationalities },
                   { key: "position", label: "Position", options: allPositions },
                 ].map(({ key, label, options }) => (
                   <div key={key}>
-                    <label style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: "0.8px", display: "block", marginBottom: "6px" }}>{label}</label>
+                    <label style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.8px", display: "block", marginBottom: "8px" }}>{label}</label>
                     <select
                       value={filters[key]}
                       onChange={e => setFilters(prev => ({ ...prev, [key]: e.target.value }))}
-                      style={{ ...inputStyle, width: "100%", cursor: "pointer", padding: "10px 14px" }}
+                      style={{ ...inputStyle, width: "100%", cursor: "pointer", padding: "14px 18px" }}
                     >
                       <option value="">All {label}s</option>
                       {options.map(o => <option key={o} value={o}>{o}</option>)}
@@ -348,64 +358,93 @@ export default function TransferMarketPage() {
                   </div>
                 ))}
                 <div>
-                  <label style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: "0.8px", display: "block", marginBottom: "6px" }}>Price</label>
-                  <select
-                    value={filters.priceSort}
-                    onChange={e => setFilters(prev => ({ ...prev, priceSort: e.target.value }))}
-                    style={{ ...inputStyle, width: "100%", cursor: "pointer", padding: "10px 14px" }}
-                  >
+                  <label style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.8px", display: "block", marginBottom: "8px" }}>Price</label>
+                  <select value={filters.priceSort} onChange={e => setFilters(prev => ({ ...prev, priceSort: e.target.value }))} style={{ ...inputStyle, width: "100%", cursor: "pointer", padding: "14px 18px" }}>
                     <option value="">Default</option>
                     <option value="desc">Highest First</option>
                     <option value="asc">Lowest First</option>
                   </select>
                 </div>
                 <div style={{ display: "flex", alignItems: "flex-end" }}>
-                  <button
-                    onClick={() => setFilters({ club: "", nationality: "", position: "", priceSort: "" })}
-                    style={{ ...inputStyle, cursor: "pointer", color: "#FF1493", fontWeight: 700, padding: "10px 16px", whiteSpace: "nowrap" }}
-                  >Clear Filters</button>
+                  <button onClick={() => setFilters({ club: "", nationality: "", position: "", priceSort: "" })} style={{ ...inputStyle, cursor: "pointer", color: "#FF1493", fontWeight: 700, padding: "14px 20px", whiteSpace: "nowrap" }}>Clear Filters</button>
                 </div>
               </div>
             )}
 
-            {/* Players grid */}
+            {/* Players grid — 3 columns full width */}
             {filteredPlayers.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "60px 20px", color: "rgba(255,255,255,0.3)" }}>
-                <div style={{ fontSize: "3rem", marginBottom: "12px" }}>⚽</div>
-                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "2px" }}>No Players Found</div>
-                <div style={{ fontSize: "0.9rem", marginTop: "8px" }}>
-                  {isAdmin ? "Use the + menu in the navbar to add players." : "Check back soon."}
+              <div style={{ textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.3)" }}>
+                <div style={{ fontSize: "4rem", marginBottom: "16px" }}>⚽</div>
+                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px" }}>No Players Found</div>
+                <div style={{ fontSize: "1rem", marginTop: "10px" }}>
+                  {isAdmin ? "Use the + button above to add players." : "Check back soon."}
                 </div>
               </div>
             ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: "12px" }}>
-                {filteredPlayers.map(player => (
-                  <PlayerCard
-                    key={player.id}
-                    player={player}
-                    playerId={player.id}
-                    playerTab={tab}
-                    teamIcons={{ ...teamIconsCache, ...teamIcons }}
-                    onClick={() => { setSelectedPlayer(player); setSelectedPlayerId(player.id); }}
-                  />
-                ))}
-              </div>
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px", width: "100%" }}>
+                  {visiblePlayers.map(player => (
+                    <PlayerGridCard
+                      key={player.id}
+                      player={player}
+                      teamIcons={mergedIcons}
+                      onClick={() => { setSelectedPlayer(player); setSelectedPlayerId(player.id); }}
+                    />
+                  ))}
+                </div>
+
+                {/* Search More button */}
+                {hasMore && (
+                  <div style={{ textAlign: "center", marginTop: "40px" }}>
+                    <button
+                      onClick={() => setVisibleCount(v => v + 12)}
+                      style={{
+                        padding: "20px 60px",
+                        background: "rgba(255,20,147,0.12)",
+                        border: "2px solid rgba(255,20,147,0.5)",
+                        borderRadius: "16px",
+                        color: "#FF1493",
+                        fontWeight: 800,
+                        fontSize: "1.2rem",
+                        cursor: "pointer",
+                        letterSpacing: "1px",
+                        transition: "all 0.2s",
+                        fontFamily: "inherit",
+                      }}
+                      onMouseOver={e => { e.currentTarget.style.background = "#FF1493"; e.currentTarget.style.color = "#fff"; }}
+                      onMouseOut={e => { e.currentTarget.style.background = "rgba(255,20,147,0.12)"; e.currentTarget.style.color = "#FF1493"; }}
+                    >
+                      🔍 Search More ({filteredPlayers.length - visibleCount} remaining)
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </>
         )}
       </div>
 
-      {/* Player popup */}
+      {/* Player popup modal */}
       <Modal active={!!selectedPlayer} onClose={() => { setSelectedPlayer(null); setSelectedPlayerId(null); }} wide>
         {selectedPlayer && (
           <PlayerPopupModal
             player={selectedPlayer}
             playerId={selectedPlayerId}
             playerTab={tab}
-            teamIcons={{ ...teamIconsCache, ...teamIcons }}
+            teamIcons={mergedIcons}
             onClose={() => { setSelectedPlayer(null); setSelectedPlayerId(null); }}
           />
         )}
+      </Modal>
+
+      {/* Add Player modal (admin) */}
+      <Modal active={showAddModal} onClose={() => setShowAddModal(false)} wide>
+        <AddPlayerModal onClose={() => setShowAddModal(false)} isAdmin={isAdmin} />
+      </Modal>
+
+      {/* List Player modal (managers) */}
+      <Modal active={showListModal} onClose={() => setShowListModal(false)} wide>
+        <ListPlayerModal onClose={() => setShowListModal(false)} />
       </Modal>
 
       <style>{`
