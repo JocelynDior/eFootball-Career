@@ -23,8 +23,15 @@ export async function askGroq(systemPrompt, userPrompt) {
   return data.choices[0].message.content;
 }
 
+function cleanGroqResponse(raw) {
+  return raw
+    .replace(/<think>[\s\S]*?<\/think>/g, "")
+    .replace(/```json|```/g, "")
+    .trim();
+}
+
 export async function fetchPlayerStats(playerName) {
-  const system = `You are a professional football data analyst. When given a player name, return ONLY a valid JSON object with their stats. No preamble, no markdown, no explanation. You MUST always provide a best estimate even if uncertain. Never leave a field empty or null.
+  const system = `You are a professional football data analyst. When given a player name, return ONLY a valid JSON object with their stats. No preamble, no markdown, no explanation, no <think> tags. You MUST always provide a best estimate even if uncertain. Never leave a field empty or null.
 
 Return exactly this JSON structure:
 {
@@ -44,7 +51,69 @@ Return exactly this JSON structure:
 }`;
 
   const raw = await askGroq(system, `Player: ${playerName}`);
-  const clean = raw.replace(/<think>[\s\S]*?<\/think>/g, "").replace(/```json|```/g, "").trim();
+  const clean = cleanGroqResponse(raw);
+  return JSON.parse(clean);
+}
+
+export async function fetchTop50Players(onProgress) {
+  const batches = [
+    { start: 1, end: 10 },
+    { start: 11, end: 20 },
+    { start: 21, end: 30 },
+    { start: 31, end: 40 },
+    { start: 41, end: 50 },
+  ];
+
+  const system = `You are a professional football data analyst. Return ONLY a valid JSON array of player objects. No preamble, no markdown, no explanation, no <think> tags. Each object must have these exact fields:
+{
+  "name": "Full Name",
+  "age": 25,
+  "club": "Current Club",
+  "nationality": "Country",
+  "position": "ST/CF/CAM/CM/CDM/LW/RW/LB/RB/CB/GK",
+  "overall": 85,
+  "squadNumber": 10,
+  "weeklyWage": "€150,000",
+  "value": "€85,000,000",
+  "contractEnd": "2027",
+  "preferredFoot": "Right",
+  "height": "180cm",
+  "weight": "75kg"
+}`;
+
+  const allPlayers = [];
+
+  for (const batch of batches) {
+    if (onProgress) onProgress(batch.start, batch.end);
+    const prompt = `List the top 50 most expensive football players in the world as of today, ranked by market value. Return players ranked ${batch.start} to ${batch.end} as a JSON array. Only return the array, no other text.`;
+    const raw = await askGroq(system, prompt);
+    const clean = cleanGroqResponse(raw);
+    try {
+      const players = JSON.parse(clean);
+      if (Array.isArray(players)) allPlayers.push(...players);
+    } catch (e) {
+      console.error(`Batch ${batch.start}-${batch.end} parse error:`, e);
+    }
+  }
+
+  return allPlayers;
+}
+
+export async function fetchStadiumInfo(teamName) {
+  const system = `You are a football stadium data expert. Return ONLY a valid JSON object with stadium info. No preamble, no markdown, no <think> tags.
+
+Return exactly this JSON structure:
+{
+  "stadiumName": "Stadium Name",
+  "capacity": 75000,
+  "location": "City, Country",
+  "ticketPrice": 65,
+  "stadiumExpensesPerGame": 500000,
+  "sponsorshipDeals": "€10,000,000/year"
+}`;
+
+  const raw = await askGroq(system, `Football team: ${teamName}`);
+  const clean = cleanGroqResponse(raw);
   return JSON.parse(clean);
 }
 
