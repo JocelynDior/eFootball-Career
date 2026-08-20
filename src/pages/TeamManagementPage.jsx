@@ -433,20 +433,19 @@ function StadiumTab({ team, isAdmin, onEditStadium }) {
         )}
       </div>
 
-      {/* Stats grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "16px", marginBottom: "28px" }}>
+      {/* Stats — two column horizontal rows */}
+      <div style={{ ...GLASS, borderRadius: "20px", overflow: "hidden", marginBottom: "28px" }}>
         {[
-          { label: "Tickets Sold This Season", value: "0", icon: "🎟️" },
-          { label: "Standard Ticket Price", value: data.ticketPrice ? `€${Number(data.ticketPrice).toLocaleString()}` : "—", icon: "💶" },
-          { label: "VIP Ticket Price", value: data.vipTicketPrice ? `€${Number(data.vipTicketPrice).toLocaleString()}` : "—", icon: "👑" },
-          { label: "Stadium Expenses Per Game", value: data.expensesPerGame ? `€${Number(data.expensesPerGame).toLocaleString()}` : "—", icon: "💸" },
-          { label: "Stadium Sponsorship Deals", value: data.sponsorshipDeals || "—", icon: "🤝" },
-          { label: "Stadium External Events", value: "0", icon: "🎪" },
-        ].map(({ label, value, icon }) => (
-          <div key={label} style={{ ...GLASS, borderRadius: "16px", padding: "28px 28px" }}>
-            <div style={{ fontSize: "2.4rem", marginBottom: "12px" }}>{icon}</div>
-            <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "1.1rem", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "10px" }}>{label}</div>
-            <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.8rem" }}>{value}</div>
+          { label: "🎟️ Tickets Sold This Season", value: "0" },
+          { label: "💶 Standard Ticket Price", value: data.ticketPrice ? `€${Number(data.ticketPrice).toLocaleString()}` : "—" },
+          { label: "👑 VIP Ticket Price", value: data.vipTicketPrice ? `€${Number(data.vipTicketPrice).toLocaleString()}` : "—" },
+          { label: "💸 Stadium Expenses Per Game", value: data.expensesPerGame ? `€${Number(data.expensesPerGame).toLocaleString()}` : "—" },
+          { label: "🤝 Stadium Sponsorship Deals", value: data.sponsorshipDeals || "—" },
+          { label: "🎪 Stadium External Events", value: "0" },
+        ].map(({ label, value }, i) => (
+          <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 28px", borderBottom: i < 5 ? "1px solid rgba(255,20,147,0.1)" : "none", background: i % 2 === 0 ? "rgba(255,255,255,0.02)" : "transparent" }}>
+            <span style={{ color: "rgba(255,255,255,0.6)", fontSize: "1.3rem" }}>{label}</span>
+            <span style={{ color: "#fff", fontWeight: 700, fontSize: "1.4rem" }}>{value}</span>
           </div>
         ))}
       </div>
@@ -497,15 +496,111 @@ const FORMATION_LAYOUTS = {
   ],
 };
 
+const POS_GROUP_TMP = {
+  GK:["GK"], LB:["LB","LWB"], RB:["RB","RWB"], LWB:["LWB","LB"], RWB:["RWB","RB"],
+  CB:["CB"], CDM:["CDM","CM"], CM:["CM","CDM","CAM"], CAM:["CAM","CM"],
+  LM:["LM","LW"], RM:["RM","RW"], LW:["LW","LM"], RW:["RW","RM"],
+  CF:["CF","ST"], ST:["ST","CF"],
+};
+
+function parseWageToNumber(wage) {
+  if (!wage || wage === "—") return 0;
+  const clean = wage.replace(/[€,\s]/g,"");
+  const num = parseFloat(clean);
+  if (isNaN(num)) return 0;
+  if (clean.toLowerCase().includes("k")) return num * 1000;
+  if (clean.toLowerCase().includes("m")) return num * 1_000_000;
+  return num;
+}
+
+function SquadPlayerPopup({ player, team, onClose }) {
+  const [shirtNumber, setShirtNumber] = useState(player.shirtNumber || "");
+  const [position, setPosition] = useState(player.position || "");
+  const [role, setRole] = useState(player.role || "starting");
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState("");
+  const POSITIONS = ["GK","LB","CB","RB","LWB","RWB","CDM","CM","CAM","LM","RM","LW","RW","CF","ST"];
+  const CONTRACT_EXPIRY = "October 2026";
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await update(ref(db, `career_team_management/${team}/squad/${player.id}`), { shirtNumber, position, role });
+      onClose();
+    } catch(e) { setError("Save failed: " + e.message); }
+    setSaving(false);
+  }
+
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      const { remove: fbRemove } = await import("firebase/database");
+      await fbRemove(ref(db, `career_team_management/${team}/squad/${player.id}`));
+      onClose();
+    } catch(e) { setError("Delete failed: " + e.message); }
+    setDeleting(false);
+  }
+
+  const iStyle = { width:"100%", padding:"12px 16px", background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,20,147,0.35)", borderRadius:"12px", color:"#fff", fontFamily:"inherit", fontSize:"1rem", outline:"none", boxSizing:"border-box" };
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:"20px" }} onClick={onClose}>
+      <div style={{ background:"#0a0015", border:"1px solid rgba(255,20,147,0.3)", borderRadius:"24px", padding:"32px", maxWidth:"420px", width:"100%", position:"relative" }} onClick={e=>e.stopPropagation()}>
+        <button onClick={onClose} style={{ position:"absolute", top:"14px", right:"14px", background:"rgba(255,255,255,0.1)", border:"none", color:"#fff", borderRadius:"50%", width:"30px", height:"30px", cursor:"pointer" }}>✕</button>
+        <div style={{ color:"#fff", fontFamily:"'Bebas Neue', sans-serif", fontSize:"2rem", letterSpacing:"2px", marginBottom:"20px" }}>{player.name}</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"12px", marginBottom:"16px" }}>
+          <div>
+            <div style={{ color:"rgba(255,255,255,0.45)", fontSize:"0.8rem", textTransform:"uppercase", letterSpacing:"1px", marginBottom:"6px" }}>Shirt #</div>
+            <input value={shirtNumber} onChange={e=>setShirtNumber(e.target.value)} style={iStyle} type="number" />
+          </div>
+          <div>
+            <div style={{ color:"rgba(255,255,255,0.45)", fontSize:"0.8rem", textTransform:"uppercase", letterSpacing:"1px", marginBottom:"6px" }}>Position</div>
+            <select value={position} onChange={e=>setPosition(e.target.value)} style={{ ...iStyle, cursor:"pointer" }}>
+              {POSITIONS.map(p=><option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{ marginBottom:"16px" }}>
+          <div style={{ color:"rgba(255,255,255,0.45)", fontSize:"0.8rem", textTransform:"uppercase", letterSpacing:"1px", marginBottom:"6px" }}>Role</div>
+          <div style={{ display:"flex", gap:"10px" }}>
+            {[["starting","Starting XI"],["bench","Bench"]].map(([val,label])=>(
+              <button key={val} onClick={()=>setRole(val)} style={{ flex:1, padding:"10px", borderRadius:"10px", cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:"0.9rem", background:role===val?"#FF1493":"rgba(255,255,255,0.06)", border:`1px solid ${role===val?"#FF1493":"rgba(255,20,147,0.3)"}`, color:"#fff" }}>{label}</button>
+            ))}
+          </div>
+        </div>
+        {/* Read-only */}
+        <div style={{ background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,20,147,0.15)", borderRadius:"14px", padding:"16px", marginBottom:"16px" }}>
+          {[
+            ["💰 Weekly Wage", player.wage || "Fetching..."],
+            ["📅 Contract Expires", CONTRACT_EXPIRY],
+          ].map(([label,value])=>(
+            <div key={label} style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", borderBottom:"1px solid rgba(255,255,255,0.05)" }}>
+              <span style={{ color:"rgba(255,255,255,0.5)", fontSize:"0.95rem" }}>{label}</span>
+              <span style={{ color:"#fff", fontWeight:700, fontSize:"0.95rem" }}>{value}</span>
+            </div>
+          ))}
+        </div>
+        {error && <div style={{ color:"#ff6b6b", fontSize:"0.9rem", marginBottom:"12px", padding:"10px", background:"rgba(255,0,0,0.1)", borderRadius:"10px" }}>{error}</div>}
+        <div style={{ display:"flex", gap:"10px" }}>
+          <button onClick={handleSave} disabled={saving} style={{ flex:2, padding:"14px", background:"#FF1493", border:"none", borderRadius:"12px", color:"#fff", fontWeight:700, fontSize:"1rem", cursor:saving?"not-allowed":"pointer" }}>{saving?"Saving...":"💾 Save"}</button>
+          <button onClick={handleDelete} disabled={deleting} style={{ flex:1, padding:"14px", background:"rgba(255,50,50,0.15)", border:"1px solid rgba(255,50,50,0.4)", borderRadius:"12px", color:"#ff6b6b", fontWeight:700, fontSize:"1rem", cursor:deleting?"not-allowed":"pointer" }}>{deleting?"...":"🗑️"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SquadTab({ team, isAdmin, onEditSquad }) {
   const [squad, setSquad] = useState([]);
   const [formation, setFormation] = useState("4-3-3");
+  const [selectedPlayer, setSelectedPlayer] = useState(null);
 
   useEffect(() => {
     if (!team) return;
     const unsub = onValue(ref(db, `career_team_management/${team}/squad`), snap => {
       const data = snap.val();
-      setSquad(data ? Object.values(data) : []);
+      setSquad(data ? Object.entries(data).map(([id,p])=>({id,...p})) : []);
     });
     const fUnsub = onValue(ref(db, `career_team_management/${team}/formation`), snap => {
       if (snap.val()) setFormation(snap.val());
@@ -517,62 +612,91 @@ function SquadTab({ team, isAdmin, onEditSquad }) {
   const benchPlayers = squad.filter(p => p.role === "bench");
   const slots = FORMATION_LAYOUTS[formation] || FORMATION_LAYOUTS["4-3-3"];
 
+  // Total wages
+  const totalWeeklyWage = squad.reduce((sum, p) => sum + parseWageToNumber(p.wage), 0);
+
+  // Smart position-based pitch placement
+  function buildPitchDisplay() {
+    const used = new Set();
+    return slots.map(slot => {
+      let match = startingPlayers.find(p => !used.has(p.id) && p.position === slot.pos);
+      if (!match) {
+        const group = POS_GROUP_TMP[slot.pos] || [slot.pos];
+        match = startingPlayers.find(p => !used.has(p.id) && group.includes(p.position));
+      }
+      if (!match) match = startingPlayers.find(p => !used.has(p.id));
+      if (match) used.add(match.id);
+      return { slot, player: match || null };
+    });
+  }
+
+  const pitchDisplay = buildPitchDisplay();
+
   return (
     <div>
-      {/* Edit button */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-        <div>
-          <span style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "3px" }}>{formation}</span>
-          <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.4rem", marginLeft: "12px" }}>· {startingPlayers.length}/11 Starting</span>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"20px", flexWrap:"wrap", gap:"12px" }}>
+        <div style={{ display:"flex", alignItems:"baseline", gap:"16px", flexWrap:"wrap" }}>
+          <span style={{ color:"#FF1493", fontFamily:"'Bebas Neue', sans-serif", fontSize:"2.4rem", letterSpacing:"3px" }}>{formation}</span>
+          <span style={{ color:"rgba(255,255,255,0.4)", fontSize:"1.2rem" }}>· {startingPlayers.length} Starting</span>
+          {totalWeeklyWage > 0 && (
+            <span style={{ color:"#ffaa44", fontSize:"1.1rem", fontWeight:700 }}>
+              💰 Total Wages: {formatBalance(totalWeeklyWage)}/wk
+            </span>
+          )}
         </div>
-        <button onClick={onEditSquad} style={{ padding: "12px 24px", background: "rgba(255,20,147,0.15)", border: "1px solid rgba(255,20,147,0.5)", borderRadius: "12px", color: "#FF1493", fontWeight: 700, fontSize: "1.1rem", cursor: "pointer" }}>
-          {isAdmin ? "✏️ Edit Squad" : "✏️ Edit My Squad"}
+        <button onClick={onEditSquad} style={{ padding:"12px 24px", background:"rgba(255,20,147,0.15)", border:"1px solid rgba(255,20,147,0.5)", borderRadius:"12px", color:"#FF1493", fontWeight:700, fontSize:"1.1rem", cursor:"pointer" }}>
+          {isAdmin?"✏️ Edit Squad":"✏️ Edit My Squad"}
         </button>
       </div>
 
       {squad.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.3)" }}>
-          <div style={{ fontSize: "4rem", marginBottom: "16px" }}>👥</div>
-          <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "4rem", letterSpacing: "3px" }}>No Squad Set Up</div>
-          <div style={{ fontSize: "2rem", marginTop: "10px" }}>Click Edit to set up your squad.</div>
+        <div style={{ textAlign:"center", padding:"80px 20px", color:"rgba(255,255,255,0.3)" }}>
+          <div style={{ fontSize:"4rem", marginBottom:"16px" }}>👥</div>
+          <div style={{ fontFamily:"'Bebas Neue', sans-serif", fontSize:"4rem", letterSpacing:"3px" }}>No Squad Set Up</div>
+          <div style={{ fontSize:"2rem", marginTop:"10px" }}>Click Edit to set up your squad.</div>
         </div>
       ) : (
         <>
           {/* Pitch */}
-          <div style={{ position: "relative", width: "100%", paddingBottom: "140%", background: "linear-gradient(180deg, #1a5c1a 0%, #2d8c2d 20%, #1a5c1a 40%, #2d8c2d 60%, #1a5c1a 80%, #2d8c2d 100%)", borderRadius: "16px", border: "3px solid rgba(255,255,255,0.15)", overflow: "hidden", marginBottom: "28px" }}>
-            <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} viewBox="0 0 100 140" preserveAspectRatio="none">
-              <rect x="2" y="2" width="96" height="136" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="0.5" />
-              <line x1="2" y1="70" x2="98" y2="70" stroke="rgba(255,255,255,0.3)" strokeWidth="0.5" />
-              <circle cx="50" cy="70" r="12" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="0.5" />
-              <rect x="22" y="2" width="56" height="20" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="0.5" />
-              <rect x="22" y="118" width="56" height="20" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="0.5" />
+          <div style={{ position:"relative", width:"100%", paddingBottom:"140%", background:"linear-gradient(180deg,#1a5c1a 0%,#2d8c2d 20%,#1a5c1a 40%,#2d8c2d 60%,#1a5c1a 80%,#2d8c2d 100%)", borderRadius:"16px", border:"3px solid rgba(255,255,255,0.15)", overflow:"hidden", marginBottom:"28px" }}>
+            <svg style={{ position:"absolute", inset:0, width:"100%", height:"100%" }} viewBox="0 0 100 140" preserveAspectRatio="none">
+              <rect x="2" y="2" width="96" height="136" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="0.5"/>
+              <line x1="2" y1="70" x2="98" y2="70" stroke="rgba(255,255,255,0.3)" strokeWidth="0.5"/>
+              <circle cx="50" cy="70" r="12" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="0.5"/>
+              <rect x="22" y="2" width="56" height="20" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="0.5"/>
+              <rect x="22" y="118" width="56" height="20" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="0.5"/>
             </svg>
-            {slots.map((slot, i) => {
-              const player = startingPlayers[i];
-              return (
-                <div key={i} style={{ position: "absolute", left: `${slot.x}%`, top: `${slot.y}%`, transform: "translate(-50%, -50%)", display: "flex", flexDirection: "column", alignItems: "center", zIndex: 2 }}>
-                  <div style={{ width: "48px", height: "48px", background: player ? "#FF1493" : "rgba(255,255,255,0.15)", borderRadius: "8px", border: player ? "2px solid #fff" : "2px dashed rgba(255,255,255,0.3)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: player ? "0 2px 12px rgba(255,20,147,0.7)" : "none" }}>
-                    <span style={{ color: "#fff", fontWeight: 900, fontSize: "1rem" }}>{player ? (player.shirtNumber || "#") : slot.pos}</span>
-                  </div>
-                  <div style={{ color: player ? "#fff" : "rgba(255,255,255,0.3)", fontSize: "0.75rem", fontWeight: 700, marginTop: "3px", textAlign: "center", maxWidth: "60px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textShadow: "0 1px 4px rgba(0,0,0,0.9)", background: "rgba(0,0,0,0.45)", borderRadius: "4px", padding: "1px 5px" }}>
-                    {player ? player.name.split(" ").pop() : slot.pos}
-                  </div>
+            {pitchDisplay.map(({ slot, player }, i) => (
+              <div key={i} style={{ position:"absolute", left:`${slot.x}%`, top:`${slot.y}%`, transform:"translate(-50%,-50%)", display:"flex", flexDirection:"column", alignItems:"center", zIndex:2 }}>
+                <div
+                  onClick={() => player && setSelectedPlayer(player)}
+                  style={{ width:"96px", height:"96px", background:player?"#FF1493":"rgba(255,255,255,0.15)", borderRadius:"14px", border:player?"2px solid #fff":"2px dashed rgba(255,255,255,0.3)", display:"flex", alignItems:"center", justifyContent:"center", boxShadow:player?"0 2px 20px rgba(255,20,147,0.7)":"none", cursor:player?"pointer":"default", transition:"transform 0.15s" }}
+                  onMouseOver={e=>{ if(player) e.currentTarget.style.transform="scale(1.1)"; }}
+                  onMouseOut={e=>{ e.currentTarget.style.transform="scale(1)"; }}
+                >
+                  <span style={{ color:"#fff", fontWeight:900, fontSize:"1.8rem" }}>{player?(player.shirtNumber||"#"):slot.pos}</span>
                 </div>
-              );
-            })}
+                <div style={{ color:player?"#fff":"rgba(255,255,255,0.3)", fontSize:"0.9rem", fontWeight:700, marginTop:"5px", textAlign:"center", maxWidth:"80px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textShadow:"0 1px 4px rgba(0,0,0,0.9)", background:"rgba(0,0,0,0.5)", borderRadius:"4px", padding:"2px 6px" }}>
+                  {player ? player.name.split(" ").pop() : slot.pos}
+                </div>
+              </div>
+            ))}
           </div>
 
           {/* Bench */}
           {benchPlayers.length > 0 && (
             <div>
-              <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.2rem", textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: "14px" }}>Bench ({benchPlayers.length})</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "10px" }}>
-                {benchPlayers.map((p, i) => (
-                  <div key={i} style={{ ...GLASS, borderRadius: "12px", padding: "18px 20px", display: "flex", alignItems: "center", gap: "12px" }}>
-                    <div style={{ width: "42px", height: "42px", background: "rgba(255,255,255,0.1)", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 900, fontSize: "1.1rem", flexShrink: 0 }}>{p.shirtNumber || "#"}</div>
+              <div style={{ color:"rgba(255,255,255,0.5)", fontSize:"1.2rem", textTransform:"uppercase", letterSpacing:"1px", fontWeight:700, marginBottom:"14px" }}>Bench ({benchPlayers.length})</div>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:"10px" }}>
+                {benchPlayers.map((p,i) => (
+                  <div key={i} onClick={()=>setSelectedPlayer(p)} style={{ ...GLASS, borderRadius:"12px", padding:"18px 20px", display:"flex", alignItems:"center", gap:"12px", cursor:"pointer" }}
+                    onMouseOver={e=>e.currentTarget.style.borderColor="rgba(255,20,147,0.5)"}
+                    onMouseOut={e=>e.currentTarget.style.borderColor="rgba(255,20,147,0.2)"}
+                  >
+                    <div style={{ width:"48px", height:"48px", background:"rgba(255,255,255,0.1)", borderRadius:"8px", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontWeight:900, fontSize:"1.2rem", flexShrink:0 }}>{p.shirtNumber||"#"}</div>
                     <div>
-                      <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.2rem" }}>{p.name}</div>
-                      <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1rem" }}>{p.position}</div>
+                      <div style={{ color:"#fff", fontWeight:700, fontSize:"1.1rem" }}>{p.name}</div>
+                      <div style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.9rem" }}>{p.position}</div>
                     </div>
                   </div>
                 ))}
@@ -580,6 +704,10 @@ function SquadTab({ team, isAdmin, onEditSquad }) {
             </div>
           )}
         </>
+      )}
+
+      {selectedPlayer && (
+        <SquadPlayerPopup player={selectedPlayer} team={team} onClose={() => setSelectedPlayer(null)} />
       )}
     </div>
   );
@@ -788,15 +916,24 @@ function FinanceTab({ team }) {
     return () => unsub();
   }, [team]);
 
+  // Placeholder bars for May/Jun/Jul (indices 4,5,6) — realistic fake historical data
+  const PLACEHOLDERS = {
+    4: { income: 12_000_000, expense: 7_500_000 },  // May
+    5: { income: 16_400_000, expense: 9_200_000 },  // Jun
+    6: { income: 14_100_000, expense: 8_800_000 },  // Jul
+  };
+
   // Build chart data for May–Oct (indices 4–9)
   const chartData = CHART_MONTH_INDICES.map(mIdx => {
-    // Sep (8) and Oct (9) and any future month are always empty
+    // Sep (8) and Oct (9) — future months always empty
     if (mIdx > currentMonthIndex) return { income: 0, expense: 0, empty: true };
-    // Aug (7) starts at 0 unless real transactions exist
+    // May/Jun/Jul — use placeholders (historical, pre-system)
+    if (mIdx < 7 && PLACEHOLDERS[mIdx]) return { ...PLACEHOLDERS[mIdx], empty: false, placeholder: true };
+    // Aug onwards — real live Firebase data
     const monthTxs = transactions.filter(t => t.monthIndex === mIdx);
     const income = monthTxs.filter(t => t.type === "income").reduce((s, t) => s + (Number(t.amount) || 0), 0);
     const expense = monthTxs.filter(t => t.type === "expense").reduce((s, t) => s + (Number(t.amount) || 0), 0);
-    return { income, expense, empty: false };
+    return { income, expense, empty: false, placeholder: false };
   });
 
   const maxVal = Math.max(...chartData.map(d => Math.max(d.income, d.expense)), 1) * 1.2;
