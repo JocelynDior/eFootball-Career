@@ -1092,7 +1092,7 @@ function FinanceTab({ team }) {
 
 // ─── MAIN PAGE ───────────────────────────────────────────────────────────────
 export default function TeamManagementPage() {
-  const { isAdmin, manager, teamIconsCache } = useAdmin();
+  const { isAdmin, manager, teamIconsCache, managerLoading } = useAdmin();
   const [tab, setTab] = useState("stadium");
   const [balance, setBalance] = useState(1_000_000_000);
   const [teamIcon, setTeamIcon] = useState(null);
@@ -1146,6 +1146,19 @@ export default function TeamManagementPage() {
   }, [team, teamIconsCache, teamIcons]);
 
   const mergedIcons = { ...teamIconsCache, ...teamIcons };
+
+  // Wait for session to load before deciding what to show
+  if (managerLoading) {
+    return (
+      <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
+        <BackgroundVideo />
+        <Navbar />
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
+          <div style={{ color: "rgba(255,255,255,0.3)", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "3px" }}>Loading...</div>
+        </div>
+      </div>
+    );
+  }
 
   // If not admin and no manager — show lock screen
   if (!isAdmin && !manager) {
