@@ -2,9 +2,10 @@ import { useEffect } from "react";
 
 export default function Modal({ active, onClose, children, wide = false }) {
   useEffect(() => {
-    if (active) document.body.style.overflow = "hidden";
-    else document.body.style.overflow = "";
-    return () => { document.body.style.overflow = ""; };
+    if (!active) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
   }, [active]);
 
   if (!active) return null;
