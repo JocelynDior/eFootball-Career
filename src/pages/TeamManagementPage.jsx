@@ -594,12 +594,15 @@ function SquadTab({ team, isAdmin, onEditSquad }) {
   const [squad, setSquad] = useState([]);
   const [formation, setFormation] = useState("4-3-3");
   const [selectedPlayer, setSelectedPlayer] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!team) return;
+    setLoading(true);
     const unsub = onValue(ref(db, `career_team_management/${team}/squad`), snap => {
       const data = snap.val();
       setSquad(data ? Object.entries(data).map(([id,p])=>({id,...p})) : []);
+      setLoading(false);
     });
     const fUnsub = onValue(ref(db, `career_team_management/${team}/formation`), snap => {
       if (snap.val()) setFormation(snap.val());
@@ -630,6 +633,12 @@ function SquadTab({ team, isAdmin, onEditSquad }) {
   }
 
   const pitchDisplay = buildPitchDisplay();
+
+  if (loading) return (
+    <div style={{ textAlign:"center", padding:"80px 20px", color:"rgba(255,255,255,0.3)" }}>
+      <div style={{ fontFamily:"'Bebas Neue', sans-serif", fontSize:"2rem", letterSpacing:"3px" }}>Loading Squad...</div>
+    </div>
+  );
 
   return (
     <div>
@@ -828,14 +837,17 @@ function NegotiationDetailPopup({ offer, onClose }) {
 function TransfersTab({ team, teamIcons }) {
   const [negotiations, setNegotiations] = useState([]);
   const [selectedOffer, setSelectedOffer] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!team) return;
+    setLoading(true);
     const unsub = onValue(ref(db, `${PATHS.transfers}/negotiations`), snap => {
       const data = snap.val();
-      if (!data) { setNegotiations([]); return; }
-      const all = Object.entries(data).map(([id, n]) => ({ id, ...n }));
-      setNegotiations(all);
+      if (!data) { setNegotiations([]); } else {
+        setNegotiations(Object.entries(data).map(([id, n]) => ({ id, ...n })));
+      }
+      setLoading(false);
     });
     return () => unsub();
   }, [team]);
@@ -856,6 +868,12 @@ function TransfersTab({ team, teamIcons }) {
     <div style={{ textAlign: "center", padding: "48px 20px", color: "rgba(255,255,255,0.2)" }}>
       <div style={{ fontSize: "3rem", marginBottom: "12px" }}>📋</div>
       <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", letterSpacing: "2px" }}>{label}</div>
+    </div>
+  );
+
+  if (loading) return (
+    <div style={{ textAlign:"center", padding:"80px 20px", color:"rgba(255,255,255,0.3)" }}>
+      <div style={{ fontFamily:"'Bebas Neue', sans-serif", fontSize:"2rem", letterSpacing:"3px" }}>Loading Negotiations...</div>
     </div>
   );
 
