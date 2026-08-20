@@ -294,8 +294,7 @@ export default function SquadModal({ team, onClose }) {
         const group = POS_GROUP[slot.pos] || [slot.pos];
         match = startingPlayers.find(p => !used.has(p.id) && group.includes(p.position));
       }
-      // Fall back to any unplaced player
-      if (!match) match = startingPlayers.find(p => !used.has(p.id));
+      // No fallback — only place player if position matches
       if (match) used.add(match.id);
       return { slot, player: match || null };
     });
