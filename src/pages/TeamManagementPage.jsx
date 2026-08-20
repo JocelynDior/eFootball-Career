@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef } from "react";
 import { db, PATHS } from "../firebase";
 import { ref, onValue, push, update, get } from "firebase/database";
@@ -27,9 +26,10 @@ const GLASS = {
 
 const INCOME_CATEGORIES = ["Player Sales", "Player Loans", "Stadium Income", "Sponsorship", "Broadcasting", "Shirt Sales"];
 const EXPENSE_CATEGORIES = ["Player Wages", "Staff Wages", "Facility Expenses", "Taxes", "Stadium Upgrade"];
-const ALL_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const CHART_MONTHS = ["May", "Jun", "Jul", "Aug", "Sep", "Oct"];
-const CHART_MONTH_INDICES = [4, 5, 6, 7, 8, 9];
+
+const ALL_MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const CHART_MONTHS = ["May","Jun","Jul","Aug","Sep","Oct"];
+const CHART_MONTH_INDICES = [4,5,6,7,8,9];
 
 function formatBalance(num) {
   if (num >= 1_000_000_000) return `€${(num / 1_000_000_000).toFixed(2)}B`;
@@ -150,31 +150,27 @@ function AdminFinanceModal({ onClose }) {
   }
 
   const inputStyle = {
-    width: "100%",
-    padding: "18px 20px",
+    width: "100%", padding: "18px 20px",
     background: "rgba(255,255,255,0.06)",
     border: "1px solid rgba(255,20,147,0.35)",
-    borderRadius: "14px",
-    color: "#fff",
-    fontFamily: "inherit",
-    fontSize: "1.2rem",
-    outline: "none",
-    boxSizing: "border-box",
+    borderRadius: "14px", color: "#fff",
+    fontFamily: "inherit", fontSize: "1.2rem",
+    outline: "none", boxSizing: "border-box",
   };
   const labelStyle = {
-    color: "rgba(255,255,255,0.65)",
-    fontSize: "1rem",
-    display: "block",
-    marginBottom: "8px",
-    textTransform: "uppercase",
-    letterSpacing: "0.8px",
+    color: "rgba(255,255,255,0.65)", fontSize: "1rem",
+    display: "block", marginBottom: "8px",
+    textTransform: "uppercase", letterSpacing: "0.8px",
     fontWeight: 700,
   };
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif" }}>
-      <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", marginBottom: "8px", letterSpacing: "3px" }}> 💰 TEAM FINANCES </h3>
+      <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", marginBottom: "8px", letterSpacing: "3px" }}>
+        💰 TEAM FINANCES
+      </h3>
       <p style={{ color: "rgba(255,255,255,0.45)", marginBottom: "28px", fontSize: "1rem" }}>Assign funds or deduct expenses from a team's balance.</p>
+
       {done ? (
         <div style={{ textAlign: "center", padding: "40px 20px", color: "#00ff88", fontWeight: 700, fontSize: "1.4rem", background: "rgba(0,255,136,0.08)", borderRadius: "16px" }}>
           ✅ Transaction Applied!
@@ -195,24 +191,13 @@ function AdminFinanceModal({ onClose }) {
             <label style={labelStyle}>Transaction Type</label>
             <div style={{ display: "flex", gap: "12px" }}>
               {["income", "expense"].map(t => (
-                <button
-                  key={t}
-                  onClick={() => setTxType(t)}
-                  style={{
-                    flex: 1,
-                    padding: "16px",
-                    borderRadius: "14px",
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                    fontWeight: 700,
-                    fontSize: "1.1rem",
-                    background: txType === t ? (t === "income" ? "#00cc66" : "#ff4444") : "rgba(255,255,255,0.06)",
-                    border: `1px solid ${txType === t ? (t === "income" ? "#00cc66" : "#ff4444") : "rgba(255,255,255,0.15)"}`,
-                    color: "#fff",
-                    transition: "all 0.2s",
-                    textTransform: "uppercase",
-                  }}
-                >
+                <button key={t} onClick={() => setTxType(t)} style={{
+                  flex: 1, padding: "16px", borderRadius: "14px", cursor: "pointer",
+                  fontFamily: "inherit", fontWeight: 700, fontSize: "1.1rem",
+                  background: txType === t ? (t === "income" ? "#00cc66" : "#ff4444") : "rgba(255,255,255,0.06)",
+                  border: `1px solid ${txType === t ? (t === "income" ? "#00cc66" : "#ff4444") : "rgba(255,255,255,0.15)"}`,
+                  color: "#fff", transition: "all 0.2s", textTransform: "uppercase",
+                }}>
                   {t === "income" ? "💰 Income" : "📤 Expense"}
                 </button>
               ))}
@@ -279,11 +264,19 @@ function AdminTeamSelector({ onSelect }) {
       <div style={{ fontSize: "3rem", marginBottom: "16px" }}>🔧</div>
       <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "3px", color: "#FF1493", margin: "0 0 8px" }}>ADMIN VIEW</h2>
       <p style={{ color: "rgba(255,255,255,0.45)", marginBottom: "24px", fontSize: "1rem" }}>Select a team to manage their dashboard.</p>
-      <select value={selected} onChange={e => setSelected(e.target.value)} style={{ width: "100%", padding: "16px 20px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.35)", borderRadius: "14px", color: "#fff", fontFamily: "inherit", fontSize: "1.1rem", outline: "none", marginBottom: "16px", cursor: "pointer" }}>
+      <select
+        value={selected}
+        onChange={e => setSelected(e.target.value)}
+        style={{ width: "100%", padding: "16px 20px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.35)", borderRadius: "14px", color: "#fff", fontFamily: "inherit", fontSize: "1.1rem", outline: "none", marginBottom: "16px", cursor: "pointer" }}
+      >
         <option value="">— Select a team —</option>
         {teams.map(t => <option key={t} value={t}>{t}</option>)}
       </select>
-      <button onClick={() => selected && onSelect(selected)} disabled={!selected} style={{ width: "100%", padding: "16px", background: selected ? "#FF1493" : "rgba(255,20,147,0.2)", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.1rem", cursor: selected ? "pointer" : "not-allowed" }}>
+      <button
+        onClick={() => selected && onSelect(selected)}
+        disabled={!selected}
+        style={{ width: "100%", padding: "16px", background: selected ? "#FF1493" : "rgba(255,20,147,0.2)", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.1rem", cursor: selected ? "pointer" : "not-allowed" }}
+      >
         View Team Dashboard →
       </button>
     </div>
@@ -299,10 +292,7 @@ function UpgradeStadiumPopup({ team, onClose }) {
   const [error, setError] = useState("");
 
   async function handleSend() {
-    if (!amount || Number(amount) <= 0) {
-      setError("Please enter a valid amount.");
-      return;
-    }
+    if (!amount || Number(amount) <= 0) { setError("Please enter a valid amount."); return; }
     setSending(true);
     setError("");
     try {
@@ -320,18 +310,7 @@ function UpgradeStadiumPopup({ team, onClose }) {
     setSending(false);
   }
 
-  const inputStyle = {
-    width: "100%",
-    padding: "16px 20px",
-    background: "rgba(255,255,255,0.06)",
-    border: "1px solid rgba(255,20,147,0.35)",
-    borderRadius: "14px",
-    color: "#fff",
-    fontFamily: "inherit",
-    fontSize: "1.1rem",
-    outline: "none",
-    boxSizing: "border-box"
-  };
+  const inputStyle = { width: "100%", padding: "16px 20px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.35)", borderRadius: "14px", color: "#fff", fontFamily: "inherit", fontSize: "1.1rem", outline: "none", boxSizing: "border-box" };
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }} onClick={onClose}>
@@ -475,7 +454,10 @@ function StadiumTab({ team, isAdmin, onEditStadium }) {
       {/* Upgrade Stadium button — managers only */}
       {!isAdmin && (
         <div style={{ textAlign: "center" }}>
-          <button onClick={() => setShowUpgrade(true)} style={{ padding: "18px 40px", background: "linear-gradient(135deg, rgba(255,20,147,0.2), rgba(255,20,147,0.05))", border: "1px solid rgba(255,20,147,0.5)", borderRadius: "16px", color: "#FF1493", fontWeight: 700, fontSize: "1.3rem", cursor: "pointer", letterSpacing: "1px" }}>
+          <button
+            onClick={() => setShowUpgrade(true)}
+            style={{ padding: "18px 40px", background: "linear-gradient(135deg, rgba(255,20,147,0.2), rgba(255,20,147,0.05))", border: "1px solid rgba(255,20,147,0.5)", borderRadius: "16px", color: "#FF1493", fontWeight: 700, fontSize: "1.3rem", cursor: "pointer", letterSpacing: "1px" }}
+          >
             🏗️ Upgrade Stadium
           </button>
         </div>
@@ -490,55 +472,28 @@ function StadiumTab({ team, isAdmin, onEditStadium }) {
 const FORMATION_LAYOUTS = {
   "4-3-3": [
     { pos: "GK", x: 50, y: 90 },
-    { pos: "LB", x: 15, y: 72 },
-    { pos: "CB", x: 35, y: 72 },
-    { pos: "CB", x: 65, y: 72 },
-    { pos: "RB", x: 85, y: 72 },
-    { pos: "CM", x: 25, y: 50 },
-    { pos: "CM", x: 50, y: 50 },
-    { pos: "CM", x: 75, y: 50 },
-    { pos: "LW", x: 15, y: 26 },
-    { pos: "ST", x: 50, y: 20 },
-    { pos: "RW", x: 85, y: 26 },
+    { pos: "LB", x: 15, y: 72 }, { pos: "CB", x: 35, y: 72 }, { pos: "CB", x: 65, y: 72 }, { pos: "RB", x: 85, y: 72 },
+    { pos: "CM", x: 25, y: 50 }, { pos: "CM", x: 50, y: 50 }, { pos: "CM", x: 75, y: 50 },
+    { pos: "LW", x: 15, y: 26 }, { pos: "ST", x: 50, y: 20 }, { pos: "RW", x: 85, y: 26 },
   ],
   "4-4-2": [
     { pos: "GK", x: 50, y: 90 },
-    { pos: "LB", x: 15, y: 72 },
-    { pos: "CB", x: 35, y: 72 },
-    { pos: "CB", x: 65, y: 72 },
-    { pos: "RB", x: 85, y: 72 },
-    { pos: "LM", x: 15, y: 50 },
-    { pos: "CM", x: 35, y: 50 },
-    { pos: "CM", x: 65, y: 50 },
-    { pos: "RM", x: 85, y: 50 },
-    { pos: "ST", x: 35, y: 24 },
-    { pos: "ST", x: 65, y: 24 },
+    { pos: "LB", x: 15, y: 72 }, { pos: "CB", x: 35, y: 72 }, { pos: "CB", x: 65, y: 72 }, { pos: "RB", x: 85, y: 72 },
+    { pos: "LM", x: 15, y: 50 }, { pos: "CM", x: 35, y: 50 }, { pos: "CM", x: 65, y: 50 }, { pos: "RM", x: 85, y: 50 },
+    { pos: "ST", x: 35, y: 24 }, { pos: "ST", x: 65, y: 24 },
   ],
   "4-2-3-1": [
     { pos: "GK", x: 50, y: 90 },
-    { pos: "LB", x: 15, y: 72 },
-    { pos: "CB", x: 35, y: 72 },
-    { pos: "CB", x: 65, y: 72 },
-    { pos: "RB", x: 85, y: 72 },
-    { pos: "CDM", x: 35, y: 56 },
-    { pos: "CDM", x: 65, y: 56 },
-    { pos: "LW", x: 15, y: 38 },
-    { pos: "CAM", x: 50, y: 38 },
-    { pos: "RW", x: 85, y: 38 },
+    { pos: "LB", x: 15, y: 72 }, { pos: "CB", x: 35, y: 72 }, { pos: "CB", x: 65, y: 72 }, { pos: "RB", x: 85, y: 72 },
+    { pos: "CDM", x: 35, y: 56 }, { pos: "CDM", x: 65, y: 56 },
+    { pos: "LW", x: 15, y: 38 }, { pos: "CAM", x: 50, y: 38 }, { pos: "RW", x: 85, y: 38 },
     { pos: "ST", x: 50, y: 20 },
   ],
   "3-5-2": [
     { pos: "GK", x: 50, y: 90 },
-    { pos: "CB", x: 25, y: 72 },
-    { pos: "CB", x: 50, y: 72 },
-    { pos: "CB", x: 75, y: 72 },
-    { pos: "LWB", x: 10, y: 52 },
-    { pos: "CDM", x: 30, y: 52 },
-    { pos: "CM", x: 50, y: 52 },
-    { pos: "CM", x: 70, y: 52 },
-    { pos: "RWB", x: 90, y: 52 },
-    { pos: "ST", x: 35, y: 24 },
-    { pos: "ST", x: 65, y: 24 },
+    { pos: "CB", x: 25, y: 72 }, { pos: "CB", x: 50, y: 72 }, { pos: "CB", x: 75, y: 72 },
+    { pos: "LWB", x: 10, y: 52 }, { pos: "CDM", x: 30, y: 52 }, { pos: "CM", x: 50, y: 52 }, { pos: "CM", x: 70, y: 52 }, { pos: "RWB", x: 90, y: 52 },
+    { pos: "ST", x: 35, y: 24 }, { pos: "ST", x: 65, y: 24 },
   ],
 };
 
@@ -644,7 +599,8 @@ function ShirtSVGSmall({ clubName, playerName, squadNumber }) {
           <stop offset="100%" stopColor={colors.secondary} stopOpacity="0.85" />
         </linearGradient>
       </defs>
-      <path d="M 50 40 L 20 70 L 45 80 L 45 190 L 155 190 L 155 80 L 180 70 L 150 40 Q 130 30 115 38 Q 100 55 85 38 Q 70 30 50 40 Z" fill={`url(#tsg-${num}-${displayName})`} />
+      <path d="M 50 40 L 20 70 L 45 80 L 45 190 L 155 190 L 155 80 L 180 70 L 150 40 Q 130 30 115 38 Q 100 55 85 38 Q 70 30 50 40 Z"
+        fill={`url(#tsg-${num}-${displayName})`} />
       <text x="100" y="135" textAnchor="middle" fontFamily="'Bebas Neue', sans-serif" fontSize="52" fontWeight="900" fill={colors.text} opacity="0.95">{num}</text>
       <text x="100" y="172" textAnchor="middle" fontFamily="'Bebas Neue', sans-serif" fontSize="13" fontWeight="700" fill={colors.text} opacity="0.8" letterSpacing="2">
         {displayName.length > 10 ? displayName.slice(0, 10) + "…" : displayName}
@@ -657,8 +613,11 @@ function NegotiationGridCard({ offer, teamIcons, onClick }) {
   const statusColors = { pending: "#ffaa44", accepted: "#00ff88", rejected: "#ff6b6b" };
   const statusColor = statusColors[offer.status] || "#ffaa44";
   const clubLogo = teamIcons?.[offer.playerClub] || teamIcons?.[offer.fromClub];
+
   return (
-    <div onClick={onClick} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,20,147,0.18)", borderRadius: "20px", overflow: "hidden", cursor: "pointer", transition: "all 0.25s", display: "flex", flexDirection: "column" }}
+    <div
+      onClick={onClick}
+      style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,20,147,0.18)", borderRadius: "20px", overflow: "hidden", cursor: "pointer", transition: "all 0.25s", display: "flex", flexDirection: "column" }}
       onMouseOver={e => { e.currentTarget.style.background = "rgba(255,20,147,0.08)"; e.currentTarget.style.borderColor = "rgba(255,20,147,0.5)"; e.currentTarget.style.transform = "translateY(-4px)"; }}
       onMouseOut={e => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; e.currentTarget.style.borderColor = "rgba(255,20,147,0.18)"; e.currentTarget.style.transform = "translateY(0)"; }}
     >
@@ -676,6 +635,7 @@ function NegotiationGridCard({ offer, teamIcons, onClick }) {
           {offer.type}
         </div>
       </div>
+
       {/* Info */}
       <div style={{ padding: "16px", flex: 1, display: "flex", flexDirection: "column", gap: "8px" }}>
         <div style={{ color: "#fff", fontWeight: 800, fontSize: "1.2rem", lineHeight: 1.2 }}>{offer.playerName}</div>
@@ -689,7 +649,9 @@ function NegotiationGridCard({ offer, teamIcons, onClick }) {
         <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.9rem" }}>
           From: <span style={{ color: "rgba(255,255,255,0.7)" }}>{offer.fromClub || offer.fromManagerName}</span>
         </div>
-        <button onClick={e => { e.stopPropagation(); onClick(); }} style={{ marginTop: "auto", padding: "12px", background: "rgba(255,20,147,0.12)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: "12px", color: "#FF1493", fontWeight: 700, fontSize: "1rem", cursor: "pointer", transition: "all 0.2s" }}
+        <button
+          onClick={e => { e.stopPropagation(); onClick(); }}
+          style={{ marginTop: "auto", padding: "12px", background: "rgba(255,20,147,0.12)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: "12px", color: "#FF1493", fontWeight: 700, fontSize: "1rem", cursor: "pointer", transition: "all 0.2s" }}
           onMouseOver={e => { e.currentTarget.style.background = "#FF1493"; e.currentTarget.style.color = "#fff"; }}
           onMouseOut={e => { e.currentTarget.style.background = "rgba(255,20,147,0.12)"; e.currentTarget.style.color = "#FF1493"; }}
         >
@@ -801,6 +763,7 @@ function TransfersTab({ team, teamIcons }) {
           )}
         </div>
       </div>
+
       {selectedOffer && <NegotiationDetailPopup offer={selectedOffer} onClose={() => setSelectedOffer(null)} />}
     </div>
   );
@@ -842,12 +805,8 @@ function FinanceTab({ team }) {
   // Category totals
   const incomeTotals = {};
   const expenseTotals = {};
-  INCOME_CATEGORIES.forEach(c => {
-    incomeTotals[c] = transactions.filter(t => t.type === "income" && t.category === c).reduce((s, t) => s + (Number(t.amount) || 0), 0);
-  });
-  EXPENSE_CATEGORIES.forEach(c => {
-    expenseTotals[c] = transactions.filter(t => t.type === "expense" && t.category === c).reduce((s, t) => s + (Number(t.amount) || 0), 0);
-  });
+  INCOME_CATEGORIES.forEach(c => { incomeTotals[c] = transactions.filter(t => t.type === "income" && t.category === c).reduce((s, t) => s + (Number(t.amount) || 0), 0); });
+  EXPENSE_CATEGORIES.forEach(c => { expenseTotals[c] = transactions.filter(t => t.type === "expense" && t.category === c).reduce((s, t) => s + (Number(t.amount) || 0), 0); });
 
   const totalIncome = transactions.filter(t => t.type === "income").reduce((s, t) => s + (Number(t.amount) || 0), 0);
   const totalExpense = transactions.filter(t => t.type === "expense").reduce((s, t) => s + (Number(t.amount) || 0), 0);
@@ -857,6 +816,7 @@ function FinanceTab({ team }) {
       {/* Chart Block — 3x bigger */}
       <div style={{ ...GLASS, borderRadius: "20px", padding: "64px", marginBottom: "40px" }}>
         <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.6rem", letterSpacing: "3px", marginBottom: "40px" }}>📈 FINANCIAL OVERVIEW</div>
+
         <div style={{ position: "relative", height: `${barAreaH + 80}px`, width: "100%" }}>
           {/* Y-axis labels */}
           {[0, 25, 50, 75, 100].map(pct => {
@@ -867,10 +827,12 @@ function FinanceTab({ team }) {
               </div>
             );
           })}
+
           {/* Grid lines */}
           {[0, 25, 50, 75, 100].map(pct => (
             <div key={pct} style={{ position: "absolute", left: "80px", right: 0, top: `${barAreaH - (barAreaH * pct / 100)}px`, borderTop: "1px dashed rgba(255,255,255,0.08)" }} />
           ))}
+
           {/* Bars */}
           <div style={{ position: "absolute", left: "80px", right: 0, bottom: "60px", top: 0, display: "flex", alignItems: "flex-end", justifyContent: "space-around", gap: "8px" }}>
             {CHART_MONTHS.map((month, i) => {
@@ -901,6 +863,7 @@ function FinanceTab({ team }) {
             })}
           </div>
         </div>
+
         {/* Legend */}
         <div style={{ display: "flex", gap: "36px", justifyContent: "center", marginTop: "32px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
@@ -958,7 +921,10 @@ function FinanceTab({ team }) {
             {transactions.map(tx => {
               const isIncome = tx.type === "income";
               return (
-                <div key={tx.id} onClick={() => setSelectedTx(tx)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 24px", background: isIncome ? "rgba(0,255,136,0.05)" : "rgba(255,100,100,0.05)", border: `1px solid ${isIncome ? "rgba(0,255,136,0.15)" : "rgba(255,100,100,0.15)"}`, borderRadius: "14px", cursor: "pointer", transition: "all 0.2s" }}
+                <div
+                  key={tx.id}
+                  onClick={() => setSelectedTx(tx)}
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 24px", background: isIncome ? "rgba(0,255,136,0.05)" : "rgba(255,100,100,0.05)", border: `1px solid ${isIncome ? "rgba(0,255,136,0.15)" : "rgba(255,100,100,0.15)"}`, borderRadius: "14px", cursor: "pointer", transition: "all 0.2s" }}
                   onMouseOver={e => e.currentTarget.style.background = isIncome ? "rgba(0,255,136,0.1)" : "rgba(255,100,100,0.1)"}
                   onMouseOut={e => e.currentTarget.style.background = isIncome ? "rgba(0,255,136,0.05)" : "rgba(255,100,100,0.05)"}
                 >
@@ -981,6 +947,7 @@ function FinanceTab({ team }) {
           </div>
         )}
       </div>
+
       {selectedTx && <TransactionPopup tx={selectedTx} onClose={() => setSelectedTx(null)} />}
     </div>
   );
@@ -993,8 +960,10 @@ export default function TeamManagementPage() {
   const [balance, setBalance] = useState(1_000_000_000);
   const [teamIcon, setTeamIcon] = useState(null);
   const [teamIcons, setTeamIcons] = useState({});
+
   // Admin selected team (when no manager session)
   const [adminTeam, setAdminTeam] = useState(null);
+
   // Modals
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
   const [showStadiumModal, setShowStadiumModal] = useState(false);
@@ -1074,37 +1043,44 @@ export default function TeamManagementPage() {
   return (
     <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
       <BackgroundVideo />
-      <Navbar extraActions={
-        isAdmin && (
-          <div style={{ position: "relative", display: "flex", gap: "10px" }}>
-            {adminTeam && (
-              <button onClick={() => { setAdminTeam(null); setTab("stadium"); }} style={{ padding: "10px 18px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "10px", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem" }}>
-                ← Teams
+      <Navbar
+        extraActions={
+          isAdmin && (
+            <div style={{ position: "relative", display: "flex", gap: "10px" }}>
+              {adminTeam && (
+                <button
+                  onClick={() => { setAdminTeam(null); setTab("stadium"); }}
+                  style={{ padding: "10px 18px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "10px", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem" }}
+                >
+                  ← Teams
+                </button>
+              )}
+              <button
+                onClick={() => setAdminMenuOpen(v => !v)}
+                style={{ padding: "10px 18px", background: "#FF1493", border: "none", borderRadius: "10px", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem" }}
+              >
+                ➕ Manage
               </button>
-            )}
-            <button onClick={() => setAdminMenuOpen(v => !v)} style={{ padding: "10px 18px", background: "#FF1493", border: "none", borderRadius: "10px", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem" }}>
-              ➕ Manage
-            </button>
-            {adminMenuOpen && (
-              <div style={{ position: "absolute", right: 0, top: "calc(100% + 10px)", background: "#0a0015", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "16px", padding: "8px", minWidth: "240px", zIndex: 100, boxShadow: "0 8px 32px rgba(0,0,0,0.6)" }}>
-                {[
-                  { label: "🏟️ Edit Stadium", action: () => { setShowStadiumModal(true); setAdminMenuOpen(false); } },
-                  { label: "👥 Edit Squad", action: () => { setShowSquadModal(true); setAdminMenuOpen(false); } },
-                  { label: "📜 Team History", action: () => { setShowHistoryModal(true); setAdminMenuOpen(false); } },
-                  { label: "💰 Team Finances", action: () => { setShowFinanceModal(true); setAdminMenuOpen(false); } },
-                ].map(({ label, action }) => (
-                  <button key={label} onClick={action} style={{ display: "block", width: "100%", padding: "14px 18px", background: "transparent", border: "none", color: "#fff", textAlign: "left", cursor: "pointer", fontSize: "1.1rem", fontWeight: 600, borderRadius: "10px", transition: "background 0.2s" }}
-                    onMouseOver={e => e.currentTarget.style.background = "rgba(255,20,147,0.15)"}
-                    onMouseOut={e => e.currentTarget.style.background = "transparent"}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )
-      } />
+              {adminMenuOpen && (
+                <div style={{ position: "absolute", right: 0, top: "calc(100% + 10px)", background: "#0a0015", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "16px", padding: "8px", minWidth: "240px", zIndex: 100, boxShadow: "0 8px 32px rgba(0,0,0,0.6)" }}>
+                  {[
+                    { label: "🏟️ Edit Stadium", action: () => { setShowStadiumModal(true); setAdminMenuOpen(false); } },
+                    { label: "👥 Edit Squad", action: () => { setShowSquadModal(true); setAdminMenuOpen(false); } },
+                    { label: "📜 Team History", action: () => { setShowHistoryModal(true); setAdminMenuOpen(false); } },
+                    { label: "💰 Team Finances", action: () => { setShowFinanceModal(true); setAdminMenuOpen(false); } },
+                  ].map(({ label, action }) => (
+                    <button key={label} onClick={action}
+                      style={{ display: "block", width: "100%", padding: "14px 18px", background: "transparent", border: "none", color: "#fff", textAlign: "left", cursor: "pointer", fontSize: "1.1rem", fontWeight: 600, borderRadius: "10px", transition: "background 0.2s" }}
+                      onMouseOver={e => e.currentTarget.style.background = "rgba(255,20,147,0.15)"}
+                      onMouseOut={e => e.currentTarget.style.background = "transparent"}
+                    >{label}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        }
+      />
 
       <div style={{ padding: "32px 20px 80px" }}>
         {/* Team header */}
