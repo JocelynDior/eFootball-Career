@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { db, PATHS } from "../firebase";
-import { ref, onValue, push } from "firebase/database";
+import { ref, onValue, push, update, get } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
 import Navbar from "../components/Navbar";
 import BackgroundVideo from "../components/BackgroundVideo";
@@ -136,9 +136,73 @@ function PlayerGridCard({ player, teamIcons, onClick }) {
   );
 }
 
-function NegotiationCard({ offer, isOwn }) {
+function NegotiationCard({ offer, isOwn, isAdmin }) {
   const statusColors = { pending: "#ffaa44", accepted: "#00ff88", rejected: "#ff6b6b" };
   const statusColor = statusColors[offer.status] || "#ffaa44";
+  const [processing, setProcessing] = useState(false);
+  const [actionError, setActionError] = useState("");
+
+  async function handleAccept() {
+    setProcessing(true);
+    setActionError("");
+    try {
+      const amt = Number((offer.offerAmount || offer.loanAmount || offer.bidAmount || "0").replace(/[^0-9.]/g, ""));
+      const now = new Date();
+      const monthIndex = now.getMonth();
+      const monthName = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][monthIndex];
+      const year = now.getFullYear();
+      const accountsSnap = await get(ref(db, PATHS.accounts));
+      const accounts = accountsSnap.val() || {};
+
+      // Buying club — expense
+      if (offer.fromClub && amt > 0) {
+        const buyerEntry = Object.entries(accounts).find(([, a]) => a.team === offer.fromClub && a.role === "manager");
+        if (buyerEntry) {
+          const [buyerUid, buyerData] = buyerEntry;
+          const buyerBalance = buyerData.balance ?? 1_000_000_000;
+          await update(ref(db, `${PATHS.accounts}/${buyerUid}`), { balance: Math.max(0, buyerBalance - amt) });
+          await push(ref(db, `career_team_management/${offer.fromClub}/finance/transactions`), {
+            type: "expense", category: "Player Wages",
+            source: offer.playerName, amount: amt,
+            month: monthName, monthIndex, year, createdAt: Date.now(),
+          });
+        }
+      }
+
+      // Selling club — income
+      const sellingClub = offer.toClub || offer.playerClub;
+      if (sellingClub && amt > 0) {
+        const sellerEntry = Object.entries(accounts).find(([, a]) => a.team === sellingClub && a.role === "manager");
+        if (sellerEntry) {
+          const [sellerUid, sellerData] = sellerEntry;
+          const sellerBalance = sellerData.balance ?? 1_000_000_000;
+          await update(ref(db, `${PATHS.accounts}/${sellerUid}`), { balance: sellerBalance + amt });
+          await push(ref(db, `career_team_management/${sellingClub}/finance/transactions`), {
+            type: "income", category: "Player Sales",
+            source: offer.playerName, amount: amt,
+            month: monthName, monthIndex, year, createdAt: Date.now(),
+          });
+        }
+      }
+
+      await update(ref(db, `${PATHS.transfers}/negotiations/${offer.id}`), { status: "accepted" });
+    } catch (e) {
+      setActionError("Failed: " + e.message);
+    }
+    setProcessing(false);
+  }
+
+  async function handleReject() {
+    setProcessing(true);
+    setActionError("");
+    try {
+      await update(ref(db, `${PATHS.transfers}/negotiations/${offer.id}`), { status: "rejected" });
+    } catch (e) {
+      setActionError("Failed: " + e.message);
+    }
+    setProcessing(false);
+  }
+
   return (
     <div style={{
       padding: "24px 28px",
@@ -170,6 +234,27 @@ function NegotiationCard({ offer, isOwn }) {
         ))}
       </div>
       {isOwn && <div style={{ marginTop: "10px", color: "#FF1493", fontSize: "0.9rem", fontWeight: 700 }}>YOUR OFFER</div>}
+
+      {/* Admin Accept / Reject buttons */}
+      {isAdmin && offer.status === "pending" && (
+        <div style={{ display: "flex", gap: "12px", marginTop: "16px" }}>
+          <button
+            onClick={handleAccept}
+            disabled={processing}
+            style={{ flex: 1, padding: "12px", background: processing ? "rgba(0,204,102,0.2)" : "#00cc66", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, fontSize: "1rem", cursor: processing ? "not-allowed" : "pointer" }}
+          >
+            {processing ? "Processing..." : "✅ Accept"}
+          </button>
+          <button
+            onClick={handleReject}
+            disabled={processing}
+            style={{ flex: 1, padding: "12px", background: processing ? "rgba(255,68,68,0.2)" : "rgba(255,68,68,0.8)", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, fontSize: "1rem", cursor: processing ? "not-allowed" : "pointer" }}
+          >
+            ❌ Reject
+          </button>
+        </div>
+      )}
+      {actionError && <div style={{ color: "#ff6b6b", fontSize: "0.9rem", marginTop: "10px", padding: "10px", background: "rgba(255,0,0,0.1)", borderRadius: "10px" }}>{actionError}</div>}
     </div>
   );
 }
@@ -307,7 +392,7 @@ export default function TransferMarketPage() {
                 <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px" }}>No Negotiations Yet</div>
               </div>
             ) : sortedNegotiations.map(offer => (
-              <NegotiationCard key={offer.id} offer={offer} isOwn={offer.fromManagerUid === manager?.uid} />
+              <NegotiationCard key={offer.id} offer={offer} isOwn={offer.fromManagerUid === manager?.uid} isAdmin={isAdmin} />
             ))}
           </div>
         ) : (
