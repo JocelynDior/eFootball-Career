@@ -5,6 +5,7 @@ import { useAdmin } from "../context/AdminContext";
 import Navbar from "../components/Navbar";
 import Modal from "../components/Modal";
 import TabBar from "../components/TabBar";
+import BackgroundVideo from "../components/BackgroundVideo";
 import { uploadToImgBB } from "../utils/imgUpload";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -12,12 +13,12 @@ const LEAGUE = "tokyo";
 const LEAGUE_NAME = "TOKYO LEAGUE";
 const SEASON = "1";
 
-const TABLE_PATH   = `career_${LEAGUE}/seasons/season_${SEASON}/table`;
-const RESULTS_PATH = `career_${LEAGUE}/seasons/season_${SEASON}/results`;
+const TABLE_PATH    = `career_${LEAGUE}/seasons/season_${SEASON}/table`;
+const RESULTS_PATH  = `career_${LEAGUE}/seasons/season_${SEASON}/results`;
 const SETTINGS_PATH = `career_${LEAGUE}/seasons/season_${SEASON}/settings`;
 const SLIDESHOW_PATH = `career_${LEAGUE}/slideshow`;
 const FIXTURES_ROOT = "calendarEvents";
-const FIXTURES_TOURNAMENT = "tokyo pre season"; // normalized (lowercase, single-spaced) match target
+const FIXTURES_TOURNAMENT = "tokyo pre season";
 
 const MAIN_TABS = [
   { id: "leaguePhase", label: "LEAGUE PHASE" },
@@ -48,11 +49,10 @@ const inputStyle = {
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-// 30-team spread: Top 8 → Round of 16 (blue), 9th–24th → Play-offs (orange), 25th+ → Eliminated (red)
 function posBarColor(pos) {
-  if (pos <= 8)  return "#4169E1"; // blue  → R16
-  if (pos <= 24) return "#FFB800"; // amber/gold → play-offs
-  return "#ef4444";                // red → eliminated
+  if (pos <= 8)  return "#4169E1";
+  if (pos <= 24) return "#FFB800";
+  return "#ef4444";
 }
 
 function getTeamIcon(cache, teamName, size = 36) {
@@ -61,7 +61,7 @@ function getTeamIcon(cache, teamName, size = 36) {
   return <img src={url} alt={teamName} style={{ width: size, height: size, objectFit: "contain", borderRadius: 4 }} />;
 }
 
-// ─── Slideshow component ──────────────────────────────────────────────────────
+// ─── Slideshow ────────────────────────────────────────────────────────────────
 function Slideshow({ images }) {
   const [idx, setIdx] = useState(0);
   useEffect(() => {
@@ -92,7 +92,7 @@ function Slideshow({ images }) {
   );
 }
 
-// ─── Add / Edit Team Modal (mirrors the Premier League add-team flow) ─────────
+// ─── Add / Edit Team Modal ────────────────────────────────────────────────────
 function TokyoAddTeamModal({ team = null, onClose }) {
   const isEdit = !!team;
   const [form, setForm] = useState({
@@ -145,7 +145,145 @@ function TokyoAddTeamModal({ team = null, onClose }) {
   );
 }
 
-// ─── League Phase Tab (Premier-League-style table, Tokyo bar colours) ─────────
+// ─── Team Logo Modal ──────────────────────────────────────────────────────────
+function TeamLogoModal({ onClose }) {
+  const { updateTeamIcon } = useAdmin();
+  const [teams, setTeams] = useState([]);
+  const [selectedTeam, setSelectedTeam] = useState(null);
+  const [file, setFile] = useState(null);
+  const [preview, setPreview] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [status, setStatus] = useState("");
+  const [existingLogos, setExistingLogos] = useState({});
+
+  useEffect(() => {
+    const unsub = onValue(ref(db, TABLE_PATH), snap => {
+      const d = snap.val();
+      setTeams(d ? Object.entries(d).map(([k, v]) => ({ id: k, ...v })).sort((a, b) => a.name.localeCompare(b.name)) : []);
+    });
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const unsub = onValue(ref(db, PATHS.teamIcons), snap => {
+      setExistingLogos(snap.val() || {});
+    });
+    return () => unsub();
+  }, []);
+
+  function handleFileChange(e) {
+    const f = e.target.files[0];
+    if (!f) return;
+    setFile(f);
+    const reader = new FileReader();
+    reader.onload = ev => setPreview(ev.target.result);
+    reader.readAsDataURL(f);
+    setStatus("");
+  }
+
+  async function handleUpload() {
+    if (!selectedTeam) { setStatus("Please select a team first."); return; }
+    if (!file) { setStatus("Please choose an image first."); return; }
+    setUploading(true);
+    setStatus("");
+    try {
+      const url = await uploadToImgBB(file);
+      // Save to Firebase team_icons collection
+      await set(ref(db, `${PATHS.teamIcons}/${selectedTeam}`), url);
+      // Update in-memory + localStorage cache
+      updateTeamIcon(selectedTeam, url);
+      setStatus("✅ Logo saved for " + selectedTeam);
+      setFile(null);
+      setPreview("");
+      setSelectedTeam(null);
+    } catch (e) {
+      setStatus("❌ Upload failed: " + e.message);
+    }
+    setUploading(false);
+  }
+
+  return (
+    <div style={{ fontFamily: "'Inter', sans-serif" }}>
+      <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: 6, letterSpacing: "2px" }}>🖼️ Team Logos</h3>
+      <p style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.85rem", marginBottom: 20 }}>Select a team, upload a transparent PNG logo, then save.</p>
+
+      {/* Team list */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "1px", marginBottom: 10, fontWeight: 700 }}>Pick a Team</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: "28vh", overflowY: "auto", paddingRight: 4 }}>
+          {teams.length === 0 && (
+            <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "0.9rem", padding: "16px 0" }}>No teams in the table yet.</div>
+          )}
+          {teams.map(team => {
+            const isSelected = selectedTeam === team.name;
+            const hasLogo = !!existingLogos[team.name];
+            return (
+              <div
+                key={team.id}
+                onClick={() => { setSelectedTeam(team.name); setFile(null); setPreview(""); setStatus(""); }}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: "12px 16px", borderRadius: 12, cursor: "pointer",
+                  background: isSelected ? "rgba(255,20,147,0.2)" : "rgba(255,255,255,0.04)",
+                  border: `1px solid ${isSelected ? "#FF1493" : "rgba(255,20,147,0.2)"}`,
+                  transition: "all 0.2s",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  {hasLogo
+                    ? <img src={existingLogos[team.name]} alt="" style={{ width: 32, height: 32, objectFit: "contain", borderRadius: 4 }} />
+                    : <div style={{ width: 32, height: 32, borderRadius: 4, background: "rgba(255,20,147,0.1)", border: "1px dashed rgba(255,20,147,0.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.7rem", color: "rgba(255,255,255,0.3)" }}>?</div>
+                  }
+                  <span style={{ color: "#fff", fontWeight: 600, fontSize: "0.95rem" }}>{team.name}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {hasLogo && <span style={{ color: "#4ade80", fontSize: "0.75rem", fontWeight: 700 }}>✓ Has logo</span>}
+                  {isSelected && <span style={{ color: "#FF1493", fontSize: "0.75rem", fontWeight: 700 }}>Selected</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Upload area */}
+      {selectedTeam && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "1px", marginBottom: 10, fontWeight: 700 }}>
+            Upload Logo for <span style={{ color: "#FF1493" }}>{selectedTeam}</span>
+          </div>
+          <label style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, padding: "24px", border: "2px dashed rgba(255,20,147,0.35)", borderRadius: 14, cursor: "pointer", color: "rgba(255,255,255,0.45)", fontSize: "0.9rem", textAlign: "center", transition: "border-color 0.2s" }}>
+            {preview
+              ? <img src={preview} alt="preview" style={{ width: 80, height: 80, objectFit: "contain", borderRadius: 8 }} />
+              : <span style={{ fontSize: "2.5rem" }}>🖼️</span>
+            }
+            {preview ? <span style={{ color: "rgba(255,255,255,0.6)" }}>Click to change image</span> : <span>Click to upload transparent PNG</span>}
+            <input type="file" accept="image/png,image/webp,image/svg+xml,image/*" onChange={handleFileChange} style={{ display: "none" }} />
+          </label>
+        </div>
+      )}
+
+      {status && (
+        <div style={{ padding: "10px 16px", borderRadius: 10, marginBottom: 14, fontSize: "0.88rem", background: status.startsWith("✅") ? "rgba(74,222,128,0.1)" : "rgba(255,0,0,0.1)", color: status.startsWith("✅") ? "#4ade80" : "#ff6b6b", border: `1px solid ${status.startsWith("✅") ? "rgba(74,222,128,0.3)" : "rgba(255,0,0,0.3)"}` }}>
+          {status}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 12 }}>
+        <button
+          onClick={handleUpload}
+          disabled={uploading || !selectedTeam || !file}
+          style={{ flex: 1, padding: "14px", background: uploading || !selectedTeam || !file ? "rgba(255,20,147,0.3)" : "#FF1493", border: "none", borderRadius: 12, color: "#fff", fontWeight: 700, cursor: uploading || !selectedTeam || !file ? "not-allowed" : "pointer", transition: "all 0.2s" }}
+        >
+          {uploading ? "Uploading..." : "Save Logo"}
+        </button>
+        <button onClick={onClose} style={{ flex: 1, padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, color: "#fff", cursor: "pointer" }}>Close</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── League Phase Tab ─────────────────────────────────────────────────────────
 function LeaguePhaseTab({ teamIconsCache }) {
   const { isAdmin } = useAdmin();
   const [table, setTable] = useState([]);
@@ -168,25 +306,22 @@ function LeaguePhaseTab({ teamIconsCache }) {
   }
 
   const thStyle = {
-    padding: "18px 16px", color: "rgba(255,255,255,0.8)", fontSize: "1.1rem", fontWeight: 800,
+    padding: "18px 16px", color: "rgba(255,255,255,0.8)", fontSize: "2.2rem", fontWeight: 800,
     textTransform: "uppercase", letterSpacing: "1px", background: "rgba(255,20,147,0.2)",
     borderBottom: "2px solid #FF1493", whiteSpace: "nowrap", textAlign: "center",
   };
   const tdStyle = {
     padding: "18px 16px", textAlign: "center", fontFamily: "'Bebas Neue', sans-serif",
-    fontSize: "1.8rem", color: "#fff", whiteSpace: "nowrap",
+    fontSize: "3.6rem", color: "#fff", whiteSpace: "nowrap",
   };
 
   return (
     <div style={{ borderRadius: 20, overflow: "hidden", ...GLASS }}>
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 24px", background: "rgba(255,20,147,0.15)", borderBottom: "2px solid #FF1493", flexWrap: "wrap", gap: 12 }}>
-        <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "3px", color: "#fff" }}>🏆 League Table</span>
-        {isAdmin && (
-          <button onClick={() => setAddTeamOpen(true)} style={{ background: "rgba(255,20,147,0.2)", border: "1px solid rgba(255,20,147,0.5)", color: "#fff", padding: "10px 22px", borderRadius: 30, fontWeight: 700, cursor: "pointer", fontSize: "1rem", fontFamily: "inherit" }}>
-            + Add Team
-          </button>
-        )}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "18px 24px", background: "rgba(255,20,147,0.15)", borderBottom: "2px solid #FF1493" }}>
+        <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "3px", color: "#fff", textAlign: "center" }}>
+          🏆 Tokyo Pre Season
+        </span>
       </div>
 
       {!sorted.length ? (
@@ -219,20 +354,20 @@ function LeaguePhaseTab({ teamIconsCache }) {
                     <td style={{ padding: "18px 16px", textAlign: "center", position: "sticky", left: 0, background: "rgba(0,0,30,0.95)", zIndex: 10 }}>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7 }}>
                         <span style={{ width: 6, height: 32, borderRadius: 3, background: barColor, display: "inline-block", flexShrink: 0 }} />
-                        <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", color: "#fff" }}>{pos}</span>
+                        <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.6rem", color: "#fff" }}>{pos}</span>
                       </div>
                     </td>
                     {/* Club */}
                     <td style={{ padding: "18px 20px", position: "sticky", left: 70, background: "rgba(0,0,30,0.95)", zIndex: 10, boxShadow: "4px 0 12px rgba(0,0,0,0.5)" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
                         {getTeamIcon(teamIconsCache, team.name, 44)}
-                        <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", color: "#fff", letterSpacing: "0.5px", whiteSpace: "nowrap" }}>{team.name}</span>
+                        <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.6rem", color: "#fff", letterSpacing: "0.5px", whiteSpace: "nowrap" }}>{team.name}</span>
                       </div>
                     </td>
                     {[team.p||0, team.w||0, team.d||0, team.l||0, team.gf||0, team.ga||0, (gd > 0 ? `+${gd}` : gd)].map((v, ci) => (
                       <td key={ci} style={tdStyle}>{v}</td>
                     ))}
-                    <td style={{ ...tdStyle, fontSize: "2rem", color: "#FF1493", fontWeight: 900 }}>{team.pts || 0}</td>
+                    <td style={{ ...tdStyle, fontSize: "3.6rem", color: "#FF1493", fontWeight: 900 }}>{team.pts || 0}</td>
                     {isAdmin && (
                       <td style={{ padding: "18px 16px" }}>
                         <div style={{ display: "flex", gap: 6 }}>
@@ -274,7 +409,7 @@ function LeaguePhaseTab({ teamIconsCache }) {
   );
 }
 
-// ─── Fixtures Tab (sourced from the "TOKYO PRE SEASON" calendar tournament) ───
+// ─── Fixtures Tab ─────────────────────────────────────────────────────────────
 function FixturesTab({ teamIconsCache }) {
   const [allFixtures, setAllFixtures] = useState([]);
   const [teamFilter, setTeamFilter] = useState("all");
@@ -305,7 +440,6 @@ function FixturesTab({ teamIconsCache }) {
   const allTeams = [...new Set(allFixtures.flatMap(f => [f.home, f.away]))].sort();
   const filtered = teamFilter === "all" ? allFixtures : allFixtures.filter(f => f.home === teamFilter || f.away === teamFilter);
 
-  // Group by date
   const grouped = {};
   for (const fix of filtered) {
     if (!grouped[fix.date]) grouped[fix.date] = [];
@@ -322,7 +456,6 @@ function FixturesTab({ teamIconsCache }) {
 
   return (
     <div>
-      {/* Filter */}
       <div style={{ marginBottom: 20 }}>
         <select value={teamFilter} onChange={e => setTeamFilter(e.target.value)} style={{ ...inputStyle, maxWidth: 320, cursor: "pointer" }}>
           <option value="all">All Teams</option>
@@ -345,7 +478,6 @@ function FixturesTab({ teamIconsCache }) {
             </div>
             {fixes.map((fix, fi) => (
               <div key={fi} style={{ ...GLASS, borderRadius: 16, padding: "20px 28px", marginBottom: 12 }}>
-                {/* Tournament description */}
                 <div style={{ textAlign: "center", marginBottom: 14, color: "rgba(255,255,255,0.45)", fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1.5px" }}>
                   🏆 {fix.tournament}
                 </div>
@@ -378,19 +510,13 @@ function ResultsTab({ teamIconsCache, manager, isAdmin, activeSubTab }) {
   const [table, setTable] = useState([]);
   const [teamFilter, setTeamFilter] = useState("all");
 
-  useEffect(() => {
-    setSubTab(activeSubTab || "leaguePhase");
-  }, [activeSubTab]);
+  useEffect(() => { setSubTab(activeSubTab || "leaguePhase"); }, [activeSubTab]);
 
   useEffect(() => {
-    // Load results for all sub-tabs
     const paths = ["leaguePhase", "knockouts", "playoffs"];
     const unsubs = paths.map(p => onValue(ref(db, `${RESULTS_PATH}/${p}`), snap => {
       const d = snap.val();
-      setResults(prev => ({
-        ...prev,
-        [p]: d ? Object.entries(d).map(([k, v]) => ({ id: k, ...v })) : [],
-      }));
+      setResults(prev => ({ ...prev, [p]: d ? Object.entries(d).map(([k, v]) => ({ id: k, ...v })) : [] }));
     }));
     return () => unsubs.forEach(u => u());
   }, []);
@@ -417,7 +543,6 @@ function ResultsTab({ teamIconsCache, manager, isAdmin, activeSubTab }) {
 
   return (
     <div>
-      {/* Sub-tabs */}
       <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
         {RESULT_SUB_TABS.map(st => (
           <button key={st.id} onClick={() => { setSubTab(st.id); setTeamFilter("all"); }} style={{
@@ -430,14 +555,12 @@ function ResultsTab({ teamIconsCache, manager, isAdmin, activeSubTab }) {
         ))}
       </div>
 
-      {/* Bracket image for knockouts / playoffs */}
       {(subTab === "knockouts" || subTab === "playoffs") && bracketImage[subTab] && (
         <div style={{ borderRadius: 16, overflow: "hidden", marginBottom: 24 }}>
           <img src={bracketImage[subTab]} alt="Bracket" style={{ width: "100%", display: "block" }} />
         </div>
       )}
 
-      {/* Add result button for managers */}
       {(manager || isAdmin) && (
         <div style={{ marginBottom: 20 }}>
           <button onClick={() => setAddOpen(true)} style={{ padding: "12px 28px", background: "#FF1493", border: "none", borderRadius: 12, color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "0.95rem" }}>
@@ -446,7 +569,6 @@ function ResultsTab({ teamIconsCache, manager, isAdmin, activeSubTab }) {
         </div>
       )}
 
-      {/* Filter */}
       {allTeams.length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <select value={teamFilter} onChange={e => setTeamFilter(e.target.value)} style={{ ...inputStyle, maxWidth: 280, cursor: "pointer" }}>
@@ -456,7 +578,6 @@ function ResultsTab({ teamIconsCache, manager, isAdmin, activeSubTab }) {
         </div>
       )}
 
-      {/* Results list */}
       {sorted.length === 0 ? (
         <div style={{ textAlign: "center", padding: "60px 20px", color: "rgba(255,255,255,0.3)" }}>
           <div style={{ fontSize: "3rem", marginBottom: 12 }}>📋</div>
@@ -464,13 +585,10 @@ function ResultsTab({ teamIconsCache, manager, isAdmin, activeSubTab }) {
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {sorted.map(r => (
-            <ResultCard key={r.id} result={r} teamIconsCache={teamIconsCache} />
-          ))}
+          {sorted.map(r => <ResultCard key={r.id} result={r} teamIconsCache={teamIconsCache} />)}
         </div>
       )}
 
-      {/* Add Result Modal */}
       <Modal active={addOpen} onClose={() => setAddOpen(false)} wide>
         <AddResultForm
           teams={table.map(t => t.name).sort()}
@@ -491,26 +609,21 @@ function ResultCard({ result: r, teamIconsCache }) {
   return (
     <div style={{ ...GLASS, borderRadius: 18, padding: "24px 28px" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-        {/* Home */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, minWidth: 100 }}>
           {getTeamIcon(teamIconsCache, r.homeTeam)}
           <span style={{ color: "#fff", fontWeight: 700, fontSize: "1rem", textAlign: "center" }}>{r.homeTeam}</span>
         </div>
-        {/* Score */}
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
           <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", color: "#fff", letterSpacing: "6px", background: "rgba(0,0,0,0.3)", padding: "10px 28px", borderRadius: 60, border: "2px solid rgba(255,20,147,0.3)" }}>
             {r.homeScore} — {r.awayScore}
           </div>
           {r.date && <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem" }}>{r.date}</span>}
         </div>
-        {/* Away */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, minWidth: 100 }}>
           {getTeamIcon(teamIconsCache, r.awayTeam)}
           <span style={{ color: "#fff", fontWeight: 700, fontSize: "1rem", textAlign: "center" }}>{r.awayTeam}</span>
         </div>
       </div>
-
-      {/* Images */}
       {r.images?.length > 0 && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 16 }}>
           {r.images.map((url, i) => (
@@ -518,8 +631,6 @@ function ResultCard({ result: r, teamIconsCache }) {
           ))}
         </div>
       )}
-
-      {/* Submitted by */}
       {r.submittedByName && (
         <div style={{ marginTop: 10, color: "rgba(255,255,255,0.35)", fontSize: "0.75rem" }}>Submitted by {r.submittedByName}</div>
       )}
@@ -539,7 +650,6 @@ function AddResultForm({ teams, managerTeam, activeSubTab, onClose, tableData, i
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [confirmed, setConfirmed] = useState(false);
-
   const { manager } = useAdmin();
 
   function handleImageChange(e) {
@@ -564,40 +674,22 @@ function AddResultForm({ teams, managerTeam, activeSubTab, onClose, tableData, i
     if (homeScore === "" || awayScore === "") { setError("Enter the score."); return; }
     if (images.length === 0) { setError("You must upload at least 1 image as proof."); return; }
     if (!confirmed) { setError("Please confirm the disclaimer."); return; }
-
     setSaving(true);
     try {
-      // Upload images
       const imageUrls = await Promise.all(images.map(f => uploadToImgBB(f)));
-
       const hs = parseInt(homeScore) || 0;
       const as2 = parseInt(awayScore) || 0;
-
       const resultData = {
-        homeTeam,
-        awayTeam,
-        homeScore: hs,
-        awayScore: as2,
-        date,
-        images: imageUrls,
-        submittedAt: Date.now(),
-        submittedByUid: manager?.uid || "admin",
-        submittedByName: manager?.username || "Admin",
-        subTab: activeSubTab,
+        homeTeam, awayTeam, homeScore: hs, awayScore: as2, date, images: imageUrls,
+        submittedAt: Date.now(), submittedByUid: manager?.uid || "admin",
+        submittedByName: manager?.username || "Admin", subTab: activeSubTab,
       };
-
-      // Save result
       await push(ref(db, `${RESULTS_PATH}/${activeSubTab}`), resultData);
-
-      // Only update table stats if sub-tab is leaguePhase
       if (activeSubTab === "leaguePhase") {
         await applyResultToTable(homeTeam, awayTeam, hs, as2, tableData);
       }
-
       onClose();
-    } catch (e) {
-      setError("Failed: " + e.message);
-    }
+    } catch (e) { setError("Failed: " + e.message); }
     setSaving(false);
   }
 
@@ -608,7 +700,6 @@ function AddResultForm({ teams, managerTeam, activeSubTab, onClose, tableData, i
       <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", marginBottom: 8, letterSpacing: "3px" }}>⚽ ADD RESULT</h3>
       <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", marginBottom: 24 }}>Active tab: <span style={{ color: "#FF1493", fontWeight: 700 }}>{activeSubTab}</span></div>
 
-      {/* Disclaimer */}
       <div style={{ background: "rgba(255,170,0,0.08)", border: "2px solid rgba(255,170,0,0.4)", borderRadius: 12, padding: "14px 18px", marginBottom: 24 }}>
         <div style={{ color: "#ffaa00", fontWeight: 800, fontSize: "0.85rem", marginBottom: 6, textTransform: "uppercase", letterSpacing: "1px" }}>⚠️ Disclaimer</div>
         <div style={{ color: "rgba(255,255,255,0.8)", fontSize: "0.9rem", lineHeight: 1.6 }}>
@@ -620,7 +711,6 @@ function AddResultForm({ teams, managerTeam, activeSubTab, onClose, tableData, i
         </label>
       </div>
 
-      {/* Teams */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 }}>
         <div>
           <label style={labelStyle}>Home Team</label>
@@ -642,7 +732,6 @@ function AddResultForm({ teams, managerTeam, activeSubTab, onClose, tableData, i
         </div>
       </div>
 
-      {/* Score */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 12, alignItems: "center", marginBottom: 16 }}>
         <div>
           <label style={labelStyle}>Home Score</label>
@@ -655,13 +744,11 @@ function AddResultForm({ teams, managerTeam, activeSubTab, onClose, tableData, i
         </div>
       </div>
 
-      {/* Date */}
       <div style={{ marginBottom: 16 }}>
         <label style={labelStyle}>Match Date</label>
         <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} />
       </div>
 
-      {/* Image upload */}
       <div style={{ marginBottom: 20 }}>
         <label style={labelStyle}>Match Screenshots <span style={{ color: "#FF1493" }}>* Required</span></label>
         <label style={{ display: "block", padding: "20px", border: "2px dashed rgba(255,20,147,0.35)", borderRadius: 12, textAlign: "center", cursor: "pointer", color: "rgba(255,255,255,0.5)", fontSize: "0.9rem" }}>
@@ -694,12 +781,7 @@ function AddResultForm({ teams, managerTeam, activeSubTab, onClose, tableData, i
 
 // ─── Apply result to league table ─────────────────────────────────────────────
 async function applyResultToTable(homeTeam, awayTeam, hs, as2, tableData) {
-  function find(name) {
-    return tableData.find(t => t.name === name);
-  }
-
-  const homeEntry = find(homeTeam);
-  const awayEntry = find(awayTeam);
+  function find(name) { return tableData.find(t => t.name === name); }
 
   async function upsert(entry, teamName, gf, ga, won, drew, lost) {
     const base = entry || { name: teamName, p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, gd: 0, pts: 0 };
@@ -714,25 +796,18 @@ async function applyResultToTable(homeTeam, awayTeam, hs, as2, tableData) {
       gd:  (base.gd || 0) + (gf - ga),
       pts: (base.pts || 0) + (won ? 3 : drew ? 1 : 0),
     };
-    if (entry?.id) {
-      await update(ref(db, `${TABLE_PATH}/${entry.id}`), updated);
-    } else {
-      await push(ref(db, TABLE_PATH), updated);
-    }
+    if (entry?.id) await update(ref(db, `${TABLE_PATH}/${entry.id}`), updated);
+    else await push(ref(db, TABLE_PATH), updated);
   }
 
-  const homeWon  = hs > as2;
-  const awayWon  = as2 > hs;
-  const drew     = hs === as2;
-
-  await upsert(homeEntry, homeTeam, hs, as2, homeWon, drew, awayWon);
-  await upsert(awayEntry, awayTeam, as2, hs, awayWon, drew, homeWon);
+  const homeWon = hs > as2, awayWon = as2 > hs, drew = hs === as2;
+  await upsert(find(homeTeam), homeTeam, hs, as2, homeWon, drew, awayWon);
+  await upsert(find(awayTeam), awayTeam, as2, hs, awayWon, drew, homeWon);
 }
 
 // ─── Revoke result from league table ─────────────────────────────────────────
 async function revokeResultFromTable(result, tableData) {
   const { homeTeam, awayTeam, homeScore: hs, awayScore: as2 } = result;
-
   function find(name) { return tableData.find(t => t.name === name); }
 
   async function revert(entry, gf, ga, won, drew, lost) {
@@ -751,10 +826,7 @@ async function revokeResultFromTable(result, tableData) {
     await update(ref(db, `${TABLE_PATH}/${entry.id}`), updated);
   }
 
-  const homeWon = hs > as2;
-  const awayWon = as2 > hs;
-  const drew    = hs === as2;
-
+  const homeWon = hs > as2, awayWon = as2 > hs, drew = hs === as2;
   await revert(find(homeTeam), hs, as2, homeWon, drew, awayWon);
   await revert(find(awayTeam), as2, hs, awayWon, drew, homeWon);
 }
@@ -784,16 +856,12 @@ function ResultsHistoryModal({ onClose, teamIconsCache }) {
   }, []);
 
   async function handleRevoke(r) {
-    if (!window.confirm(`Revoke ${r.homeTeam} ${r.homeScore}–${r.awayScore} ${r.awayTeam}? This will reverse table stats if it was a League Phase result.`)) return;
+    if (!window.confirm(`Revoke ${r.homeTeam} ${r.homeScore}–${r.awayScore} ${r.awayTeam}?`)) return;
     setRevoking(r.id);
     try {
       await remove(ref(db, `${RESULTS_PATH}/${r.subTab}/${r.id}`));
-      if (r.subTab === "leaguePhase") {
-        await revokeResultFromTable(r, tableData);
-      }
-    } catch (e) {
-      alert("Revoke failed: " + e.message);
-    }
+      if (r.subTab === "leaguePhase") await revokeResultFromTable(r, tableData);
+    } catch (e) { alert("Revoke failed: " + e.message); }
     setRevoking(null);
   }
 
@@ -803,14 +871,12 @@ function ResultsHistoryModal({ onClose, teamIconsCache }) {
   return (
     <div style={{ fontFamily: "'Inter', sans-serif" }}>
       <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", marginBottom: 20, letterSpacing: "3px" }}>📜 RESULTS HISTORY</h3>
-
       <div style={{ marginBottom: 20 }}>
         <select value={filter} onChange={e => setFilter(e.target.value)} style={{ ...inputStyle, maxWidth: 280, cursor: "pointer" }}>
           <option value="all">All Teams</option>
           {allTeams.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
       </div>
-
       {filtered.length === 0 ? (
         <div style={{ textAlign: "center", padding: "40px", color: "rgba(255,255,255,0.3)" }}>No results found.</div>
       ) : (
@@ -832,32 +898,25 @@ function ResultsHistoryModal({ onClose, teamIconsCache }) {
                   </div>
                 )}
               </div>
-              <button
-                onClick={() => handleRevoke(r)}
-                disabled={revoking === r.id}
-                style={{ padding: "10px 20px", background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.4)", color: "#ff6b6b", borderRadius: 10, cursor: revoking === r.id ? "not-allowed" : "pointer", fontWeight: 700, fontSize: "0.85rem", whiteSpace: "nowrap" }}
-              >
+              <button onClick={() => handleRevoke(r)} disabled={revoking === r.id} style={{ padding: "10px 20px", background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.4)", color: "#ff6b6b", borderRadius: 10, cursor: revoking === r.id ? "not-allowed" : "pointer", fontWeight: 700, fontSize: "0.85rem", whiteSpace: "nowrap" }}>
                 {revoking === r.id ? "Revoking..." : "🔄 Revoke"}
               </button>
             </div>
           ))}
         </div>
       )}
-
       <button onClick={onClose} style={{ width: "100%", marginTop: 20, padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, color: "#fff", cursor: "pointer", fontWeight: 700 }}>Close</button>
     </div>
   );
 }
 
-// ─── Admin Slideshow Manager ──────────────────────────────────────────────────
+// ─── Slideshow Manager ────────────────────────────────────────────────────────
 function SlideshowManager({ onClose }) {
   const [images, setImages] = useState([]);
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
-    const unsub = onValue(ref(db, SLIDESHOW_PATH), snap => {
-      setImages(snap.val() || []);
-    });
+    const unsub = onValue(ref(db, SLIDESHOW_PATH), snap => { setImages(snap.val() || []); });
     return () => unsub();
   }, []);
 
@@ -867,17 +926,13 @@ function SlideshowManager({ onClose }) {
     setUploading(true);
     try {
       const urls = await Promise.all(files.map(f => uploadToImgBB(f)));
-      const updated = [...images, ...urls];
-      await set(ref(db, SLIDESHOW_PATH), updated);
-    } catch (err) {
-      alert("Upload failed: " + err.message);
-    }
+      await set(ref(db, SLIDESHOW_PATH), [...images, ...urls]);
+    } catch (err) { alert("Upload failed: " + err.message); }
     setUploading(false);
   }
 
   async function removeSlide(i) {
-    const updated = images.filter((_, idx) => idx !== i);
-    await set(ref(db, SLIDESHOW_PATH), updated);
+    await set(ref(db, SLIDESHOW_PATH), images.filter((_, idx) => idx !== i));
   }
 
   return (
@@ -900,7 +955,7 @@ function SlideshowManager({ onClose }) {
   );
 }
 
-// ─── Admin Bracket Image Manager ──────────────────────────────────────────────
+// ─── Bracket Image Manager ────────────────────────────────────────────────────
 function BracketImageManager({ onClose }) {
   const [koUrl, setKoUrl] = useState("");
   const [poUrl, setPoUrl] = useState("");
@@ -909,8 +964,7 @@ function BracketImageManager({ onClose }) {
   useEffect(() => {
     const unsub = onValue(ref(db, `${SETTINGS_PATH}/bracketImage`), snap => {
       const d = snap.val() || {};
-      setKoUrl(d.knockouts || "");
-      setPoUrl(d.playoffs || "");
+      setKoUrl(d.knockouts || ""); setPoUrl(d.playoffs || "");
     });
     return () => unsub();
   }, []);
@@ -922,9 +976,7 @@ function BracketImageManager({ onClose }) {
     try {
       const url = await uploadToImgBB(file);
       await set(ref(db, `${SETTINGS_PATH}/bracketImage/${type}`), url);
-    } catch (err) {
-      alert("Upload failed: " + err.message);
-    }
+    } catch (err) { alert("Upload failed: " + err.message); }
     setUploading(null);
   }
 
@@ -977,7 +1029,7 @@ function SetActiveSubTabModal({ current, onClose }) {
   );
 }
 
-// ─── Edit Table Row Modal ─────────────────────────────────────────────────────
+// ─── Edit Table Modal ─────────────────────────────────────────────────────────
 function EditTableModal({ onClose }) {
   const [teams, setTeams] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -1016,7 +1068,7 @@ function EditTableModal({ onClose }) {
   }
 
   async function handleDelete(team) {
-    if (!window.confirm(`Delete ${team.name} from the table?`)) return;
+    if (!window.confirm(`Delete ${team.name}?`)) return;
     await remove(ref(db, `${TABLE_PATH}/${team.id}`));
   }
 
@@ -1025,13 +1077,10 @@ function EditTableModal({ onClose }) {
   return (
     <div style={{ fontFamily: "'Inter', sans-serif" }}>
       <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: 16, letterSpacing: "2px" }}>📋 EDIT LEAGUE TABLE</h3>
-
-      {/* Add team */}
       <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
         <input value={addName} onChange={e => setAddName(e.target.value)} placeholder="New team name" style={{ ...inputStyle, marginBottom: 0, flex: 1 }} />
         <button onClick={handleAddTeam} disabled={adding} style={{ padding: "14px 20px", background: "#FF1493", border: "none", borderRadius: 12, color: "#fff", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>{adding ? "Adding..." : "+ Add"}</button>
       </div>
-
       {selected ? (
         <div>
           <div style={{ color: "#FF1493", fontWeight: 700, fontSize: "1rem", marginBottom: 14 }}>Editing: {selected.name}</div>
@@ -1061,7 +1110,6 @@ function EditTableModal({ onClose }) {
           ))}
         </div>
       )}
-
       <button onClick={onClose} style={{ width: "100%", marginTop: 16, padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, color: "#fff", cursor: "pointer" }}>Close</button>
     </div>
   );
@@ -1069,26 +1117,27 @@ function EditTableModal({ onClose }) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function TokyoPage() {
-  const { isAdmin, teamIconsCache, manager } = useAdmin();
+  const { isAdmin, teamIconsCache, updateTeamIcon, manager } = useAdmin();
   const [tab, setTab] = useState("leaguePhase");
   const [slideshowImages, setSlideshowImages] = useState([]);
   const [activeSubTab, setActiveSubTab] = useState("leaguePhase");
 
   // Admin modals
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyOpen,   setHistoryOpen]   = useState(false);
   const [slideshowOpen, setSlideshowOpen] = useState(false);
-  const [bracketOpen, setBracketOpen] = useState(false);
+  const [bracketOpen,   setBracketOpen]   = useState(false);
   const [activeTabOpen, setActiveTabOpen] = useState(false);
   const [tableEditOpen, setTableEditOpen] = useState(false);
-  const [addTeamOpen, setAddTeamOpen] = useState(false);
+  const [addTeamOpen,   setAddTeamOpen]   = useState(false);
+  const [teamLogoOpen,  setTeamLogoOpen]  = useState(false);
 
+  // Load slideshow images
   useEffect(() => {
-    const unsub = onValue(ref(db, SLIDESHOW_PATH), snap => {
-      setSlideshowImages(snap.val() || []);
-    });
+    const unsub = onValue(ref(db, SLIDESHOW_PATH), snap => { setSlideshowImages(snap.val() || []); });
     return () => unsub();
   }, []);
 
+  // Load active results sub-tab
   useEffect(() => {
     const unsub = onValue(ref(db, `${SETTINGS_PATH}/activeResultsSubTab`), snap => {
       if (snap.val()) setActiveSubTab(snap.val());
@@ -1096,29 +1145,36 @@ export default function TokyoPage() {
     return () => unsub();
   }, []);
 
-  // Items shown in the Navbar's admin "+" dropdown while on this page
+  // Sync team logos from Firebase into cache on page load
+  useEffect(() => {
+    const unsub = onValue(ref(db, PATHS.teamIcons), snap => {
+      const logos = snap.val() || {};
+      Object.entries(logos).forEach(([teamName, url]) => {
+        updateTeamIcon(teamName, url);
+      });
+    });
+    return () => unsub();
+  }, []);
+
   const tokyoAdminMenuItems = [
-    { icon: "➕", label: "Add Team", action: () => setAddTeamOpen(true) },
+    { icon: "➕", label: "Add Team",       action: () => setAddTeamOpen(true) },
+    { icon: "🖼️", label: "Add Team Logo",  action: () => setTeamLogoOpen(true) },
     { icon: "📜", label: "Results History", action: () => setHistoryOpen(true) },
     { icon: "🎞️", label: "Manage Slideshow", action: () => setSlideshowOpen(true) },
-    { icon: "🏆", label: "Bracket Images", action: () => setBracketOpen(true) },
+    { icon: "🏆", label: "Bracket Images",  action: () => setBracketOpen(true) },
     { icon: "🎯", label: "Set Active Results Tab", action: () => setActiveTabOpen(true) },
     { icon: "📋", label: "Edit League Table", action: () => setTableEditOpen(true) },
   ];
 
   return (
     <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
-      {/* Admin "+" button (Add Team, Results History, Slideshow, etc.) lives in the Navbar and only shows when isAdmin is true */}
+      <BackgroundVideo />
       <Navbar tokyoMenuItems={isAdmin ? tokyoAdminMenuItems : undefined} />
 
       <div style={{ padding: "28px 24px 80px", maxWidth: "100%" }}>
-        {/* Slideshow */}
         <Slideshow images={slideshowImages} />
-
-        {/* Tabs */}
         <TabBar tabs={MAIN_TABS} activeTab={tab} onTabChange={setTab} />
 
-        {/* Tab content */}
         {tab === "leaguePhase" && <LeaguePhaseTab teamIconsCache={teamIconsCache} />}
         {tab === "fixtures"    && <FixturesTab    teamIconsCache={teamIconsCache} />}
         {tab === "results"     && <ResultsTab     teamIconsCache={teamIconsCache} manager={manager} isAdmin={isAdmin} activeSubTab={activeSubTab} />}
@@ -1128,13 +1184,19 @@ export default function TokyoPage() {
       <Modal active={addTeamOpen}   onClose={() => setAddTeamOpen(false)}>
         <TokyoAddTeamModal onClose={() => setAddTeamOpen(false)} />
       </Modal>
-      <Modal active={historyOpen}   onClose={() => setHistoryOpen(false)}   wide><ResultsHistoryModal   onClose={() => setHistoryOpen(false)}   teamIconsCache={teamIconsCache} /></Modal>
-      <Modal active={slideshowOpen} onClose={() => setSlideshowOpen(false)} wide><SlideshowManager      onClose={() => setSlideshowOpen(false)} /></Modal>
-      <Modal active={bracketOpen}   onClose={() => setBracketOpen(false)}   wide><BracketImageManager   onClose={() => setBracketOpen(false)} /></Modal>
-      <Modal active={activeTabOpen} onClose={() => setActiveTabOpen(false)} wide><SetActiveSubTabModal  current={activeSubTab} onClose={() => setActiveTabOpen(false)} /></Modal>
-      <Modal active={tableEditOpen} onClose={() => setTableEditOpen(false)} wide><EditTableModal        onClose={() => setTableEditOpen(false)} /></Modal>
+      <Modal active={teamLogoOpen}  onClose={() => setTeamLogoOpen(false)}>
+        <TeamLogoModal onClose={() => setTeamLogoOpen(false)} />
+      </Modal>
+      <Modal active={historyOpen}   onClose={() => setHistoryOpen(false)}   wide><ResultsHistoryModal  onClose={() => setHistoryOpen(false)}   teamIconsCache={teamIconsCache} /></Modal>
+      <Modal active={slideshowOpen} onClose={() => setSlideshowOpen(false)} wide><SlideshowManager     onClose={() => setSlideshowOpen(false)} /></Modal>
+      <Modal active={bracketOpen}   onClose={() => setBracketOpen(false)}   wide><BracketImageManager  onClose={() => setBracketOpen(false)} /></Modal>
+      <Modal active={activeTabOpen} onClose={() => setActiveTabOpen(false)} wide><SetActiveSubTabModal current={activeSubTab} onClose={() => setActiveTabOpen(false)} /></Modal>
+      <Modal active={tableEditOpen} onClose={() => setTableEditOpen(false)} wide><EditTableModal       onClose={() => setTableEditOpen(false)} /></Modal>
 
-      <style>{`select option { background: #000033; color: #fff; } input[type=date]::-webkit-calendar-picker-indicator { filter: invert(1); }`}</style>
+      <style>{`
+        select option { background: #000033; color: #fff; }
+        input[type=date]::-webkit-calendar-picker-indicator { filter: invert(1); }
+      `}</style>
     </div>
   );
 }
