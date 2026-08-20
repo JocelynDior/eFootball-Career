@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { db, PATHS } from "../firebase";
-import { ref, onValue, push, update, get } from "firebase/database";
+import { ref, onValue, push, update, get, remove } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
 import Navbar from "../components/Navbar";
 import BackgroundVideo from "../components/BackgroundVideo";
@@ -535,8 +535,7 @@ function SquadPlayerPopup({ player, team, onClose }) {
   async function handleDelete() {
     setDeleting(true);
     try {
-      const { remove: fbRemove } = await import("firebase/database");
-      await fbRemove(ref(db, `career_team_management/${team}/squad/${player.id}`));
+      await remove(ref(db, `career_team_management/${team}/squad/${player.id}`));
       onClose();
     } catch(e) { setError("Delete failed: " + e.message); }
     setDeleting(false);
@@ -624,7 +623,7 @@ function SquadTab({ team, isAdmin, onEditSquad }) {
         const group = POS_GROUP_TMP[slot.pos] || [slot.pos];
         match = startingPlayers.find(p => !used.has(p.id) && group.includes(p.position));
       }
-      if (!match) match = startingPlayers.find(p => !used.has(p.id));
+      // No fallback — slot stays empty if no position match
       if (match) used.add(match.id);
       return { slot, player: match || null };
     });
