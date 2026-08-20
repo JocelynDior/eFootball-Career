@@ -551,64 +551,56 @@ export default function TransferMarketPage() {
           </div>
         ) : (
           <>
-            {/* Search bar — 2x bigger */}
-            <div style={{ display: "flex", gap: "14px", marginBottom: "22px", flexWrap: "wrap" }}>
-              <div style={{ flex: 1, minWidth: "280px" }}>
-                <input
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  onKeyDown={handleAiSearch}
-                  placeholder="🔍 Search players... press Enter to search any player with AI"
-                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-                />
-              </div>
-              <button
-                onClick={() => setShowFilterPanel(v => !v)}
-                style={{
-                  ...inputStyle,
-                  cursor: "pointer",
-                  background: showFilterPanel ? "rgba(255,20,147,0.2)" : "rgba(255,255,255,0.06)",
-                  borderColor: showFilterPanel ? "#FF1493" : "rgba(255,20,147,0.35)",
-                  color: "#fff", fontWeight: 700, whiteSpace: "nowrap",
-                  padding: "20px 28px", fontSize: "1.1rem",
-                }}
-              >
-                ⚙️ Filters {Object.values(filters).some(Boolean) ? "●" : ""}
-              </button>
-            </div>
-
-            {/* Filter panel */}
-            {showFilterPanel && (
-              <div style={{ ...GLASS, borderRadius: "18px", padding: "24px", marginBottom: "24px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px" }}>
-                {[
-                  { key: "club", label: "Club", options: allClubs },
-                  { key: "nationality", label: "Nationality", options: allNationalities },
-                  { key: "position", label: "Position", options: allPositions },
-                ].map(({ key, label, options }) => (
-                  <div key={key}>
-                    <label style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.8px", display: "block", marginBottom: "8px" }}>{label}</label>
-                    <select
-                      value={filters[key]}
-                      onChange={e => setFilters(prev => ({ ...prev, [key]: e.target.value }))}
-                      style={{ ...inputStyle, width: "100%", cursor: "pointer", padding: "14px 18px" }}
-                    >
-                      <option value="">All {label}s</option>
-                      {options.map(o => <option key={o} value={o}>{o}</option>)}
-                    </select>
+            {/* Search bar — hidden on listed tab */}
+            {/* Search bar + filters — hidden on listed tab */}
+            {tab !== "listed" && (
+              <>
+                <div style={{ display: "flex", gap: "14px", marginBottom: "22px", flexWrap: "wrap" }}>
+                  <div style={{ flex: 1, minWidth: "280px" }}>
+                    <input
+                      value={search}
+                      onChange={e => setSearch(e.target.value)}
+                      onKeyDown={handleAiSearch}
+                      placeholder="🔍 Search players... press Enter to search any player with AI"
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
                   </div>
-                ))}
-                <div>
-                  <label style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.8px", display: "block", marginBottom: "8px" }}>Price</label>
-                  <select value={filters.priceSort} onChange={e => setFilters(prev => ({ ...prev, priceSort: e.target.value }))} style={{ ...inputStyle, width: "100%", cursor: "pointer", padding: "14px 18px" }}>
-                    <option value="">Default</option>
-                    <option value="desc">Highest First</option>
-                    <option value="asc">Lowest First</option>
-                  </select>
+                  <button
+                    onClick={() => setShowFilterPanel(v => !v)}
+                    style={{ ...inputStyle, cursor: "pointer", background: showFilterPanel ? "rgba(255,20,147,0.2)" : "rgba(255,255,255,0.06)", borderColor: showFilterPanel ? "#FF1493" : "rgba(255,20,147,0.35)", color: "#fff", fontWeight: 700, whiteSpace: "nowrap", padding: "20px 28px", fontSize: "1.1rem" }}
+                  >
+                    ⚙️ Filters {Object.values(filters).some(Boolean) ? "●" : ""}
+                  </button>
                 </div>
-                <div style={{ display: "flex", alignItems: "flex-end" }}>
-                  <button onClick={() => setFilters({ club: "", nationality: "", position: "", priceSort: "" })} style={{ ...inputStyle, cursor: "pointer", color: "#FF1493", fontWeight: 700, padding: "14px 20px", whiteSpace: "nowrap" }}>Clear Filters</button>
-                </div>
-              </div>
+                {showFilterPanel && (
+                  <div style={{ ...GLASS, borderRadius: "18px", padding: "24px", marginBottom: "24px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px" }}>
+                    {[
+                      { key: "club", label: "Club", options: allClubs },
+                      { key: "nationality", label: "Nationality", options: allNationalities },
+                      { key: "position", label: "Position", options: allPositions },
+                    ].map(({ key, label, options }) => (
+                      <div key={key}>
+                        <label style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.8px", display: "block", marginBottom: "8px" }}>{label}</label>
+                        <select value={filters[key]} onChange={e => setFilters(prev => ({ ...prev, [key]: e.target.value }))} style={{ ...inputStyle, width: "100%", cursor: "pointer", padding: "14px 18px" }}>
+                          <option value="">All {label}s</option>
+                          {options.map(o => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      </div>
+                    ))}
+                    <div>
+                      <label style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.8px", display: "block", marginBottom: "8px" }}>Price</label>
+                      <select value={filters.priceSort} onChange={e => setFilters(prev => ({ ...prev, priceSort: e.target.value }))} style={{ ...inputStyle, width: "100%", cursor: "pointer", padding: "14px 18px" }}>
+                        <option value="">Default</option>
+                        <option value="desc">Highest First</option>
+                        <option value="asc">Lowest First</option>
+                      </select>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "flex-end" }}>
+                      <button onClick={() => setFilters({ club: "", nationality: "", position: "", priceSort: "" })} style={{ ...inputStyle, cursor: "pointer", color: "#FF1493", fontWeight: 700, padding: "14px 20px", whiteSpace: "nowrap" }}>Clear Filters</button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
             {/* AI search loading / result */}
