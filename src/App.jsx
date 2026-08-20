@@ -22,6 +22,7 @@ import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import AdminCalendarPage from "./pages/AdminCalendarPage";
 import ManagerProfilePage from "./pages/ManagerProfilePage";
 import AdminProfilePage from "./pages/AdminProfilePage";
+import RivalsSquadPage from "./pages/RivalsSquadPage";
 
 // Newly created files
 import { groq } from "./utils/groq"; // adjust import style if it's default or named
@@ -87,6 +88,7 @@ export default function App() {
           <Route path="/admin-calendar" element={<AdminCalendarPage />} />
           <Route path="/manager-profile" element={<ManagerProfilePage />} />
           <Route path="/admin-profile" element={<AdminProfilePage />} />
+          <Route path="/rivals-squads" element={<RivalsSquadPage />} />
         </Routes>
       </BrowserRouter>
     </AdminProvider>
