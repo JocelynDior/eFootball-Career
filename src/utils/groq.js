@@ -24,10 +24,17 @@ export async function askGroq(systemPrompt, userPrompt) {
 }
 
 function cleanGroqResponse(raw) {
-  return raw
-    .replace(/<think>[\s\S]*?<\/think>/g, "")
+  const stripped = raw
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
     .replace(/```json|```/g, "")
     .trim();
+  // Extract first JSON object or array found
+  const objMatch = stripped.match(/\{[\s\S]*\}/);
+  const arrMatch = stripped.match(/\[[\s\S]*\]/);
+  if (objMatch && arrMatch) {
+    return objMatch.index < arrMatch.index ? objMatch[0] : arrMatch[0];
+  }
+  return objMatch?.[0] || arrMatch?.[0] || stripped;
 }
 
 export async function fetchPlayerStats(playerName) {
@@ -100,7 +107,7 @@ export async function fetchTop50Players(onProgress) {
 }
 
 export async function fetchStadiumInfo(teamName) {
-  const system = `You are a football stadium data expert. Return ONLY a valid JSON object with stadium info. No preamble, no markdown, no <think> tags.
+  const system = `You are a football stadium data expert. Return ONLY a valid JSON object with stadium info. No preamble, no markdown, no <think> tags, no explanation whatsoever. Output the raw JSON object only.
 
 Return exactly this JSON structure:
 {
@@ -114,8 +121,14 @@ Return exactly this JSON structure:
 }`;
 
   const raw = await askGroq(system, `Football team: ${teamName}`);
-  const clean = cleanGroqResponse(raw);
-  return JSON.parse(clean);
+  const clean = raw
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/```json|```/g, "")
+    .trim();
+  // Extract JSON object in case there's any stray text
+  const match = clean.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error("No JSON found in response");
+  return JSON.parse(match[0]);
 }
 
 export function getClubColors(clubName) {
