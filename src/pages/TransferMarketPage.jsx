@@ -457,25 +457,94 @@ export default function TransferMarketPage() {
   const mergedIcons = { ...teamIconsCache, ...teamIcons };
   const TODAY_STR = new Date().toLocaleDateString("en-GB", { day:"numeric", month:"long", year:"numeric" });
 
-  // Universal AI player search on Enter
+  // Universal player search — fetches live data from fotmob
   async function handleAiSearch(e) {
     if (e.key !== "Enter" || !search.trim() || tab === "negotiations" || tab === "listed") return;
-    // Check if player already exists in current tab
+    // Check if player already exists in current tab first
     const existing = (players[tab] || []).find(p => p.name?.toLowerCase().includes(search.toLowerCase()));
     if (existing) { setSelectedPlayer(existing); setSelectedPlayerId(existing.id); return; }
+
     setAiSearching(true);
     setAiResult(null);
+
     try {
-      const { askGroq } = await import("../utils/groq");
-      const system = `You are a football data expert. Return ONLY valid JSON, no markdown, no preamble, no <think> tags.`;
-      const prompt = `Today's date is ${TODAY_STR}. Search for the football player named "${search}". Return their current stats as of today in this exact JSON:
-{"name":"","age":0,"club":"","nationality":"","position":"","overall":0,"squadNumber":0,"weeklyWage":"","value":"","contractEnd":"","preferredFoot":"","height":"","weight":""}`;
-      const raw = await askGroq(system, prompt);
-      const clean = raw.replace(/<think>[\s\S]*?<\/think>/g,"").replace(/```json|```/g,"").trim();
-      const data = JSON.parse(clean);
-      setAiResult(data);
-    } catch(e) {
-      setAiResult({ error: "Player not found. Try a different name." });
+      // Step 1 — search fotmob for player
+      const searchRes = await fetch(
+        `https://www.fotmob.com/api/search?term=${encodeURIComponent(search)}`,
+        { headers: { "Accept": "application/json" } }
+      );
+      const searchData = await searchRes.json();
+
+      // Find first player result
+      const playerHit = searchData?.squad?.find(r => r.participantType === "player")
+        || searchData?.squad?.[0]
+        || searchData?.players?.[0];
+
+      if (!playerHit) throw new Error("not_found");
+
+      const playerId = playerHit.id || playerHit.participantId;
+      const playerName = playerHit.name || search;
+
+      // Step 2 — fetch full player details from fotmob
+      const detailRes = await fetch(
+        `https://www.fotmob.com/api/playerData?id=${playerId}`,
+        { headers: { "Accept": "application/json" } }
+      );
+      const detail = await detailRes.json();
+
+      // Extract stats from fotmob response
+      const props = detail?.careerHistory?.careerItems?.[0] || {};
+      const mainTeam = detail?.recentMatches?.[0]?.teamName || detail?.primaryTeam?.teamName || playerHit.teamName || "—";
+      const position = detail?.positionDescription?.primaryPosition?.label || detail?.playerProps?.find(p => p.title === "Position")?.value || "—";
+      const age = detail?.playerProps?.find(p => p.title === "Age")?.value || "—";
+      const height = detail?.playerProps?.find(p => p.title === "Height")?.value || "—";
+      const nationality = detail?.playerInformation?.find(p => p.title === "Nationality")?.value?.text || "—";
+      const marketValue = detail?.playerInformation?.find(p => p.title === "Market value")?.value?.text || "—";
+      const contractEnd = detail?.playerInformation?.find(p => p.title === "Contract expires")?.value?.text || "—";
+      const shirtNumber = detail?.playerProps?.find(p => p.title === "Shirt number")?.value || "—";
+
+      // Step 3 — use Groq only for wage (fotmob doesn't show wages) — include club for accuracy
+      let weeklyWage = "—";
+      try {
+        const { askGroq } = await import("../utils/groq");
+        const wageRaw = await askGroq(
+          `You are a football salary expert. Return ONLY valid JSON, no markdown, no <think> tags.`,
+          `Today is ${TODAY_STR}. What is ${playerName}'s current weekly wage at ${mainTeam}? Return: {"weeklyWage":"€X,XXX"}`
+        );
+        const wageClean = wageRaw.replace(/<think>[\s\S]*?<\/think>/g, "").replace(/```json|```/g, "").trim();
+        weeklyWage = JSON.parse(wageClean).weeklyWage || "—";
+      } catch(_) {}
+
+      setAiResult({
+        name: playerName,
+        club: mainTeam,
+        nationality,
+        position,
+        age,
+        height,
+        value: marketValue,
+        contractEnd,
+        weeklyWage,
+        squadNumber: shirtNumber,
+        fotmobId: playerId,
+      });
+
+    } catch(err) {
+      if (err.message === "not_found") {
+        setAiResult({ error: `No player found for "${search}". Try their full name.` });
+      } else {
+        // Fallback to Groq if fotmob fails (CORS etc)
+        try {
+          const { askGroq } = await import("../utils/groq");
+          const system = `You are a football data expert. Return ONLY valid JSON, no markdown, no preamble, no <think> tags.`;
+          const prompt = `Today's date is ${TODAY_STR}. What are the current stats for the footballer "${search}"? Return: {"name":"","age":"","club":"","nationality":"","position":"","value":"","weeklyWage":"","contractEnd":"","height":"","squadNumber":""}`;
+          const raw = await askGroq(system, prompt);
+          const clean = raw.replace(/<think>[\s\S]*?<\/think>/g, "").replace(/```json|```/g, "").trim();
+          setAiResult(JSON.parse(clean));
+        } catch(_) {
+          setAiResult({ error: "Could not find player. Try their full name." });
+        }
+      }
     }
     setAiSearching(false);
   }
@@ -534,7 +603,7 @@ export default function TransferMarketPage() {
       {/* Full-width content */}
       <div style={{ padding: "24px 20px 80px" }}>
         <div style={{ marginBottom: "24px" }}>
-          <TabBar tabs={TABS} activeTab={tab} onTabChange={t => { setTab(t); setSearch(""); setFilters({ club: "", nationality: "", position: "", priceSort: "" }); setVisibleCount(12); }} />
+          <TabBar tabs={TABS} activeTab={tab} onTabChange={t => { setTab(t); setSearch(""); setFilters({ club: "", nationality: "", position: "", priceSort: "" }); setVisibleCount(12); setAiResult(null); setAiSearching(false); }} />
         </div>
 
         {/* Negotiations tab */}
