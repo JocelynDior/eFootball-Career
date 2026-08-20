@@ -6,7 +6,8 @@ const menuItems = [
   { label: "🏠 Home", path: "/" },
   { label: "💸 Transfer Market", path: "/transfer-market" },
   { label: "🛠️ Team Management", path: "/team-management" },
-  { label: "📅 Calendar", path: "/calendar" }, // path overridden for admin below
+  { label: "⚔️ Rivals Squads", path: "/rivals-squads" },
+  { label: "📅 Calendar", path: "/calendar" },
   { label: "📊 Manager Rankings", path: "/manager-rankings" },
   { label: "📄 Terms of Service", path: "/terms" },
   { label: "🔒 Privacy Policy", path: "/privacy" },
