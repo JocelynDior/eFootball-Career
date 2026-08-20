@@ -136,7 +136,7 @@ function PlayerGridCard({ player, teamIcons, onClick }) {
   );
 }
 
-function NegotiationCard({ offer, isOwn, isAdmin }) {
+function NegotiationCard({ offer, isOwn, isAdmin, manager }) {
   const statusColors = { pending: "#ffaa44", accepted: "#00ff88", rejected: "#ff6b6b" };
   const statusColor = statusColors[offer.status] || "#ffaa44";
   const [processing, setProcessing] = useState(false);
@@ -546,7 +546,7 @@ export default function TransferMarketPage() {
                 <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px" }}>No Negotiations Yet</div>
               </div>
             ) : sortedNegotiations.map(offer => (
-              <NegotiationCard key={offer.id} offer={offer} isOwn={offer.fromManagerUid === manager?.uid} isAdmin={isAdmin} />
+              <NegotiationCard key={offer.id} offer={offer} isOwn={offer.fromManagerUid === manager?.uid} isAdmin={isAdmin} manager={manager} />
             ))}
           </div>
         ) : (
