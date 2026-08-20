@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { db, PATHS } from "../firebase";
 import { ref, onValue, set, update, push } from "firebase/database";
@@ -6,25 +5,18 @@ import { uploadToImgBB } from "../utils/imgUpload";
 import { fetchStadiumInfo } from "../utils/groq";
 
 const inputStyle = {
-  width: "100%",
-  padding: "16px 20px",
+  width: "100%", padding: "16px 20px",
   background: "rgba(255,255,255,0.06)",
   border: "1px solid rgba(255,20,147,0.35)",
-  borderRadius: "14px",
-  color: "#fff",
-  fontFamily: "inherit",
-  fontSize: "1.1rem",
-  outline: "none",
-  boxSizing: "border-box",
+  borderRadius: "14px", color: "#fff",
+  fontFamily: "inherit", fontSize: "1.1rem",
+  outline: "none", boxSizing: "border-box",
 };
 
 const labelStyle = {
-  color: "rgba(255,255,255,0.65)",
-  fontSize: "0.9rem",
-  display: "block",
-  marginBottom: "8px",
-  textTransform: "uppercase",
-  letterSpacing: "0.8px",
+  color: "rgba(255,255,255,0.65)", fontSize: "0.9rem",
+  display: "block", marginBottom: "8px",
+  textTransform: "uppercase", letterSpacing: "0.8px",
   fontWeight: 700,
 };
 
@@ -83,10 +75,7 @@ export default function StadiumModal({ team, onClose }) {
       }
     });
 
-    return () => {
-      unsub();
-      reqUnsub();
-    };
+    return () => { unsub(); reqUnsub(); };
   }, [team]);
 
   useEffect(() => {
@@ -145,14 +134,15 @@ export default function StadiumModal({ team, onClose }) {
       const accounts = accountsSnap.val() || {};
       const managerEntry = Object.entries(accounts).find(([, a]) => a.team === team && a.role === "manager");
       if (!managerEntry) throw new Error("Manager account not found for this team.");
-
       const [uid, managerData] = managerEntry;
       const currentBalance = managerData.balance ?? 1_000_000_000;
       const amount = Number(req.amount);
       if (currentBalance < amount) throw new Error("Manager has insufficient funds.");
 
       // Deduct balance
-      await update(ref(db, `${PATHS.accounts}/${uid}`), { balance: currentBalance - amount });
+      await update(ref(db, `${PATHS.accounts}/${uid}`), {
+        balance: currentBalance - amount,
+      });
 
       // Write expense transaction
       const txRef = ref(db, `career_team_management/${team}/finance/transactions`);
@@ -217,9 +207,18 @@ export default function StadiumModal({ team, onClose }) {
         <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.85rem", marginBottom: "14px" }}>AI will research and fill all stadium info automatically.</div>
         <div style={{ marginBottom: "14px" }}>
           <label style={labelStyle}>Enter Team Name</label>
-          <input value={autoFillTeam} onChange={e => setAutoFillTeam(e.target.value)} placeholder="e.g. Barcelona, Real Madrid, Arsenal..." style={inputStyle} />
+          <input
+            value={autoFillTeam}
+            onChange={e => setAutoFillTeam(e.target.value)}
+            placeholder="e.g. Barcelona, Real Madrid, Arsenal..."
+            style={inputStyle}
+          />
         </div>
-        <button onClick={handleAutoFill} disabled={!autoFillTeam || autoFilling} style={{ width: "100%", padding: "16px", background: autoFilling ? "rgba(255,20,147,0.3)" : "#FF1493", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.05rem", cursor: !autoFillTeam || autoFilling ? "not-allowed" : "pointer" }}>
+        <button onClick={handleAutoFill} disabled={!autoFillTeam || autoFilling} style={{
+          width: "100%", padding: "16px", background: autoFilling ? "rgba(255,20,147,0.3)" : "#FF1493",
+          border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.05rem",
+          cursor: !autoFillTeam || autoFilling ? "not-allowed" : "pointer",
+        }}>
           {autoFilling ? "🔍 AI Researching..." : "⚡ Auto Fill with AI"}
         </button>
       </div>
@@ -287,7 +286,11 @@ export default function StadiumModal({ team, onClose }) {
                   €{Number(req.amount).toLocaleString()}
                 </div>
               </div>
-              <button onClick={() => handleAcceptUpgrade(req)} disabled={acceptingId === req.id} style={{ width: "100%", padding: "12px", background: acceptingId === req.id ? "rgba(0,255,136,0.2)" : "#00cc66", border: "none", borderRadius: "10px", color: "#fff", fontWeight: 700, fontSize: "1rem", cursor: acceptingId === req.id ? "not-allowed" : "pointer" }}>
+              <button
+                onClick={() => handleAcceptUpgrade(req)}
+                disabled={acceptingId === req.id}
+                style={{ width: "100%", padding: "12px", background: acceptingId === req.id ? "rgba(0,255,136,0.2)" : "#00cc66", border: "none", borderRadius: "10px", color: "#fff", fontWeight: 700, fontSize: "1rem", cursor: acceptingId === req.id ? "not-allowed" : "pointer" }}
+              >
                 {acceptingId === req.id ? "Processing..." : "✅ Accept & Deduct Funds"}
               </button>
             </div>
