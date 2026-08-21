@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import ReactDOM from "react-dom";
 import { db, PATHS } from "../firebase";
 import { ref, onValue, push, update, get, remove } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
@@ -532,8 +533,8 @@ function SquadPlayerPopup({ player, team, onClose }) {
 
   const iStyle = { width:"100%", padding:"12px 16px", background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,20,147,0.35)", borderRadius:"12px", color:"#fff", fontFamily:"inherit", fontSize:"1rem", outline:"none", boxSizing:"border-box" };
 
-  return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:"20px" }} onClick={onClose}>
+  return ReactDOM.createPortal(
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:"20px", fontFamily:"'Inter', sans-serif", fontSize:"1rem" }} onClick={onClose}>
       <div style={{ background:"#0a0015", border:"1px solid rgba(255,20,147,0.3)", borderRadius:"24px", padding:"32px", maxWidth:"420px", width:"100%", position:"relative" }} onClick={e=>e.stopPropagation()}>
         <button onClick={onClose} style={{ position:"absolute", top:"14px", right:"14px", background:"rgba(255,255,255,0.1)", border:"none", color:"#fff", borderRadius:"50%", width:"30px", height:"30px", cursor:"pointer" }}>✕</button>
         <div style={{ color:"#fff", fontFamily:"'Bebas Neue', sans-serif", fontSize:"2rem", letterSpacing:"2px", marginBottom:"20px" }}>{player.name}</div>
@@ -575,7 +576,8 @@ function SquadPlayerPopup({ player, team, onClose }) {
           <button onClick={handleDelete} disabled={deleting} style={{ flex:1, padding:"14px", background:"rgba(255,50,50,0.15)", border:"1px solid rgba(255,50,50,0.4)", borderRadius:"12px", color:"#ff6b6b", fontWeight:700, fontSize:"1rem", cursor:deleting?"not-allowed":"pointer" }}>{deleting?"...":"🗑️"}</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
