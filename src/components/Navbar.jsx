@@ -9,6 +9,18 @@ import LeagueGrid from "./LeagueGrid";
 import Modal from "./Modal";
 import AddPlayerModal from "../modals/AddPlayerModal";
 
+// ─── SAST date helper ──────────────────────────────────────────────────
+function getSASTDateString() {
+  const formatter = new Intl.DateTimeFormat("en-ZA", {
+    timeZone: "Africa/Johannesburg",
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+  return formatter.format(new Date());
+}
+
 const TRANSFER_TABS = ["topTargets", "listed", "scouts", "signings", "auction"];
 const TAB_LABELS = { topTargets: "Top Targets", listed: "Listed", scouts: "Scouts", signings: "Signings", auction: "Auction" };
 
@@ -77,7 +89,6 @@ export default function Navbar({ tokyoMenuItems } = {}) {
     });
   }, [isAdmin, isTransferPage]);
 
-  // Close dropdown on outside click
   useEffect(() => {
     function handleClick(e) {
       if (plusRef.current && !plusRef.current.contains(e.target)) setPlusOpen(false);
@@ -165,6 +176,8 @@ export default function Navbar({ tokyoMenuItems } = {}) {
     { icon: "🗑️", label: "Delete Player", action: () => { setDeletePlayerOpen(true); setPlusOpen(false); } },
   ];
 
+  const sastDate = getSASTDateString();
+
   return (
     <>
       <nav style={{
@@ -182,8 +195,21 @@ export default function Navbar({ tokyoMenuItems } = {}) {
           fontFamily: "inherit",
         }}>View League</button>
 
+        {/* CENTRE: SAST DATE */}
+        <div style={{
+          flex: 1,
+          textAlign: "center",
+          color: "#fff",
+          fontFamily: "'Bebas Neue', sans-serif",
+          fontSize: "1.8rem",
+          fontWeight: "bold",
+          letterSpacing: "2px",
+          whiteSpace: "nowrap",
+        }}>
+          {sastDate}
+        </div>
+
         <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-          {/* Admin plus button — transfer market OR Tokyo page (via tokyoMenuItems) */}
           {isAdmin && (isTransferPage || tokyoMenuItems) && (
             <div ref={plusRef} style={{ position: "relative" }}>
               <button
@@ -200,8 +226,6 @@ export default function Navbar({ tokyoMenuItems } = {}) {
               >
                 {plusOpen ? "✕" : "+"}
               </button>
-
-              {/* Dropdown */}
               {plusOpen && (
                 <div style={{
                   position: "absolute", top: "calc(100% + 12px)", right: 0,
@@ -233,7 +257,6 @@ export default function Navbar({ tokyoMenuItems } = {}) {
             </div>
           )}
 
-          {/* Hamburger */}
           <button onClick={() => setMenuOpen(true)} style={{
             background: "#000033", border: "1.5px solid #FF1493",
             width: "80px", height: "80px", borderRadius: "10px",
@@ -257,12 +280,10 @@ export default function Navbar({ tokyoMenuItems } = {}) {
         </div>
       )}
 
-      {/* Add Player Modal */}
       <Modal active={addPlayerOpen} onClose={() => setAddPlayerOpen(false)}>
         <AddPlayerModal onClose={() => setAddPlayerOpen(false)} />
       </Modal>
 
-      {/* Add Video Modal */}
       <Modal active={addVideoOpen} onClose={() => setAddVideoOpen(false)}>
         <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: "16px", letterSpacing: "2px" }}>🎬 Transfer Window Video</h3>
         <input value={videoUrl} onChange={e => setVideoUrl(e.target.value)} placeholder="Paste Cloudinary video URL" style={inputStyle} />
@@ -272,7 +293,6 @@ export default function Navbar({ tokyoMenuItems } = {}) {
         </div>
       </Modal>
 
-      {/* Add Countdown Modal */}
       <Modal active={addCountdownOpen} onClose={() => setAddCountdownOpen(false)}>
         <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: "16px", letterSpacing: "2px" }}>⏱️ Transfer Window Countdown</h3>
         <input value={cdName} onChange={e => setCdName(e.target.value)} placeholder="e.g. Transfer Window Closes" style={inputStyle} />
@@ -294,7 +314,6 @@ export default function Navbar({ tokyoMenuItems } = {}) {
         </div>
       </Modal>
 
-      {/* Add Player Image Modal */}
       <Modal active={addImageOpen} onClose={() => setAddImageOpen(false)}>
         <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: "16px", letterSpacing: "2px" }}>🖼️ Add Player Image</h3>
         <label style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem", display: "block", marginBottom: "4px" }}>Tab</label>
@@ -314,7 +333,6 @@ export default function Navbar({ tokyoMenuItems } = {}) {
         </div>
       </Modal>
 
-      {/* Add Team Icon Modal */}
       <Modal active={addIconOpen} onClose={() => setAddIconOpen(false)}>
         <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: "16px", letterSpacing: "2px" }}>🏆 Add Team Icon</h3>
         <input value={iconClubName} onChange={e => setIconClubName(e.target.value)} placeholder="Club name (must match exactly)" style={inputStyle} />
@@ -326,7 +344,6 @@ export default function Navbar({ tokyoMenuItems } = {}) {
         </div>
       </Modal>
 
-      {/* Delete Player Modal */}
       <Modal active={deletePlayerOpen} onClose={() => setDeletePlayerOpen(false)}>
         <h3 style={{ color: "#ff6b6b", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: "16px", letterSpacing: "2px" }}>🗑️ Delete Player</h3>
         <label style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem", display: "block", marginBottom: "4px" }}>Tab</label>
