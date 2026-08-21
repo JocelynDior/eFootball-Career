@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { db, PATHS } from "../firebase";
 import { ref, onValue, push, update, get, remove } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
@@ -1099,6 +1100,7 @@ function FinanceTab({ team }) {
 
 // ─── MAIN PAGE ───────────────────────────────────────────────────────────────
 export default function TeamManagementPage() {
+  const navigate = useNavigate();
   const { isAdmin, manager, teamIconsCache, managerLoading } = useAdmin();
   const [tab, setTab] = useState("stadium");
   const [balance, setBalance] = useState(0);
@@ -1260,12 +1262,21 @@ export default function TeamManagementPage() {
         <div style={{ height: "1px", background: "linear-gradient(to right, transparent, rgba(255,20,147,0.4), transparent)", marginBottom: "28px" }} />
 
         <div style={{ marginBottom: "24px" }}>
-          <TabBar tabs={TABS} activeTab={tab} onTabChange={setTab} />
+          <TabBar
+            tabs={TABS}
+            activeTab={tab}
+            onTabChange={(id) => {
+              if (id === "squad") {
+                navigate("/squad");
+              } else {
+                setTab(id);
+              }
+            }}
+          />
         </div>
 
         <div style={{ width: "100%" }}>
           {tab === "stadium" && <StadiumTab team={team} isAdmin={isAdmin} onEditStadium={() => setShowStadiumModal(true)} />}
-          {tab === "squad" && <SquadTabWrapper team={team} isAdmin={isAdmin} onEditSquad={() => setShowSquadModal(true)} />}
           {tab === "transfers" && <TransfersTab team={team} teamIcons={mergedIcons} />}
           {tab === "finance" && <FinanceTab team={team} />}
         </div>
