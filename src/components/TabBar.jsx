@@ -22,10 +22,10 @@ export default function TabBar({ tabs, activeTab, onTabChange }) {
             background: activeTab === tab.id ? "#FF1493" : "transparent",
             border: "none",
             color: activeTab === tab.id ? "#fff" : "rgba(255,255,255,0.6)",
-            padding: "12px 8px",
+            padding: "20px 16px",          // doubled
             borderRadius: "30px",
             fontWeight: 700,
-            fontSize: "0.85rem",
+            fontSize: "1.7rem",            // doubled
             cursor: "pointer",
             letterSpacing: "0.4px",
             transition: "all 0.25s",
