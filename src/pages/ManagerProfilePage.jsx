@@ -95,7 +95,7 @@ export default function ManagerProfilePage() {
     flash("Password updated successfully.");
   }
 
-  const balance = manager.balance ?? 1000000000;
+  const balance = manager.balance ?? 0;
   const formattedBalance = "€" + balance.toLocaleString("en-EU");
 
   return (
