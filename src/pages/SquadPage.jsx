@@ -43,34 +43,92 @@ const labelStyle = {
   fontWeight: 700,
 };
 
-// ── Player Popup (no AI, manual entry + admin verification) ──────────────
-function PlayerSlotPopup({ slotIndex, role, existingPlayer, teamPath, team, isAdmin, onClose }) {
+// ── Player Popup (with loan handling) ──────────────────────────────
+function PlayerSlotPopup({ slotIndex, role, existingPlayer, allPlayers, teamPath, team, isAdmin, onClose }) {
   const [name, setName] = useState(existingPlayer?.name || "");
   const [shirtNumber, setShirtNumber] = useState(existingPlayer?.shirtNumber || "");
   const [position, setPosition] = useState(existingPlayer?.position || "");
   const [wage, setWage] = useState(existingPlayer?.wage || "");
   const [verified, setVerified] = useState(existingPlayer?.verified || false);
+  const [roleSelection, setRoleSelection] = useState(role); // for loaned-in players
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
 
+  const isLoanedOut = existingPlayer?.loanStatus === "out";
+  const isLoanedIn = existingPlayer?.loanStatus === "in";
+
   async function handleSave() {
+    if (isLoanedOut) {
+      // Should not be editable; just close
+      onClose();
+      return;
+    }
+
+    // Validate
     if (!name.trim()) { setError("Player name is required."); return; }
     if (!position) { setError("Please select a position."); return; }
+
+    // For loaned-in players, if role changed, we need to reassign slot
+    let finalRole = role;
+    let finalSlotIndex = slotIndex;
+    if (isLoanedIn && roleSelection !== role) {
+      finalRole = roleSelection;
+      // Find next available slot in the target role
+      const targetPlayers = allPlayers.filter(p => p.role === finalRole && p.id !== existingPlayer?.id);
+      let maxSlot = -1;
+      if (finalRole === "starting") {
+        // find first empty slot in STARTING_SLOTS
+        const occupiedSlots = targetPlayers.map(p => p.slotIndex);
+        for (let i = 0; i < STARTING_SLOTS.length; i++) {
+          if (!occupiedSlots.includes(i)) {
+            finalSlotIndex = i;
+            break;
+          }
+        }
+        if (finalSlotIndex === undefined) {
+          setError("No available slot in Starting XI.");
+          return;
+        }
+      } else if (finalRole === "bench") {
+        const occupiedSlots = targetPlayers.map(p => p.slotIndex);
+        for (let i = 0; i < BENCH_SLOTS.length; i++) {
+          if (!occupiedSlots.includes(i)) {
+            finalSlotIndex = i;
+            break;
+          }
+        }
+        if (finalSlotIndex === undefined) {
+          setError("No available slot on Bench.");
+          return;
+        }
+      } else { // reserve
+        const maxSlot = targetPlayers.reduce((max, p) => Math.max(max, p.slotIndex || 0), -1);
+        finalSlotIndex = maxSlot + 1;
+      }
+    }
+
     setSaving(true);
     setError("");
     try {
       const playerId = existingPlayer?.id || `${role}_${slotIndex}_${Date.now()}`;
-      await set(ref(db, `${teamPath}/${playerId}`), {
+      const updates = {
         id: playerId,
         name: name.trim(),
         shirtNumber: shirtNumber || "",
         position,
         wage: wage || "",
         verified: verified,
-        role,
-        slotIndex,
-      });
+        role: finalRole,
+        slotIndex: finalSlotIndex,
+      };
+      // Preserve loan fields if any
+      if (existingPlayer?.loanStatus) {
+        updates.loanStatus = existingPlayer.loanStatus;
+        if (existingPlayer.loanClub) updates.loanClub = existingPlayer.loanClub;
+        if (existingPlayer.loanFrom) updates.loanFrom = existingPlayer.loanFrom;
+      }
+      await set(ref(db, `${teamPath}/${playerId}`), updates);
       onClose();
     } catch (e) {
       setError("Save failed: " + e.message);
@@ -80,6 +138,7 @@ function PlayerSlotPopup({ slotIndex, role, existingPlayer, teamPath, team, isAd
 
   async function handleDelete() {
     if (!existingPlayer?.id) return;
+    if (isLoanedOut) return; // prevent deletion of loaned-out players
     if (!window.confirm("Remove this player?")) return;
     setDeleting(true);
     try {
@@ -91,12 +150,12 @@ function PlayerSlotPopup({ slotIndex, role, existingPlayer, teamPath, team, isAd
     setDeleting(false);
   }
 
-  // Toggle verification (admin only)
   function toggleVerified() {
     if (!isAdmin) return;
     setVerified(!verified);
   }
 
+  // ─── Render ──────────────────────────────────────────────────────────
   return ReactDOM.createPortal(
     <div
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px", fontFamily: "'Inter', sans-serif", fontSize: "1rem" }}
@@ -108,8 +167,20 @@ function PlayerSlotPopup({ slotIndex, role, existingPlayer, teamPath, team, isAd
       >
         <button onClick={onClose} style={{ position: "absolute", top: "14px", right: "14px", background: "rgba(255,255,255,0.1)", border: "none", color: "#fff", borderRadius: "50%", width: "64px", height: "64px", cursor: "pointer", fontSize: "1rem" }}>✕</button>
 
+        {/* Loan status headers */}
+        {isLoanedOut && (
+          <div style={{ background: "rgba(255,170,0,0.15)", border: "1px solid #ffaa44", borderRadius: "12px", padding: "16px 20px", marginBottom: "20px", color: "#ffaa44", fontSize: "2rem", fontWeight: 700 }}>
+            🔁 On Loan to {existingPlayer.loanClub || "another club"}
+          </div>
+        )}
+        {isLoanedIn && (
+          <div style={{ background: "rgba(255,170,0,0.15)", border: "1px solid #ffaa44", borderRadius: "12px", padding: "16px 20px", marginBottom: "20px", color: "#ffaa44", fontSize: "2rem", fontWeight: 700 }}>
+            🔁 On Loan from {existingPlayer.loanFrom || "another club"}
+          </div>
+        )}
+
         <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.6rem", letterSpacing: "2px", marginBottom: "6px" }}>
-          {existingPlayer ? "EDIT PLAYER" : "ADD PLAYER"}
+          {existingPlayer ? (isLoanedOut ? "LOANED OUT" : "EDIT PLAYER") : "ADD PLAYER"}
         </div>
         <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "1.7rem", marginBottom: "24px", textTransform: "uppercase", letterSpacing: "1px" }}>
           {role === "starting" ? `Starting XI · Slot ${slotIndex + 1}` : role === "bench" ? `Bench · Slot ${slotIndex + 1}` : `Reserve · Slot ${slotIndex + 1}`}
@@ -118,18 +189,36 @@ function PlayerSlotPopup({ slotIndex, role, existingPlayer, teamPath, team, isAd
         {/* Name */}
         <div style={{ marginBottom: "16px" }}>
           <label style={labelStyle}>Player Name</label>
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Kylian Mbappe" style={inputStyle} />
+          <input
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="e.g. Kylian Mbappe"
+            style={inputStyle}
+            disabled={isLoanedOut}
+          />
         </div>
 
         {/* Number & Position */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "16px" }}>
           <div>
             <label style={labelStyle}>Shirt Number</label>
-            <input value={shirtNumber} onChange={e => setShirtNumber(e.target.value)} placeholder="#" style={inputStyle} type="number" />
+            <input
+              value={shirtNumber}
+              onChange={e => setShirtNumber(e.target.value)}
+              placeholder="#"
+              style={inputStyle}
+              type="number"
+              disabled={isLoanedOut}
+            />
           </div>
           <div>
             <label style={labelStyle}>Position</label>
-            <select value={position} onChange={e => setPosition(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
+            <select
+              value={position}
+              onChange={e => setPosition(e.target.value)}
+              style={{ ...inputStyle, cursor: isLoanedOut ? "default" : "pointer" }}
+              disabled={isLoanedOut}
+            >
               <option value="">Select...</option>
               {POSITIONS.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
@@ -139,11 +228,36 @@ function PlayerSlotPopup({ slotIndex, role, existingPlayer, teamPath, team, isAd
         {/* Wage */}
         <div style={{ marginBottom: "20px" }}>
           <label style={labelStyle}>Weekly Wage</label>
-          <input value={wage} onChange={e => setWage(e.target.value)} placeholder="e.g. €50,000" style={inputStyle} />
+          <input
+            value={wage}
+            onChange={e => setWage(e.target.value)}
+            placeholder="e.g. €50,000"
+            style={inputStyle}
+            disabled={isLoanedOut}
+          />
         </div>
 
+        {/* Role dropdown for loaned-in players */}
+        {isLoanedIn && (
+          <div style={{ marginBottom: "20px" }}>
+            <label style={labelStyle}>Assign Role</label>
+            <select
+              value={roleSelection}
+              onChange={e => setRoleSelection(e.target.value)}
+              style={{ ...inputStyle, cursor: "pointer" }}
+            >
+              <option value="reserve">Reserve</option>
+              <option value="bench">Bench</option>
+              <option value="starting">Starting</option>
+            </select>
+            <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.6rem", marginTop: "8px" }}>
+              Choose where to place this loaned player. They will be assigned to the next available slot.
+            </div>
+          </div>
+        )}
+
         {/* Admin verification toggle */}
-        {isAdmin && (
+        {isAdmin && !isLoanedOut && (
           <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "24px", padding: "16px 20px", background: "rgba(255,20,147,0.06)", borderRadius: "12px" }}>
             <span style={{ color: "rgba(255,255,255,0.8)", fontSize: "1.8rem", fontWeight: 600 }}>Verified Status:</span>
             <button
@@ -167,7 +281,7 @@ function PlayerSlotPopup({ slotIndex, role, existingPlayer, teamPath, team, isAd
         )}
 
         {/* Non‑admin sees status only */}
-        {!isAdmin && existingPlayer && (
+        {!isAdmin && existingPlayer && !isLoanedOut && (
           <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "24px", padding: "12px 16px", background: "rgba(255,255,255,0.04)", borderRadius: "8px" }}>
             <span style={{ color: "rgba(255,255,255,0.6)", fontSize: "1.6rem" }}>Status:</span>
             <span style={{ color: verified ? "#00ff88" : "#ff6b6b", fontWeight: 700, fontSize: "1.8rem" }}>
@@ -181,14 +295,16 @@ function PlayerSlotPopup({ slotIndex, role, existingPlayer, teamPath, team, isAd
         )}
 
         <div style={{ display: "flex", gap: "10px" }}>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            style={{ flex: 2, padding: "14px", background: "#FF1493", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, fontSize: "2rem", cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}
-          >
-            {saving ? "Saving..." : "💾 Save"}
-          </button>
-          {existingPlayer && (
+          {!isLoanedOut && (
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              style={{ flex: 2, padding: "14px", background: "#FF1493", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, fontSize: "2rem", cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}
+            >
+              {saving ? "Saving..." : "💾 Save"}
+            </button>
+          )}
+          {existingPlayer && !isLoanedOut && (
             <button
               onClick={handleDelete}
               disabled={deleting}
@@ -201,7 +317,7 @@ function PlayerSlotPopup({ slotIndex, role, existingPlayer, teamPath, team, isAd
             onClick={onClose}
             style={{ flex: 1, padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.2)", borderRadius: "12px", color: "#fff", fontSize: "2rem", cursor: "pointer" }}
           >
-            Discard
+            {isLoanedOut ? "Close" : "Cancel"}
           </button>
         </div>
       </div>
@@ -211,8 +327,18 @@ function PlayerSlotPopup({ slotIndex, role, existingPlayer, teamPath, team, isAd
 }
 
 // ── Player Slot ──────────────────────────────────────────────────────────
-function PlayerSlot({ index, role, player, label, teamPath, team, isAdmin }) {
+function PlayerSlot({ index, role, player, label, allPlayers, teamPath, team, isAdmin }) {
   const [open, setOpen] = useState(false);
+
+  const isLoanedOut = player?.loanStatus === "out";
+  const isLoanedIn = player?.loanStatus === "in";
+
+  let loanLabel = null;
+  if (isLoanedOut) {
+    loanLabel = <span style={{ color: "#ffaa44", fontWeight: 700, fontSize: "1.7rem", marginLeft: "12px" }}>🔁 On Loan to {player.loanClub || "..."}</span>;
+  } else if (isLoanedIn) {
+    loanLabel = <span style={{ color: "#ffaa44", fontWeight: 700, fontSize: "1.7rem", marginLeft: "12px" }}>🔁 On Loan from {player.loanFrom || "..."}</span>;
+  }
 
   return (
     <>
@@ -221,18 +347,27 @@ function PlayerSlot({ index, role, player, label, teamPath, team, isAdmin }) {
         style={{
           display: "flex", alignItems: "center", gap: "14px",
           padding: "14px 18px",
-          background: player ? "rgba(255,20,147,0.06)" : "rgba(255,255,255,0.02)",
-          border: player ? "1px solid rgba(255,20,147,0.25)" : "1px solid rgba(255,255,255,0.07)",
+          background: player ? (isLoanedOut ? "rgba(255,170,0,0.08)" : "rgba(255,20,147,0.06)") : "rgba(255,255,255,0.02)",
+          border: player ? (isLoanedOut ? "1px solid rgba(255,170,0,0.4)" : "1px solid rgba(255,20,147,0.25)") : "1px solid rgba(255,255,255,0.07)",
           borderRadius: "14px",
-          cursor: "pointer",
+          cursor: isLoanedOut ? "default" : "pointer",
           transition: "all 0.2s",
+          opacity: isLoanedOut ? 0.8 : 1,
         }}
-        onMouseOver={e => { e.currentTarget.style.borderColor = "rgba(255,20,147,0.5)"; e.currentTarget.style.background = player ? "rgba(255,20,147,0.1)" : "rgba(255,255,255,0.05)"; }}
-        onMouseOut={e => { e.currentTarget.style.borderColor = player ? "rgba(255,20,147,0.25)" : "rgba(255,255,255,0.07)"; e.currentTarget.style.background = player ? "rgba(255,20,147,0.06)" : "rgba(255,255,255,0.02)"; }}
+        onMouseOver={e => {
+          if (isLoanedOut) return;
+          e.currentTarget.style.borderColor = "rgba(255,20,147,0.5)";
+          e.currentTarget.style.background = player ? "rgba(255,20,147,0.1)" : "rgba(255,255,255,0.05)";
+        }}
+        onMouseOut={e => {
+          if (isLoanedOut) return;
+          e.currentTarget.style.borderColor = player ? "rgba(255,20,147,0.25)" : "rgba(255,255,255,0.07)";
+          e.currentTarget.style.background = player ? "rgba(255,20,147,0.06)" : "rgba(255,255,255,0.02)";
+        }}
       >
         <div style={{
           width: "42px", height: "42px", flexShrink: 0,
-          background: player ? "#FF1493" : "rgba(255,255,255,0.06)",
+          background: player ? (isLoanedOut ? "#ffaa44" : "#FF1493") : "rgba(255,255,255,0.06)",
           border: player ? "none" : "1px dashed rgba(255,255,255,0.15)",
           borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center",
           color: "#fff", fontWeight: 900, fontSize: player ? "2rem" : "2.6rem",
@@ -247,6 +382,7 @@ function PlayerSlot({ index, role, player, label, teamPath, team, isAdmin }) {
                 <span style={{ color: "#fff", fontWeight: 700, fontSize: "2rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {player.name}
                 </span>
+                {loanLabel}
                 {/* Verification badge */}
                 <span style={{
                   fontSize: "1.4rem",
@@ -270,8 +406,10 @@ function PlayerSlot({ index, role, player, label, teamPath, team, isAdmin }) {
           )}
         </div>
 
-        {player ? (
+        {player && !isLoanedOut ? (
           <span style={{ color: "rgba(255,20,147,0.6)", fontSize: "1.7rem", flexShrink: 0 }}>✏️</span>
+        ) : player && isLoanedOut ? (
+          <span style={{ color: "#ffaa44", fontSize: "1.7rem", flexShrink: 0 }}>🔒</span>
         ) : (
           <span style={{ color: "rgba(255,255,255,0.15)", fontSize: "2.4rem", flexShrink: 0 }}>+</span>
         )}
@@ -282,6 +420,7 @@ function PlayerSlot({ index, role, player, label, teamPath, team, isAdmin }) {
           slotIndex={index}
           role={role}
           existingPlayer={player}
+          allPlayers={allPlayers}
           teamPath={teamPath}
           team={team}
           isAdmin={isAdmin}
@@ -665,6 +804,7 @@ export default function SquadPage() {
                 role="starting"
                 player={getPlayerForSlot("starting", i)}
                 label={posLabel}
+                allPlayers={players}
                 teamPath={teamPath}
                 team={team}
                 isAdmin={isAdmin}
@@ -691,6 +831,7 @@ export default function SquadPage() {
                 role="bench"
                 player={getPlayerForSlot("bench", i)}
                 label={posLabel}
+                allPlayers={players}
                 teamPath={teamPath}
                 team={team}
                 isAdmin={isAdmin}
@@ -737,6 +878,7 @@ export default function SquadPage() {
                   role="reserve"
                   player={p}
                   label="Reserve"
+                  allPlayers={players}
                   teamPath={teamPath}
                   team={team}
                   isAdmin={isAdmin}
