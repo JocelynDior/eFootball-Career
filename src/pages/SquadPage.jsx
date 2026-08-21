@@ -6,16 +6,11 @@ import { ref, set, onValue, remove, push, update } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
 import Navbar from "../components/Navbar";
 import BackgroundVideo from "../components/BackgroundVideo";
-import { askGroq } from "../utils/groq";
 
-const POSITIONS = ["GK","LB","CB","RB","LWB","RWB","CDM","CM","CAM","LM","RM","LW","RW","CF","ST"];
+const POSITIONS = ["GK", "LB", "CB", "RB", "LWB", "RWB", "CDM", "CM", "CAM", "LM", "RM", "LW", "RW", "CF", "ST"];
 
-const STARTING_SLOTS = [
-  "GK","RB","CB","CB","LB","CDM","CM","CM","RW","ST","LW"
-];
-const BENCH_SLOTS = [
-  "GK","DEF","DEF","MID","MID","MID","MID","ATT","ATT","ATT","SUB","SUB"
-];
+const STARTING_SLOTS = ["GK", "RB", "CB", "CB", "LB", "CDM", "CM", "CM", "RW", "ST", "LW"];
+const BENCH_SLOTS = ["GK", "DEF", "DEF", "MID", "MID", "MID", "MID", "ATT", "ATT", "ATT", "SUB", "SUB"];
 
 const GLASS = {
   background: "rgba(255,255,255,0.04)",
@@ -24,156 +19,55 @@ const GLASS = {
   border: "1px solid rgba(255,20,147,0.2)",
 };
 
-// Doubled styles
+// Doubled styles for the popup
 const inputStyle = {
-  width: "100%", padding: "28px 36px",
+  width: "100%",
+  padding: "28px 36px",
   background: "rgba(255,255,255,0.06)",
   border: "1px solid rgba(255,20,147,0.35)",
-  borderRadius: "12px", color: "#fff",
-  fontFamily: "inherit", fontSize: "2rem",
-  outline: "none", boxSizing: "border-box",
+  borderRadius: "12px",
+  color: "#fff",
+  fontFamily: "inherit",
+  fontSize: "2rem",
+  outline: "none",
+  boxSizing: "border-box",
 };
 
 const labelStyle = {
-  color: "rgba(255,255,255,0.65)", fontSize: "1.7rem",
-  display: "block", marginBottom: "8px",
-  textTransform: "uppercase", letterSpacing: "0.8px", fontWeight: 700,
+  color: "rgba(255,255,255,0.65)",
+  fontSize: "1.7rem",
+  display: "block",
+  marginBottom: "8px",
+  textTransform: "uppercase",
+  letterSpacing: "0.8px",
+  fontWeight: 700,
 };
 
-// ── Player Search Popup ────────────────────────────────────────────────
-function PlayerSlotPopup({ slotIndex, role, existingPlayer, teamPath, team, onClose }) {
-  const [searchName, setSearchName] = useState(existingPlayer?.name || "");
-  const [kitNumber, setKitNumber] = useState(existingPlayer?.shirtNumber || "");
+// ── Player Popup (no AI, manual entry + admin verification) ──────────────
+function PlayerSlotPopup({ slotIndex, role, existingPlayer, teamPath, team, isAdmin, onClose }) {
+  const [name, setName] = useState(existingPlayer?.name || "");
+  const [shirtNumber, setShirtNumber] = useState(existingPlayer?.shirtNumber || "");
   const [position, setPosition] = useState(existingPlayer?.position || "");
-  const [age, setAge] = useState(existingPlayer?.age || "");
   const [wage, setWage] = useState(existingPlayer?.wage || "");
-  const [fullName, setFullName] = useState(existingPlayer?.name || "");
-  const [searching, setSearching] = useState(false);
-  const [searched, setSearched] = useState(!!existingPlayer);
-  const [error, setError] = useState("");
+  const [verified, setVerified] = useState(existingPlayer?.verified || false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-
-  // ─── UPDATED: Robust JSON extraction ──────────────────────────────
-  async function handleSearch() {
-    if (!searchName.trim()) return;
-    setSearching(true);
-    setError("");
-    try {
-      // 1. Get full name from Groq
-      const raw = await askGroq(
-        `You are a football data expert. Return ONLY valid JSON, no markdown, no <think> tags.`,
-        `What is the full official name of the football player known as "${searchName}"? Return: {"fullName":"..."}`
-      );
-
-      // Clean the response: remove <think> tags, markdown fences, and any extra whitespace
-      let cleaned = raw
-        .replace(/<think>[\s\S]*?<\/think>/gi, "")
-        .replace(/```json|```/g, "")
-        .trim();
-
-      // Extract the JSON object using regex (first { to last })
-      const match = cleaned.match(/\{[\s\S]*\}/);
-      if (!match) {
-        throw new Error("No JSON object found in response.");
-      }
-
-      let resolved;
-      try {
-        resolved = JSON.parse(match[0]);
-      } catch (parseErr) {
-        // If parsing fails, try to fix common issues: trailing commas, extra text after }
-        let maybeJson = match[0];
-        // Remove trailing commas before } or ]
-        maybeJson = maybeJson.replace(/,\s*}/g, "}").replace(/,\s*\]/g, "]");
-        // Remove any text after the last }
-        const lastBrace = maybeJson.lastIndexOf("}");
-        if (lastBrace !== -1) {
-          maybeJson = maybeJson.substring(0, lastBrace + 1);
-        }
-        resolved = JSON.parse(maybeJson);
-      }
-
-      const resolvedName = resolved.fullName || searchName;
-
-      // 2. Fetch Fotmob data
-      let fotmobData = null;
-      try {
-        const searchRes = await fetch(
-          `https://www.fotmob.com/api/search?term=${encodeURIComponent(resolvedName)}`,
-          { headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0" } }
-        );
-        const searchData = await searchRes.json();
-        const playerHit = searchData?.players?.[0];
-        if (playerHit?.id) {
-          const detailRes = await fetch(
-            `https://www.fotmob.com/api/playerData?id=${playerHit.id}`,
-            { headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0" } }
-          );
-          const detail = await detailRes.json();
-          fotmobData = {
-            fullName: detail.name || resolvedName,
-            position: detail.positionDescription?.primaryPosition?.label || "",
-            age: detail.meta?.age || "",
-            wage: detail.contractInfo?.wage || "",
-          };
-        }
-      } catch (_) {}
-
-      if (fotmobData) {
-        setFullName(fotmobData.fullName);
-        setPosition(fotmobData.position || position);
-        setAge(String(fotmobData.age || age));
-        setWage(fotmobData.wage || wage);
-      } else {
-        // Fallback: ask Groq for more details if Fotmob failed
-        const raw2 = await askGroq(
-          `You are a football data expert. Return ONLY valid JSON, no markdown, no <think> tags.`,
-          `Give me current details for footballer "${resolvedName}". Return: {"fullName":"...","position":"...","age":0,"wage":"€X,XXX"}`
-        );
-        let cleaned2 = raw2
-          .replace(/<think>[\s\S]*?<\/think>/gi, "")
-          .replace(/```json|```/g, "")
-          .trim();
-        const match2 = cleaned2.match(/\{[\s\S]*\}/);
-        if (!match2) throw new Error("No JSON in second response.");
-        let data;
-        try {
-          data = JSON.parse(match2[0]);
-        } catch (parseErr2) {
-          let maybeJson2 = match2[0].replace(/,\s*}/g, "}").replace(/,\s*\]/g, "]");
-          const lastBrace2 = maybeJson2.lastIndexOf("}");
-          if (lastBrace2 !== -1) {
-            maybeJson2 = maybeJson2.substring(0, lastBrace2 + 1);
-          }
-          data = JSON.parse(maybeJson2);
-        }
-        setFullName(data.fullName || resolvedName);
-        setPosition(data.position || position);
-        setAge(String(data.age || ""));
-        setWage(data.wage || "");
-      }
-
-      setSearched(true);
-    } catch (e) {
-      setError("Search failed: " + e.message);
-    }
-    setSearching(false);
-  }
+  const [error, setError] = useState("");
 
   async function handleSave() {
-    if (!fullName.trim()) { setError("Search for a player first."); return; }
+    if (!name.trim()) { setError("Player name is required."); return; }
+    if (!position) { setError("Please select a position."); return; }
     setSaving(true);
     setError("");
     try {
       const playerId = existingPlayer?.id || `${role}_${slotIndex}_${Date.now()}`;
       await set(ref(db, `${teamPath}/${playerId}`), {
         id: playerId,
-        name: fullName,
-        shirtNumber: kitNumber,
+        name: name.trim(),
+        shirtNumber: shirtNumber || "",
         position,
-        age,
-        wage,
+        wage: wage || "",
+        verified: verified,
         role,
         slotIndex,
       });
@@ -186,6 +80,7 @@ function PlayerSlotPopup({ slotIndex, role, existingPlayer, teamPath, team, onCl
 
   async function handleDelete() {
     if (!existingPlayer?.id) return;
+    if (!window.confirm("Remove this player?")) return;
     setDeleting(true);
     try {
       await remove(ref(db, `${teamPath}/${existingPlayer.id}`));
@@ -196,7 +91,12 @@ function PlayerSlotPopup({ slotIndex, role, existingPlayer, teamPath, team, onCl
     setDeleting(false);
   }
 
-  // ─── Popup render ────────────────────────────────────────────────────
+  // Toggle verification (admin only)
+  function toggleVerified() {
+    if (!isAdmin) return;
+    setVerified(!verified);
+  }
+
   return ReactDOM.createPortal(
     <div
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px", fontFamily: "'Inter', sans-serif", fontSize: "1rem" }}
@@ -215,105 +115,95 @@ function PlayerSlotPopup({ slotIndex, role, existingPlayer, teamPath, team, onCl
           {role === "starting" ? `Starting XI · Slot ${slotIndex + 1}` : role === "bench" ? `Bench · Slot ${slotIndex + 1}` : `Reserve · Slot ${slotIndex + 1}`}
         </div>
 
+        {/* Name */}
         <div style={{ marginBottom: "16px" }}>
           <label style={labelStyle}>Player Name</label>
-          <div style={{ display: "flex", gap: "10px" }}>
-            <input
-              value={searchName}
-              onChange={e => setSearchName(e.target.value)}
-              placeholder="e.g. Mbappe, Haaland..."
-              style={{ ...inputStyle, flex: 1 }}
-              onKeyDown={e => e.key === "Enter" && handleSearch()}
-            />
-            <button
-              onClick={handleSearch}
-              disabled={searching}
-              style={{ padding: "14px 20px", background: searching ? "rgba(255,20,147,0.2)" : "#FF1493", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, cursor: searching ? "not-allowed" : "pointer", whiteSpace: "nowrap", fontSize: "1.9rem" }}
-            >
-              {searching ? "..." : "Search"}
-            </button>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Kylian Mbappe" style={inputStyle} />
+        </div>
+
+        {/* Number & Position */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "16px" }}>
+          <div>
+            <label style={labelStyle}>Shirt Number</label>
+            <input value={shirtNumber} onChange={e => setShirtNumber(e.target.value)} placeholder="#" style={inputStyle} type="number" />
+          </div>
+          <div>
+            <label style={labelStyle}>Position</label>
+            <select value={position} onChange={e => setPosition(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
+              <option value="">Select...</option>
+              {POSITIONS.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
           </div>
         </div>
 
-        {searching && (
-          <div style={{ textAlign: "center", padding: "20px", color: "rgba(255,20,147,0.7)", fontSize: "1.9rem" }}>
-            🔍 Researching player...
+        {/* Wage */}
+        <div style={{ marginBottom: "20px" }}>
+          <label style={labelStyle}>Weekly Wage</label>
+          <input value={wage} onChange={e => setWage(e.target.value)} placeholder="e.g. €50,000" style={inputStyle} />
+        </div>
+
+        {/* Admin verification toggle */}
+        {isAdmin && (
+          <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "24px", padding: "16px 20px", background: "rgba(255,20,147,0.06)", borderRadius: "12px" }}>
+            <span style={{ color: "rgba(255,255,255,0.8)", fontSize: "1.8rem", fontWeight: 600 }}>Verified Status:</span>
+            <button
+              onClick={toggleVerified}
+              style={{
+                padding: "10px 24px",
+                background: verified ? "#00cc66" : "#ff4444",
+                border: "none",
+                borderRadius: "10px",
+                color: "#fff",
+                fontWeight: 700,
+                fontSize: "1.6rem",
+                cursor: "pointer",
+                transition: "all 0.2s",
+              }}
+            >
+              {verified ? "✅ Verified" : "❌ Unverified"}
+            </button>
+            <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.4rem" }}>(Admin only)</span>
           </div>
         )}
 
-        {searched && !searching && (
-          <>
-            <div style={{ marginBottom: "14px" }}>
-              <label style={labelStyle}>Full Name</label>
-              <input value={fullName} onChange={e => setFullName(e.target.value)} style={inputStyle} />
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "14px" }}>
-              <div>
-                <label style={labelStyle}>Kit Number</label>
-                <input value={kitNumber} onChange={e => setKitNumber(e.target.value)} placeholder="#" style={inputStyle} type="number" />
-              </div>
-              <div>
-                <label style={labelStyle}>Position</label>
-                <select value={position} onChange={e => setPosition(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
-                  <option value="">Select...</option>
-                  {POSITIONS.map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </div>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "20px" }}>
-              <div>
-                <label style={labelStyle}>Age</label>
-                <input value={age} onChange={e => setAge(e.target.value)} style={{ ...inputStyle, opacity: 0.7 }} readOnly />
-              </div>
-              <div>
-                <label style={labelStyle}>Weekly Wage</label>
-                <input value={wage} onChange={e => setWage(e.target.value)} style={{ ...inputStyle, opacity: 0.7 }} readOnly />
-              </div>
-            </div>
-
-            {error && (
-              <div style={{ color: "#ff6b6b", fontSize: "1.8rem", marginBottom: "14px", padding: "10px", background: "rgba(255,0,0,0.1)", borderRadius: "10px" }}>{error}</div>
-            )}
-
-            <div style={{ display: "flex", gap: "10px" }}>
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                style={{ flex: 2, padding: "14px", background: "#FF1493", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, fontSize: "2rem", cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}
-              >
-                {saving ? "Saving..." : "💾 Save"}
-              </button>
-              {existingPlayer && (
-                <button
-                  onClick={handleDelete}
-                  disabled={deleting}
-                  style={{ flex: 1, padding: "14px", background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.4)", borderRadius: "12px", color: "#ff6b6b", fontWeight: 700, fontSize: "2rem", cursor: deleting ? "not-allowed" : "pointer" }}
-                >
-                  {deleting ? "..." : "🗑️"}
-                </button>
-              )}
-              <button
-                onClick={onClose}
-                style={{ flex: 1, padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.2)", borderRadius: "12px", color: "#fff", fontSize: "2rem", cursor: "pointer" }}
-              >
-                Discard
-              </button>
-            </div>
-          </>
+        {/* Non‑admin sees status only */}
+        {!isAdmin && existingPlayer && (
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "24px", padding: "12px 16px", background: "rgba(255,255,255,0.04)", borderRadius: "8px" }}>
+            <span style={{ color: "rgba(255,255,255,0.6)", fontSize: "1.6rem" }}>Status:</span>
+            <span style={{ color: verified ? "#00ff88" : "#ff6b6b", fontWeight: 700, fontSize: "1.8rem" }}>
+              {verified ? "✅ Verified" : "❌ Unverified"}
+            </span>
+          </div>
         )}
 
-        {!searched && !searching && (
-          <>
-            {error && (
-              <div style={{ color: "#ff6b6b", fontSize: "1.8rem", marginBottom: "14px", padding: "10px", background: "rgba(255,0,0,0.1)", borderRadius: "10px" }}>{error}</div>
-            )}
-            <div style={{ textAlign: "center", padding: "20px", color: "rgba(255,255,255,0.2)", fontSize: "1.9rem" }}>
-              Type a player name and press Search
-            </div>
-          </>
+        {error && (
+          <div style={{ color: "#ff6b6b", fontSize: "1.8rem", marginBottom: "14px", padding: "10px", background: "rgba(255,0,0,0.1)", borderRadius: "10px" }}>{error}</div>
         )}
+
+        <div style={{ display: "flex", gap: "10px" }}>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            style={{ flex: 2, padding: "14px", background: "#FF1493", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, fontSize: "2rem", cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}
+          >
+            {saving ? "Saving..." : "💾 Save"}
+          </button>
+          {existingPlayer && (
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              style={{ flex: 1, padding: "14px", background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.4)", borderRadius: "12px", color: "#ff6b6b", fontWeight: 700, fontSize: "2rem", cursor: deleting ? "not-allowed" : "pointer" }}
+            >
+              {deleting ? "..." : "🗑️"}
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            style={{ flex: 1, padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.2)", borderRadius: "12px", color: "#fff", fontSize: "2rem", cursor: "pointer" }}
+          >
+            Discard
+          </button>
+        </div>
       </div>
     </div>,
     document.body
@@ -321,7 +211,7 @@ function PlayerSlotPopup({ slotIndex, role, existingPlayer, teamPath, team, onCl
 }
 
 // ── Player Slot ──────────────────────────────────────────────────────────
-function PlayerSlot({ index, role, player, label, teamPath, team }) {
+function PlayerSlot({ index, role, player, label, teamPath, team, isAdmin }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -353,12 +243,26 @@ function PlayerSlot({ index, role, player, label, teamPath, team }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           {player ? (
             <>
-              <div style={{ color: "#fff", fontWeight: 700, fontSize: "2rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {player.name}
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+                <span style={{ color: "#fff", fontWeight: 700, fontSize: "2rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {player.name}
+                </span>
+                {/* Verification badge */}
+                <span style={{
+                  fontSize: "1.4rem",
+                  fontWeight: 700,
+                  padding: "2px 12px",
+                  borderRadius: "20px",
+                  background: player.verified ? "rgba(0,255,136,0.15)" : "rgba(255,50,50,0.15)",
+                  border: `1px solid ${player.verified ? "rgba(0,255,136,0.3)" : "rgba(255,50,50,0.3)"}`,
+                  color: player.verified ? "#00ff88" : "#ff6b6b",
+                  whiteSpace: "nowrap",
+                }}>
+                  {player.verified ? "✅ Verified" : "❌ Unverified"}
+                </span>
               </div>
               <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.6rem", marginTop: "2px" }}>
-                {player.position}{player.age ? ` · ${player.age} yrs` : ""}
-                {player.wage ? ` · ${player.wage}/wk` : ""}
+                {player.position} {player.wage ? `· ${player.wage}/wk` : ""}
               </div>
             </>
           ) : (
@@ -380,6 +284,7 @@ function PlayerSlot({ index, role, player, label, teamPath, team }) {
           existingPlayer={player}
           teamPath={teamPath}
           team={team}
+          isAdmin={isAdmin}
           onClose={() => setOpen(false)}
         />
       )}
@@ -401,12 +306,14 @@ export default function SquadPage() {
   const team = manager?.team || adminTeam;
   const teamPath = team ? `career_team_management/${team}/squad` : null;
 
+  // Load team icon
   useEffect(() => {
     if (!team || !teamIconsCache) return;
     const icon = teamIconsCache?.[team];
     if (icon) setTeamIcon(icon);
   }, [team, teamIconsCache]);
 
+  // Load squad from Firebase
   useEffect(() => {
     if (!teamPath) return;
     const unsub = onValue(ref(db, teamPath), snap => {
@@ -416,6 +323,7 @@ export default function SquadPage() {
     return () => unsub();
   }, [teamPath]);
 
+  // Load teams for admin selector
   useEffect(() => {
     if (!isAdmin) return;
     const unsub = onValue(ref(db, PATHS.accounts), snap => {
@@ -435,6 +343,7 @@ export default function SquadPage() {
     return list.find(p => p.slotIndex === index) || null;
   }
 
+  // ─── Add Reserve ──────────────────────────────────────────────────────
   async function handleAddReserve() {
     if (!teamPath) return;
     const maxSlot = reservePlayers.reduce((max, p) => Math.max(max, p.slotIndex || 0), -1);
@@ -446,8 +355,8 @@ export default function SquadPage() {
         name: "",
         shirtNumber: "",
         position: "",
-        age: "",
         wage: "",
+        verified: false,
         role: "reserve",
         slotIndex: newIndex,
       });
@@ -456,6 +365,7 @@ export default function SquadPage() {
     }
   }
 
+  // ─── Set Default Squad (Admin only, from Fotmob) ────────────────────
   async function handleSetDefaultSquad() {
     if (!team || !isAdmin) return;
     if (startingPlayers.length > 0 || benchPlayers.length > 0) {
@@ -485,6 +395,7 @@ export default function SquadPage() {
       const squad = squadData?.squad || [];
       if (!squad.length) throw new Error(`No squad data available for "${team}" on Fotmob.`);
 
+      // Position mapping (same as before)
       const positionMap = {
         GK: "GK",
         LB: "LB", LWB: "LWB",
@@ -533,8 +444,8 @@ export default function SquadPage() {
             name: p.name || "Unknown",
             shirtNumber: p.shirtNumber || "",
             position: mappedPos,
-            age: p.age || "",
             wage: p.wage || "",
+            verified: false, // default unverified
             role: "starting",
             slotIndex: idx,
           };
@@ -549,8 +460,8 @@ export default function SquadPage() {
             name: p.name || "Unknown",
             shirtNumber: p.shirtNumber || "",
             position: mappedPos,
-            age: p.age || "",
             wage: p.wage || "",
+            verified: false,
             role: "bench",
             slotIndex: idx,
           };
@@ -582,9 +493,9 @@ export default function SquadPage() {
       await update(ref(db), updates);
 
       const totalAssigned = assignedStarting.filter(Boolean).length + assignedBench.filter(Boolean).length;
-      let msg = `✅ Loaded ${totalAssigned} players.`;
+      let msg = `✅ Loaded ${totalAssigned} players (all unverified).`;
       if (skipped.length) {
-        msg += ` ${skipped.length} player(s) couldn't be mapped to positions and were skipped: ${skipped.join(", ")}`;
+        msg += ` ${skipped.length} player(s) couldn't be mapped and were skipped: ${skipped.join(", ")}`;
       }
       setDefaultError(msg);
       setTimeout(() => setDefaultError(""), 8000);
@@ -724,7 +635,7 @@ export default function SquadPage() {
 
         <div style={{ height: "1px", background: "linear-gradient(to right, transparent, rgba(255,20,147,0.4), transparent)", marginBottom: "28px" }} />
 
-        {/* ─── UPDATED DISCLAIMER ────────────────────────────────────── */}
+        {/* ─── DISCLAIMER ────────────────────────────────────────────────── */}
         <div style={{ background: "rgba(255,170,0,0.08)", border: "1px solid rgba(255,170,0,0.4)", borderRadius: "14px", padding: "18px 24px", marginBottom: "28px" }}>
           <div style={{ color: "#ffaa00", fontWeight: 800, fontSize: "1.8rem", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>⚠️ DISCLAIMER</div>
           <div style={{ color: "rgba(255,255,255,0.85)", fontSize: "1.8rem", lineHeight: 1.6 }}>
@@ -756,6 +667,7 @@ export default function SquadPage() {
                 label={posLabel}
                 teamPath={teamPath}
                 team={team}
+                isAdmin={isAdmin}
               />
             ))}
           </div>
@@ -781,6 +693,7 @@ export default function SquadPage() {
                 label={posLabel}
                 teamPath={teamPath}
                 team={team}
+                isAdmin={isAdmin}
               />
             ))}
           </div>
@@ -817,7 +730,7 @@ export default function SquadPage() {
                 No reserves added yet. Click "Add Player" to start.
               </div>
             ) : (
-              reservePlayers.map((p, i) => (
+              reservePlayers.map((p) => (
                 <PlayerSlot
                   key={p.id}
                   index={p.slotIndex}
@@ -826,6 +739,7 @@ export default function SquadPage() {
                   label="Reserve"
                   teamPath={teamPath}
                   team={team}
+                  isAdmin={isAdmin}
                 />
               ))
             )}
