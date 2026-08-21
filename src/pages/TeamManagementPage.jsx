@@ -30,7 +30,7 @@ const EXPENSE_CATEGORIES = ["Player Wages", "Staff Wages", "Facility Expenses", 
 
 const ALL_MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
-// ─── UPDATED formatBalance (Prompt 3) ──────────────────────────────────
+// ─── UPDATED formatBalance ──────────────────────────────────────────────
 function formatBalance(num) {
   if (num === undefined || num === null) return "€0.00";
   return `€${Number(num).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -43,49 +43,16 @@ function formatAmount(num) {
   return `€${Number(num).toLocaleString()}`;
 }
 
-// ─── SAST helper for month (Prompt 2) ──────────────────────────────────
+// ─── SAST helper ──────────────────────────────────────────────────────────
 function getSASTMonthIndex() {
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone: "Africa/Johannesburg",
     month: "numeric",
   });
-  return parseInt(formatter.format(new Date())) - 1; // 0‑based
+  return parseInt(formatter.format(new Date())) - 1;
 }
 
-// ─── TRANSACTION POPUP (unchanged) ──────────────────────────────────────
-function TransactionPopup({ tx, onClose }) {
-  if (!tx) return null;
-  const isIncome = tx.type === "income";
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }} onClick={onClose}>
-      <div style={{ ...GLASS, borderRadius: "24px", padding: "36px", maxWidth: "480px", width: "100%", position: "relative" }} onClick={e => e.stopPropagation()}>
-        <button onClick={onClose} style={{ position: "absolute", top: "16px", right: "16px", background: "rgba(255,255,255,0.1)", border: "none", color: "#fff", borderRadius: "50%", width: "32px", height: "32px", cursor: "pointer", fontSize: "1rem" }}>✕</button>
-        <div style={{ fontSize: "3rem", marginBottom: "12px" }}>{isIncome ? "💰" : "📤"}</div>
-        <div style={{ color: isIncome ? "#00ff88" : "#ff6b6b", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "2px", marginBottom: "6px" }}>
-          {isIncome ? "+" : "−"}{formatAmount(tx.amount)}
-        </div>
-        <div style={{ color: "#FF1493", fontSize: "1.1rem", fontWeight: 700, marginBottom: "20px", textTransform: "uppercase", letterSpacing: "1px" }}>{tx.category}</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          {[
-            ["Type", isIncome ? "Income" : "Expense"],
-            ["Category", tx.category],
-            tx.source && ["Source", tx.source],
-            ["Month", tx.month || ALL_MONTHS[tx.monthIndex] || "—"],
-            ["Date", tx.createdAt ? new Date(tx.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) : "—"],
-            ["Amount", formatAmount(tx.amount)],
-          ].filter(Boolean).map(([label, value]) => (
-            <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "12px 16px", background: "rgba(255,255,255,0.04)", borderRadius: "12px" }}>
-              <span style={{ color: "rgba(255,255,255,0.45)", fontSize: "1rem", textTransform: "uppercase", letterSpacing: "1px" }}>{label}</span>
-              <span style={{ color: "#fff", fontWeight: 700, fontSize: "1rem" }}>{value}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── ADMIN FINANCE MODAL ────────────────────────────────────────────────
+// ─── ADMIN FINANCE MODAL (Add Transaction) ──────────────────────────────
 function AdminFinanceModal({ onClose }) {
   const [allTeams, setAllTeams] = useState([]);
   const [selectedTeam, setSelectedTeam] = useState("");
@@ -207,7 +174,7 @@ function AdminFinanceModal({ onClose }) {
           </div>
 
           <div style={{ marginBottom: "22px" }}>
-            <label style={labelStyle}>Source <span style={{ color: "rgba(255,255,255,0.3)", fontWeight: 400, textTransform: "none" }}>(optional — e.g. Spotify, Apple)</span></label>
+            <label style={labelStyle}>Source <span style={{ color: "rgba(255,255,255,0.3)", fontWeight: 400, textTransform: "none" }}>(optional)</span></label>
             <input value={source} onChange={e => setSource(e.target.value)} placeholder="e.g. Spotify, Nike, Google..." style={inputStyle} />
           </div>
 
@@ -337,8 +304,7 @@ function UpgradeStadiumPopup({ team, onClose }) {
   );
 }
 
-// ─── STADIUM TAB ──────────────────────────────────────────────────────────
-// (font sizes and padding doubled per Prompt 7)
+// ─── STADIUM TAB (doubled fonts/padding) ──────────────────────────────
 function StadiumTab({ team, isAdmin, onEditStadium }) {
   const [data, setData] = useState(null);
   const [slideIdx, setSlideIdx] = useState(0);
@@ -421,7 +387,6 @@ function StadiumTab({ team, isAdmin, onEditStadium }) {
         )}
       </div>
 
-      {/* Stats — doubled font sizes and padding */}
       <div style={{ ...GLASS, borderRadius: "20px", overflow: "hidden", marginBottom: "28px" }}>
         {[
           { label: "🎟️ Tickets Sold This Season", value: "0" },
@@ -454,45 +419,23 @@ function StadiumTab({ team, isAdmin, onEditStadium }) {
   );
 }
 
-// ─── SQUAD TAB (unchanged – it’s only used as a wrapper) ──────────────
+// ─── SQUAD TAB WRAPPER ───────────────────────────────────────────────────
 function SquadTabWrapper({ team, isAdmin, onEditSquad }) {
-  const [hasError, setHasError] = useState(false);
-  if (hasError) {
-    return (
-      <div style={{ textAlign:"center", padding:"60px 20px", color:"rgba(255,255,255,0.3)" }}>
-        <div style={{ fontSize:"3rem", marginBottom:"16px" }}>⚠️</div>
-        <div style={{ fontFamily:"'Bebas Neue', sans-serif", fontSize:"2rem", letterSpacing:"2px", marginBottom:"16px" }}>Something went wrong loading the squad</div>
-        <button onClick={() => setHasError(false)} style={{ padding:"14px 28px", background:"#FF1493", border:"none", borderRadius:"12px", color:"#fff", fontWeight:700, fontSize:"1rem", cursor:"pointer" }}>Try Again</button>
-      </div>
-    );
-  }
-  try {
-    // Import the SquadTab from the file (we'll define it inline as it's large)
-    // To avoid repetition, we'll just render a placeholder that navigates to /squad
-    // because the actual SquadTab is now in SquadPage.jsx.
-    // But here we need a proper squad management for the TeamManagementPage.
-    // We'll reuse the original SquadTab logic from the provided file (the user's version).
-    // Since the user's SquadTab inside TeamManagementPage was a simplified version,
-    // we can keep it as is, but it won't affect the SquadPage.jsx changes.
-    // For completeness, I'll embed the SquadTab code from the user's original file.
-    // However, to keep this answer manageable, I'll assume the user's SquadTab is already in the file
-    // and we are not modifying it. The user can keep their existing SquadTab.
-    // We'll just render a message because the actual squad is now on /squad.
-    return (
-      <div style={{ textAlign: "center", padding: "60px 20px" }}>
-        <div style={{ fontSize: "4rem", marginBottom: "16px" }}>👥</div>
-        <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3rem", letterSpacing: "3px", color: "#fff" }}>Squad Management</div>
-        <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.2rem", marginTop: "10px" }}>Click "TEAM" tab or visit the Squad page.</div>
-      </div>
-    );
-  } catch(e) {
-    setHasError(true);
-    return null;
-  }
+  return (
+    <div style={{ textAlign: "center", padding: "60px 20px" }}>
+      <div style={{ fontSize: "4rem", marginBottom: "16px" }}>👥</div>
+      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3rem", letterSpacing: "3px", color: "#fff" }}>Squad Management</div>
+      <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.2rem", marginTop: "10px" }}>Click "TEAM" tab or visit the Squad page.</div>
+      {isAdmin && (
+        <button onClick={onEditSquad} style={{ marginTop: "24px", padding: "16px 32px", background: "#FF1493", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.2rem", cursor: "pointer" }}>
+          ✏️ Edit Squad
+        </button>
+      )}
+    </div>
+  );
 }
 
-// ─── TRANSFERS TAB ──────────────────────────────────────────────────────────
-// (All font sizes doubled per Prompt 7)
+// ─── TRANSFERS TAB (doubled fonts/padding) ─────────────────────────────
 function TransfersTab({ team, teamIcons }) {
   const [negotiations, setNegotiations] = useState([]);
   const [selectedOffer, setSelectedOffer] = useState(null);
@@ -559,7 +502,7 @@ function TransfersTab({ team, teamIcons }) {
   );
 }
 
-// ─── NEGOTIATION CARD (used inside TransfersTab) ──────────────────────
+// ─── NEGOTIATION CARD ──────────────────────────────────────────────────
 function NegotiationGridCard({ offer, teamIcons, onClick }) {
   const statusColors = { pending: "#ffaa44", accepted: "#00ff88", rejected: "#ff6b6b" };
   const statusColor = statusColors[offer.status] || "#ffaa44";
@@ -670,8 +613,8 @@ function ShirtSVGSmall({ clubName, playerName, squadNumber }) {
   );
 }
 
-// ─── FINANCE TAB (UPDATED with 12‑month scroll) ─────────────────────────
-function FinanceTab({ team }) {
+// ─── FINANCE TAB ─────────────────────────────────────────────────────────
+function FinanceTab({ team, isAdmin }) {
   const [transactions, setTransactions] = useState([]);
   const [selectedTx, setSelectedTx] = useState(null);
   const currentMonthIndex = getSASTMonthIndex();
@@ -823,7 +766,7 @@ function FinanceTab({ team }) {
         </div>
       </div>
 
-      {/* Income & Expense blocks (unchanged) */}
+      {/* Income & Expense blocks */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "28px", marginBottom: "40px" }}>
         <div style={{ ...GLASS, borderRadius: "20px", padding: "48px" }}>
           <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "2px", marginBottom: "28px" }}>💰 INCOME</div>
@@ -851,7 +794,7 @@ function FinanceTab({ team }) {
         </div>
       </div>
 
-      {/* Transaction History (unchanged) */}
+      {/* Transaction History with Edit/Delete for admin */}
       <div style={{ ...GLASS, borderRadius: "20px", padding: "48px" }}>
         <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "3px", marginBottom: "28px" }}>📋 TRANSACTION HISTORY</div>
         {transactions.length === 0 ? (
@@ -891,7 +834,140 @@ function FinanceTab({ team }) {
         )}
       </div>
 
-      {selectedTx && <TransactionPopup tx={selectedTx} onClose={() => setSelectedTx(null)} />}
+      {selectedTx && (
+        <TransactionEditPopup
+          tx={selectedTx}
+          team={team}
+          isAdmin={isAdmin}
+          onClose={() => setSelectedTx(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── TRANSACTION EDIT/DELETE POPUP ──────────────────────────────────────
+function TransactionEditPopup({ tx, team, isAdmin, onClose }) {
+  const [type, setType] = useState(tx.type);
+  const [category, setCategory] = useState(tx.category);
+  const [source, setSource] = useState(tx.source || "");
+  const [amount, setAmount] = useState(String(tx.amount));
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState("");
+
+  const incomeCategories = INCOME_CATEGORIES;
+  const expenseCategories = EXPENSE_CATEGORIES;
+
+  async function handleSave() {
+    if (!amount || Number(amount) <= 0) {
+      setError("Please enter a valid amount.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      await update(ref(db, `career_team_management/${team}/finance/transactions/${tx.id}`), {
+        type,
+        category,
+        source: source.trim() || null,
+        amount: Number(amount),
+      });
+      onClose();
+    } catch (e) {
+      setError("Update failed: " + e.message);
+    }
+    setSaving(false);
+  }
+
+  async function handleDelete() {
+    if (!window.confirm("Delete this transaction permanently?")) return;
+    setDeleting(true);
+    try {
+      await remove(ref(db, `career_team_management/${team}/finance/transactions/${tx.id}`));
+      onClose();
+    } catch (e) {
+      setError("Delete failed: " + e.message);
+    }
+    setDeleting(false);
+  }
+
+  const inputStyle = {
+    width: "100%", padding: "16px 20px",
+    background: "rgba(255,255,255,0.06)",
+    border: "1px solid rgba(255,20,147,0.35)",
+    borderRadius: "12px", color: "#fff",
+    fontFamily: "inherit", fontSize: "1.1rem",
+    outline: "none", boxSizing: "border-box",
+  };
+  const labelStyle = {
+    color: "rgba(255,255,255,0.65)", fontSize: "0.9rem",
+    display: "block", marginBottom: "6px",
+    textTransform: "uppercase", letterSpacing: "0.8px", fontWeight: 700,
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }} onClick={onClose}>
+      <div style={{ ...GLASS, borderRadius: "24px", padding: "36px", maxWidth: "500px", width: "100%", position: "relative" }} onClick={e => e.stopPropagation()}>
+        <button onClick={onClose} style={{ position: "absolute", top: "16px", right: "16px", background: "rgba(255,255,255,0.1)", border: "none", color: "#fff", borderRadius: "50%", width: "36px", height: "36px", cursor: "pointer", fontSize: "1.1rem" }}>✕</button>
+
+        <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "3px", marginBottom: "8px" }}>
+          {type === "income" ? "💰 Edit Income" : "📤 Edit Expense"}
+        </div>
+        <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "1rem", marginBottom: "24px" }}>
+          {tx.month} {tx.year} · {tx.category}
+        </div>
+
+        <div style={{ marginBottom: "16px" }}>
+          <label style={labelStyle}>Type</label>
+          <div style={{ display: "flex", gap: "10px" }}>
+            {["income", "expense"].map(t => (
+              <button key={t} onClick={() => setType(t)} style={{
+                flex: 1, padding: "12px", borderRadius: "10px", cursor: "pointer",
+                fontFamily: "inherit", fontWeight: 700, fontSize: "1rem",
+                background: type === t ? (t === "income" ? "#00cc66" : "#ff4444") : "rgba(255,255,255,0.06)",
+                border: `1px solid ${type === t ? (t === "income" ? "#00cc66" : "#ff4444") : "rgba(255,255,255,0.15)"}`,
+                color: "#fff", transition: "all 0.2s", textTransform: "uppercase",
+              }}>
+                {t === "income" ? "💰 Income" : "📤 Expense"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ marginBottom: "16px" }}>
+          <label style={labelStyle}>Category</label>
+          <select value={category} onChange={e => setCategory(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
+            {(type === "income" ? incomeCategories : expenseCategories).map(c => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ marginBottom: "16px" }}>
+          <label style={labelStyle}>Source (optional)</label>
+          <input value={source} onChange={e => setSource(e.target.value)} placeholder="e.g. Spotify, Nike..." style={inputStyle} />
+        </div>
+
+        <div style={{ marginBottom: "24px" }}>
+          <label style={labelStyle}>Amount (€)</label>
+          <input value={amount} onChange={e => setAmount(e.target.value)} type="number" min="0" style={inputStyle} />
+        </div>
+
+        {error && <div style={{ color: "#ff6b6b", fontSize: "0.95rem", marginBottom: "14px", padding: "12px", background: "rgba(255,0,0,0.1)", borderRadius: "10px" }}>{error}</div>}
+
+        <div style={{ display: "flex", gap: "10px" }}>
+          <button onClick={handleSave} disabled={saving} style={{ flex: 2, padding: "14px", background: "#FF1493", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, fontSize: "1.1rem", cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}>
+            {saving ? "Saving..." : "💾 Save"}
+          </button>
+          {isAdmin && (
+            <button onClick={handleDelete} disabled={deleting} style={{ flex: 1, padding: "14px", background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.4)", borderRadius: "12px", color: "#ff6b6b", fontWeight: 700, fontSize: "1.1rem", cursor: deleting ? "not-allowed" : "pointer" }}>
+              {deleting ? "..." : "🗑️"}
+            </button>
+          )}
+          <button onClick={onClose} style={{ flex: 1, padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.2)", borderRadius: "12px", color: "#fff", cursor: "pointer", fontSize: "1.1rem" }}>Cancel</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -944,6 +1020,14 @@ export default function TeamManagementPage() {
 
   const mergedIcons = { ...teamIconsCache, ...teamIcons };
 
+  // ─── Admin menu items for navbar plus icon ──────────────────────────────
+  const adminNavbarMenu = isAdmin ? [
+    { icon: "🏟️", label: "Edit Stadium", action: () => { setShowStadiumModal(true); } },
+    { icon: "👥", label: "Edit Team", action: () => { setShowSquadModal(true); } },
+    { icon: "📜", label: "Team History", action: () => { setShowHistoryModal(true); } },
+    { icon: "💰", label: "Team Finances", action: () => { setShowFinanceModal(true); } },
+  ] : undefined;
+
   if (managerLoading) {
     return (
       <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
@@ -987,10 +1071,12 @@ export default function TeamManagementPage() {
   return (
     <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
       <BackgroundVideo />
-      <Navbar />
+      {/* Pass admin menu to Navbar so the plus icon appears */}
+      <Navbar tokyoMenuItems={adminNavbarMenu} />
 
       <div style={{ padding: "32px 20px 80px" }}>
 
+        {/* Optional: Keep the separate admin manage button if you want, but we already have the navbar plus */}
         {isAdmin && (
           <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginBottom: "24px", position: "relative" }}>
             {adminTeam && (
@@ -999,6 +1085,7 @@ export default function TeamManagementPage() {
                 style={{ padding: "12px 22px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "12px", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem" }}
               >← Teams</button>
             )}
+            {/* The separate "Manage" button is still here, but you can remove it if you want only the navbar plus */}
             <div style={{ position: "relative" }}>
               <button
                 onClick={() => setAdminMenuOpen(v => !v)}
@@ -1024,7 +1111,7 @@ export default function TeamManagementPage() {
           </div>
         )}
 
-        {/* Team header — Prompt 4: fallback to manager photo */}
+        {/* Team header — with manager profile fallback */}
         <div style={{ textAlign: "center", marginBottom: "36px" }}>
           <div style={{ width: "120px", height: "120px", margin: "0 auto 16px", display: "flex", alignItems: "center", justifyContent: "center" }}>
             {teamIcon ? (
@@ -1042,7 +1129,6 @@ export default function TeamManagementPage() {
             <div style={{ color: "#ffaa44", fontSize: "1.2rem", marginBottom: "8px", fontWeight: 700 }}>👁️ Admin View</div>
           )}
           <div style={{ marginTop: "12px" }}>
-            {/* Prompt 3: "Transfer Budget" → "Balance" */}
             <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.2rem", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "4px" }}>Balance</div>
             <div style={{
               fontFamily: "'Bebas Neue', sans-serif",
@@ -1080,7 +1166,7 @@ export default function TeamManagementPage() {
         <div style={{ width: "100%" }}>
           {tab === "stadium" && <StadiumTab team={team} isAdmin={isAdmin} onEditStadium={() => setShowStadiumModal(true)} />}
           {tab === "transfers" && <TransfersTab team={team} teamIcons={mergedIcons} />}
-          {tab === "finance" && <FinanceTab team={team} />}
+          {tab === "finance" && <FinanceTab team={team} isAdmin={isAdmin} />}
           {tab === "squad" && <SquadTabWrapper team={team} isAdmin={isAdmin} onEditSquad={() => setShowSquadModal(true)} />}
         </div>
       </div>
