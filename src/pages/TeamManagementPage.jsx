@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from "react";
-import ReactDOM from "react-dom";
 import { db, PATHS } from "../firebase";
 import { ref, onValue, push, update, get, remove } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
@@ -8,12 +7,12 @@ import BackgroundVideo from "../components/BackgroundVideo";
 import TabBar from "../components/TabBar";
 import Modal from "../components/Modal";
 import StadiumModal from "../modals/StadiumModal";
-import SquadModal from "../modals/SquadModal";
+import TeamModal from "../modals/TeamModal";
 import TeamHistoryModal from "../modals/TeamHistoryModal";
 
 const TABS = [
   { id: "stadium", label: "STADIUM" },
-  { id: "squad", label: "SQUAD" },
+  { id: "squad", label: "TEAM" },
   { id: "transfers", label: "TRANSFERS" },
   { id: "finance", label: "FINANCE" },
 ];
@@ -533,8 +532,8 @@ function SquadPlayerPopup({ player, team, onClose }) {
 
   const iStyle = { width:"100%", padding:"12px 16px", background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,20,147,0.35)", borderRadius:"12px", color:"#fff", fontFamily:"inherit", fontSize:"1rem", outline:"none", boxSizing:"border-box" };
 
-  return ReactDOM.createPortal(
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:"20px", fontFamily:"'Inter', sans-serif", fontSize:"1rem" }} onClick={onClose}>
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:"20px" }} onClick={onClose}>
       <div style={{ background:"#0a0015", border:"1px solid rgba(255,20,147,0.3)", borderRadius:"24px", padding:"32px", maxWidth:"420px", width:"100%", position:"relative" }} onClick={e=>e.stopPropagation()}>
         <button onClick={onClose} style={{ position:"absolute", top:"14px", right:"14px", background:"rgba(255,255,255,0.1)", border:"none", color:"#fff", borderRadius:"50%", width:"30px", height:"30px", cursor:"pointer" }}>✕</button>
         <div style={{ color:"#fff", fontFamily:"'Bebas Neue', sans-serif", fontSize:"2rem", letterSpacing:"2px", marginBottom:"20px" }}>{player.name}</div>
@@ -576,8 +575,7 @@ function SquadPlayerPopup({ player, team, onClose }) {
           <button onClick={handleDelete} disabled={deleting} style={{ flex:1, padding:"14px", background:"rgba(255,50,50,0.15)", border:"1px solid rgba(255,50,50,0.4)", borderRadius:"12px", color:"#ff6b6b", fontWeight:700, fontSize:"1rem", cursor:deleting?"not-allowed":"pointer" }}>{deleting?"...":"🗑️"}</button>
         </div>
       </div>
-    </div>,
-    document.body
+    </div>
   );
 }
 
@@ -1220,7 +1218,7 @@ export default function TeamManagementPage() {
                 <div style={{ position: "absolute", right: 0, top: "calc(100% + 10px)", background: "#0a0015", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "16px", padding: "8px", minWidth: "240px", zIndex: 200, boxShadow: "0 8px 32px rgba(0,0,0,0.6)" }}>
                   {[
                     { label: "🏟️ Edit Stadium", action: () => { setShowStadiumModal(true); setAdminMenuOpen(false); } },
-                    { label: "👥 Edit Squad", action: () => { setShowSquadModal(true); setAdminMenuOpen(false); } },
+                    { label: "👥 Edit Team", action: () => { setShowSquadModal(true); setAdminMenuOpen(false); } },
                     { label: "📜 Team History", action: () => { setShowHistoryModal(true); setAdminMenuOpen(false); } },
                     { label: "💰 Team Finances", action: () => { setShowFinanceModal(true); setAdminMenuOpen(false); } },
                   ].map(({ label, action }) => (
@@ -1278,7 +1276,7 @@ export default function TeamManagementPage() {
         <StadiumModal team={team} onClose={() => setShowStadiumModal(false)} />
       </Modal>
       <Modal active={showSquadModal} onClose={() => setShowSquadModal(false)} wide>
-        <SquadModal team={team} onClose={() => setShowSquadModal(false)} />
+        <TeamModal team={team} onClose={() => setShowSquadModal(false)} />
       </Modal>
       <Modal active={showHistoryModal} onClose={() => setShowHistoryModal(false)} wide>
         <TeamHistoryModal team={team} onClose={() => setShowHistoryModal(false)} />
