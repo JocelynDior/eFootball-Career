@@ -25,10 +25,12 @@ function parseCommaValue(str) {
 export default function BuySellModal({ mode, manager, onClose }) {
   const [teams, setTeams] = useState([]);
   const [selectedTeam, setSelectedTeam] = useState("");
+  const [manualTeam, setManualTeam] = useState("");
+  const [isManualTeam, setIsManualTeam] = useState(false);
   const [squadPlayers, setSquadPlayers] = useState([]);
   const [selectedPlayerName, setSelectedPlayerName] = useState("");
   const [manualPlayerName, setManualPlayerName] = useState("");
-  const [isManualEntry, setIsManualEntry] = useState(false);
+  const [isManualPlayer, setIsManualPlayer] = useState(false);
   const [bidAmount, setBidAmount] = useState("");
   const [loanAmount, setLoanAmount] = useState("");
   const [buyOptionClause, setBuyOptionClause] = useState("");
@@ -52,12 +54,13 @@ export default function BuySellModal({ mode, manager, onClose }) {
 
   // ─── Load squad when team changes ────────────────────────────────────
   useEffect(() => {
-    if (!selectedTeam) {
+    const activeTeam = isManualTeam ? manualTeam : selectedTeam;
+    if (!activeTeam) {
       setSquadPlayers([]);
       setSelectedPlayerName("");
       return;
     }
-    const unsub = onValue(ref(db, `career_team_management/${selectedTeam}/squad`), (snap) => {
+    const unsub = onValue(ref(db, `career_team_management/${activeTeam}/squad`), (snap) => {
       const data = snap.val();
       if (data) {
         const players = Object.values(data).map((p) => p.name).filter(Boolean);
@@ -67,20 +70,33 @@ export default function BuySellModal({ mode, manager, onClose }) {
       }
       // Reset player selection when team changes
       setSelectedPlayerName("");
-      setIsManualEntry(false);
+      setIsManualPlayer(false);
       setManualPlayerName("");
     });
     return () => unsub();
-  }, [selectedTeam]);
+  }, [selectedTeam, manualTeam, isManualTeam]);
+
+  // ─── Handle team dropdown change ──────────────────────────────────
+  const handleTeamSelect = (e) => {
+    const val = e.target.value;
+    if (val === "__manual_team__") {
+      setIsManualTeam(true);
+      setSelectedTeam("");
+    } else {
+      setIsManualTeam(false);
+      setSelectedTeam(val);
+      setManualTeam("");
+    }
+  };
 
   // ─── Handle player dropdown change ──────────────────────────────────
   const handlePlayerSelect = (e) => {
     const val = e.target.value;
-    if (val === "__manual__") {
-      setIsManualEntry(true);
+    if (val === "__manual_player__") {
+      setIsManualPlayer(true);
       setSelectedPlayerName("");
     } else {
-      setIsManualEntry(false);
+      setIsManualPlayer(false);
       setSelectedPlayerName(val);
     }
   };
@@ -88,9 +104,10 @@ export default function BuySellModal({ mode, manager, onClose }) {
   // ─── Submit offer ────────────────────────────────────────────────────
   async function handleSubmit() {
     // Validation
-    const player = isManualEntry ? manualPlayerName.trim() : selectedPlayerName;
-    if (!selectedTeam) {
-      setError("Please select a team.");
+    const team = isManualTeam ? manualTeam.trim() : selectedTeam;
+    const player = isManualPlayer ? manualPlayerName.trim() : selectedPlayerName;
+    if (!team) {
+      setError("Please select or enter a team.");
       return;
     }
     if (!player) {
@@ -109,7 +126,7 @@ export default function BuySellModal({ mode, manager, onClose }) {
       const offer = {
         type: mode,
         playerName: player,
-        playerClub: selectedTeam,
+        playerClub: team,
         fromClub: manager.team,
         fromManagerUid: manager.uid,
         status: "pending",
@@ -118,12 +135,12 @@ export default function BuySellModal({ mode, manager, onClose }) {
 
       if (mode === "buy") {
         offer.offerAmount = `€${formatWithCommas(bidAmount)}`;
-        if (addOns) offer.addOns = `€${formatWithCommas(addOns)}`;
+        if (addOns.trim()) offer.addOns = addOns.trim();
       } else {
         offer.loanAmount = `€${formatWithCommas(loanAmount)}`;
         offer.loanTerm = "1 Season";
         if (buyOptionClause) offer.buyOptionClause = `€${formatWithCommas(buyOptionClause)}`;
-        if (addOns) offer.addOns = `€${formatWithCommas(addOns)}`;
+        if (addOns.trim()) offer.addOns = addOns.trim();
       }
 
       await push(ref(db, `${PATHS.transfers}/negotiations`), offer);
@@ -201,12 +218,12 @@ export default function BuySellModal({ mode, manager, onClose }) {
         </div>
       ) : (
         <>
-          {/* Team dropdown */}
+          {/* Team dropdown with manual entry option */}
           <div style={{ marginBottom: "18px" }}>
             <label style={labelStyle}>Select Team</label>
             <select
-              value={selectedTeam}
-              onChange={(e) => setSelectedTeam(e.target.value)}
+              value={isManualTeam ? "__manual_team__" : selectedTeam}
+              onChange={handleTeamSelect}
               style={{ ...inputStyle, cursor: "pointer" }}
             >
               <option value="">— Choose a team —</option>
@@ -215,15 +232,29 @@ export default function BuySellModal({ mode, manager, onClose }) {
                   {t}
                 </option>
               ))}
+              <option value="__manual_team__">✏️ Enter different team…</option>
             </select>
           </div>
 
+          {/* Manual team name input */}
+          {isManualTeam && (
+            <div style={{ marginBottom: "18px" }}>
+              <label style={labelStyle}>Team Name</label>
+              <input
+                value={manualTeam}
+                onChange={(e) => setManualTeam(e.target.value)}
+                placeholder="Type team name…"
+                style={inputStyle}
+              />
+            </div>
+          )}
+
           {/* Player dropdown */}
-          {selectedTeam && (
+          {selectedTeam || isManualTeam ? (
             <div style={{ marginBottom: "18px" }}>
               <label style={labelStyle}>Select Player</label>
               <select
-                value={isManualEntry ? "__manual__" : selectedPlayerName}
+                value={isManualPlayer ? "__manual_player__" : selectedPlayerName}
                 onChange={handlePlayerSelect}
                 style={{ ...inputStyle, cursor: "pointer" }}
               >
@@ -233,13 +264,13 @@ export default function BuySellModal({ mode, manager, onClose }) {
                     {p}
                   </option>
                 ))}
-                <option value="__manual__">✏️ Enter different player…</option>
+                <option value="__manual_player__">✏️ Enter different player…</option>
               </select>
             </div>
-          )}
+          ) : null}
 
           {/* Manual player name input */}
-          {isManualEntry && (
+          {isManualPlayer && (
             <div style={{ marginBottom: "18px" }}>
               <label style={labelStyle}>Player Name</label>
               <input
@@ -295,15 +326,15 @@ export default function BuySellModal({ mode, manager, onClose }) {
             </>
           )}
 
-          {/* Add Ons */}
+          {/* Add Ons - free text */}
           <div style={{ marginBottom: "24px" }}>
             <label style={labelStyle}>
               Add Ons <span style={{ color: "rgba(255,255,255,0.3)" }}>(optional)</span>
             </label>
             <input
               value={addOns}
-              onChange={handleNumberInput(setAddOns)}
-              placeholder="e.g. 2,000,000"
+              onChange={(e) => setAddOns(e.target.value)}
+              placeholder="e.g. Performance bonuses, appearance fees, etc."
               style={inputStyle}
             />
           </div>
