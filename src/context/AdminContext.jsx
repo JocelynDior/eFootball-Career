@@ -96,11 +96,10 @@ export function AdminProvider({ children }) {
         const accountData = {
           username,
           email,
-          password, // NOTE: plain text — no Firebase Auth used per project design
+          password,
           role: "manager",
           team: null,
           profilePhoto: null,
-          balance: 1000000000,
           rank: null,
           createdAt: Date.now(),
         };
