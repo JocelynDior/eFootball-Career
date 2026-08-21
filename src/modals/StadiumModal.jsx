@@ -127,26 +127,10 @@ export default function StadiumModal({ team, onClose }) {
   async function handleAcceptUpgrade(req) {
     setAcceptingId(req.id);
     try {
-      // Find manager account for this team
-      const accountsSnap = await new Promise(resolve => {
-        onValue(ref(db, PATHS.accounts), resolve, { onlyOnce: true });
-      });
-      const accounts = accountsSnap.val() || {};
-      const managerEntry = Object.entries(accounts).find(([, a]) => a.team === team && a.role === "manager");
-      if (!managerEntry) throw new Error("Manager account not found for this team.");
-      const [uid, managerData] = managerEntry;
-      const currentBalance = managerData.balance ?? 1_000_000_000;
       const amount = Number(req.amount);
-      if (currentBalance < amount) throw new Error("Manager has insufficient funds.");
 
-      // Deduct balance
-      await update(ref(db, `${PATHS.accounts}/${uid}`), {
-        balance: currentBalance - amount,
-      });
-
-      // Write expense transaction
-      const txRef = ref(db, `career_team_management/${team}/finance/transactions`);
-      await push(txRef, {
+      // Write expense transaction only — balance calculated from transactions
+      await push(ref(db, `career_team_management/${team}/finance/transactions`), {
         type: "expense",
         category: "Stadium Upgrade",
         source: req.description || "Stadium Upgrade Request",
