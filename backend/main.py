@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import requests
+import os
 
 app = Flask(__name__)
 CORS(app)
@@ -40,8 +41,6 @@ def get_player():
         position = detail.get("positionDescription", {}).get("primaryPosition", {}).get("label", "")
         age = detail.get("meta", {}).get("age", "")
         full_name = detail.get("name", player_hit.get("name", name))
-
-        # Wage — Fotmob doesn't always have this, return blank so AI can fill
         wage = detail.get("contractInfo", {}).get("wage", "")
 
         return jsonify({
@@ -55,4 +54,4 @@ def get_player():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
