@@ -75,7 +75,6 @@ const FORMATION_LAYOUTS = {
   ],
 };
 
-// Position groups for smart slot matching
 const POS_GROUP = {
   GK:["GK"], LB:["LB","LWB"], RB:["RB","RWB"], LWB:["LWB","LB"], RWB:["RWB","RB"],
   CB:["CB"], CDM:["CDM","CM"], CM:["CM","CDM","CAM"], CAM:["CAM","CM"],
@@ -99,10 +98,52 @@ const labelStyle = {
 };
 
 const TODAY = new Date().toLocaleDateString("en-GB",{ day:"numeric", month:"long", year:"numeric" });
-
-// Contract expires: August = month 1, so +3 months = November? 
-// "We count August as 1st month" so Oct is month 3 = expires October
 const CONTRACT_EXPIRY = "October 2026";
+
+// Map fotmob position strings to our position codes
+function mapFotmobPosition(pos) {
+  if (!pos) return "CM";
+  const p = pos.toLowerCase();
+  if (p.includes("goalkeeper") || p === "gk") return "GK";
+  if (p.includes("right back") || p === "rb") return "RB";
+  if (p.includes("left back") || p === "lb") return "LB";
+  if (p.includes("centre-back") || p.includes("center back") || p === "cb") return "CB";
+  if (p.includes("right wing-back") || p === "rwb") return "RWB";
+  if (p.includes("left wing-back") || p === "lwb") return "LWB";
+  if (p.includes("defensive mid") || p === "cdm" || p === "dm") return "CDM";
+  if (p.includes("central mid") || p === "cm") return "CM";
+  if (p.includes("attacking mid") || p === "cam" || p === "am") return "CAM";
+  if (p.includes("right mid") || p === "rm") return "RM";
+  if (p.includes("left mid") || p === "lm") return "LM";
+  if (p.includes("right wing") || p === "rw") return "RW";
+  if (p.includes("left wing") || p === "lw") return "LW";
+  if (p.includes("centre-forward") || p.includes("center forward") || p === "cf") return "CF";
+  if (p.includes("striker") || p.includes("forward") || p === "st") return "ST";
+  return "CM";
+}
+
+// Map fotmob formation string e.g. "4-3-3" to our formations
+function mapFotmobFormation(fmt) {
+  if (!fmt) return "4-3-3";
+  const clean = fmt.replace(/\s/g, "");
+  return FORMATIONS.includes(clean) ? clean : "4-3-3";
+}
+
+function buildPitchDisplay(slots, startingPlayers) {
+  const used = new Set();
+  return slots.map(slot => {
+    // Exact match
+    let match = startingPlayers.find(p => !used.has(p.id) && p.position === slot.pos);
+    // Group match
+    if (!match) {
+      const group = POS_GROUP[slot.pos] || [slot.pos];
+      match = startingPlayers.find(p => !used.has(p.id) && group.includes(p.position));
+    }
+    // No fallback — slot stays empty if no position match
+    if (match) used.add(match.id);
+    return { slot, player: match || null };
+  });
+}
 
 // ── Player Edit Popup ────────────────────────────────────────────────────────
 function PlayerEditPopup({ player, teamPath, onClose }) {
@@ -122,30 +163,24 @@ function PlayerEditPopup({ player, teamPath, onClose }) {
   async function fetchWage() {
     setFetchingWage(true);
     try {
-      const system = `You are a football data expert. Return ONLY a valid JSON object, no markdown, no preamble, no <think> tags.`;
-      const prompt = `Today's date is ${TODAY}. What is ${player.name}'s current weekly wage as of today? Return JSON: {"weeklyWage": "€X,XXX"}`;
-      const raw = await askGroq(system, prompt);
-      const clean = raw.replace(/<think>[\s\S]*?<\/think>/g,"").replace(/```json|```/g,"").trim();
-      const data = JSON.parse(clean);
+      const raw = await askGroq(
+        `You are a football salary expert. Return ONLY valid JSON, no markdown, no <think> tags.`,
+        `Today's date is ${TODAY}. What is ${player.name}'s current weekly wage? Return: {"weeklyWage":"€X,XXX"}`
+      );
+      const clean = raw.replace(/<think>[\s\S]*?<\/think>/gi,"").replace(/```json|```/g,"").trim();
+      const match = clean.match(/\{[\s\S]*\}/);
+      const data = JSON.parse(match ? match[0] : clean);
       setWage(data.weeklyWage || "—");
-    } catch(e) {
-      setWage("—");
-    }
+    } catch { setWage("—"); }
     setFetchingWage(false);
   }
 
   async function handleSave() {
-    setSaving(true);
-    setError("");
+    setSaving(true); setError("");
     try {
-      await update(ref(db, `${teamPath}/${player.id}`), {
-        shirtNumber, position, role, wage,
-        contractExpires: CONTRACT_EXPIRY,
-      });
+      await update(ref(db, `${teamPath}/${player.id}`), { shirtNumber, position, role, wage, contractExpires: CONTRACT_EXPIRY });
       onClose();
-    } catch(e) {
-      setError("Save failed: " + e.message);
-    }
+    } catch(e) { setError("Save failed: " + e.message); }
     setSaving(false);
   }
 
@@ -154,68 +189,49 @@ function PlayerEditPopup({ player, teamPath, onClose }) {
     try {
       await remove(ref(db, `${teamPath}/${player.id}`));
       onClose();
-    } catch(e) {
-      setError("Delete failed: " + e.message);
-    }
+    } catch(e) { setError("Delete failed: " + e.message); }
     setDeleting(false);
   }
 
+  const iStyle = { ...inputStyle };
+
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:"20px" }} onClick={onClose}>
-      <div style={{ background:"#0a0015", border:"1px solid rgba(255,20,147,0.3)", borderRadius:"24px", padding:"36px", maxWidth:"440px", width:"100%", position:"relative" }} onClick={e=>e.stopPropagation()}>
-        <button onClick={onClose} style={{ position:"absolute", top:"16px", right:"16px", background:"rgba(255,255,255,0.1)", border:"none", color:"#fff", borderRadius:"50%", width:"32px", height:"32px", cursor:"pointer", fontSize:"1rem" }}>✕</button>
-
-        {/* Name — read only */}
-        <div style={{ marginBottom:"24px" }}>
-          <div style={{ color:"rgba(255,255,255,0.45)", fontSize:"0.85rem", textTransform:"uppercase", letterSpacing:"1px", marginBottom:"6px" }}>Player</div>
-          <div style={{ color:"#fff", fontFamily:"'Bebas Neue', sans-serif", fontSize:"2rem", letterSpacing:"2px" }}>{player.name}</div>
-        </div>
-
-        {/* Editable fields */}
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"14px", marginBottom:"18px" }}>
+      <div style={{ background:"#0a0015", border:"1px solid rgba(255,20,147,0.3)", borderRadius:"24px", padding:"32px", maxWidth:"440px", width:"100%", position:"relative" }} onClick={e=>e.stopPropagation()}>
+        <button onClick={onClose} style={{ position:"absolute", top:"14px", right:"14px", background:"rgba(255,255,255,0.1)", border:"none", color:"#fff", borderRadius:"50%", width:"32px", height:"32px", cursor:"pointer" }}>✕</button>
+        <div style={{ color:"#fff", fontFamily:"'Bebas Neue', sans-serif", fontSize:"2rem", letterSpacing:"2px", marginBottom:"20px" }}>{player.name}</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"12px", marginBottom:"16px" }}>
           <div>
-            <label style={labelStyle}>Shirt Number</label>
-            <input value={shirtNumber} onChange={e=>setShirtNumber(e.target.value)} placeholder="#" style={inputStyle} type="number" />
+            <label style={labelStyle}>Shirt #</label>
+            <input value={shirtNumber} onChange={e=>setShirtNumber(e.target.value)} style={iStyle} type="number" />
           </div>
           <div>
             <label style={labelStyle}>Position</label>
-            <select value={position} onChange={e=>setPosition(e.target.value)} style={{ ...inputStyle, cursor:"pointer" }}>
+            <select value={position} onChange={e=>setPosition(e.target.value)} style={{ ...iStyle, cursor:"pointer" }}>
               {POSITIONS.map(p=><option key={p} value={p}>{p}</option>)}
             </select>
           </div>
         </div>
-
-        <div style={{ marginBottom:"18px" }}>
+        <div style={{ marginBottom:"16px" }}>
           <label style={labelStyle}>Role</label>
           <div style={{ display:"flex", gap:"10px" }}>
             {[["starting","Starting XI"],["bench","Bench"]].map(([val,label])=>(
-              <button key={val} onClick={()=>setRole(val)} style={{ flex:1, padding:"12px", borderRadius:"12px", cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:"0.95rem", background:role===val?"#FF1493":"rgba(255,255,255,0.06)", border:`1px solid ${role===val?"#FF1493":"rgba(255,20,147,0.3)"}`, color:"#fff" }}>{label}</button>
+              <button key={val} onClick={()=>setRole(val)} style={{ flex:1, padding:"12px", borderRadius:"12px", cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:"0.9rem", background:role===val?"#FF1493":"rgba(255,255,255,0.06)", border:`1px solid ${role===val?"#FF1493":"rgba(255,20,147,0.3)"}`, color:"#fff" }}>{label}</button>
             ))}
           </div>
         </div>
-
-        {/* Read-only info */}
-        <div style={{ background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,20,147,0.15)", borderRadius:"14px", padding:"18px", marginBottom:"18px" }}>
-          {[
-            ["💰 Weekly Wage", fetchingWage ? "Fetching..." : (wage || "—")],
-            ["📅 Contract Expires", CONTRACT_EXPIRY],
-          ].map(([label, value])=>(
-            <div key={label} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderBottom:"1px solid rgba(255,255,255,0.05)" }}>
+        <div style={{ background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,20,147,0.15)", borderRadius:"14px", padding:"16px", marginBottom:"16px" }}>
+          {[["💰 Weekly Wage", fetchingWage?"Fetching...":(wage||"—")],["📅 Contract Expires", CONTRACT_EXPIRY]].map(([label,value])=>(
+            <div key={label} style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", borderBottom:"1px solid rgba(255,255,255,0.05)" }}>
               <span style={{ color:"rgba(255,255,255,0.5)", fontSize:"0.95rem" }}>{label}</span>
               <span style={{ color:"#fff", fontWeight:700, fontSize:"0.95rem" }}>{value}</span>
             </div>
           ))}
         </div>
-
-        {error && <div style={{ color:"#ff6b6b", fontSize:"0.9rem", marginBottom:"14px", padding:"10px", background:"rgba(255,0,0,0.1)", borderRadius:"10px" }}>{error}</div>}
-
+        {error && <div style={{ color:"#ff6b6b", fontSize:"0.9rem", marginBottom:"12px", padding:"10px", background:"rgba(255,0,0,0.1)", borderRadius:"10px" }}>{error}</div>}
         <div style={{ display:"flex", gap:"10px" }}>
-          <button onClick={handleSave} disabled={saving} style={{ flex:2, padding:"14px", background:"#FF1493", border:"none", borderRadius:"12px", color:"#fff", fontWeight:700, fontSize:"1rem", cursor:saving?"not-allowed":"pointer" }}>
-            {saving?"Saving...":"💾 Save"}
-          </button>
-          <button onClick={handleDelete} disabled={deleting} style={{ flex:1, padding:"14px", background:"rgba(255,50,50,0.15)", border:"1px solid rgba(255,50,50,0.4)", borderRadius:"12px", color:"#ff6b6b", fontWeight:700, fontSize:"1rem", cursor:deleting?"not-allowed":"pointer" }}>
-            {deleting?"...":"🗑️ Delete"}
-          </button>
+          <button onClick={handleSave} disabled={saving} style={{ flex:2, padding:"14px", background:"#FF1493", border:"none", borderRadius:"12px", color:"#fff", fontWeight:700, fontSize:"1rem", cursor:saving?"not-allowed":"pointer" }}>{saving?"Saving...":"💾 Save"}</button>
+          <button onClick={handleDelete} disabled={deleting} style={{ flex:1, padding:"14px", background:"rgba(255,50,50,0.15)", border:"1px solid rgba(255,50,50,0.4)", borderRadius:"12px", color:"#ff6b6b", fontWeight:700, fontSize:"1rem", cursor:deleting?"not-allowed":"pointer" }}>{deleting?"...":"🗑️"}</button>
         </div>
       </div>
     </div>
@@ -229,6 +245,7 @@ export default function SquadModal({ team, onClose }) {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   const [editingPlayer, setEditingPlayer] = useState(null);
+  const [settingDefault, setSettingDefault] = useState(false);
 
   const [newName, setNewName] = useState("");
   const [newShirt, setNewShirt] = useState("");
@@ -249,19 +266,140 @@ export default function SquadModal({ team, onClose }) {
     return () => { unsub(); fUnsub(); };
   }, [team]);
 
+  // ── Set Default Squad from Fotmob ─────────────────────────────────────────
+  async function handleSetDefaultSquad() {
+    setSettingDefault(true);
+    setError("");
+    try {
+      // Search fotmob for the team
+      const searchRes = await fetch(
+        `https://www.fotmob.com/api/search?term=${encodeURIComponent(team)}`,
+        { headers: { Accept: "application/json" } }
+      );
+      const searchData = await searchRes.json();
+
+      // Find team result
+      const teamHit = searchData?.squads?.find(r => r.name?.toLowerCase().includes(team.toLowerCase()))
+        || searchData?.squads?.[0];
+
+      let autoPlayers = [];
+      let autoFormation = "4-3-3";
+
+      if (teamHit?.id) {
+        // Fetch team details
+        const teamRes = await fetch(
+          `https://www.fotmob.com/api/teams?id=${teamHit.id}&tab=squad&type=europe&timeZone=Europe/London`,
+          { headers: { Accept: "application/json" } }
+        );
+        const teamData = await teamRes.json();
+
+        // Try to get lineup from recent match
+        const matchesRes = await fetch(
+          `https://www.fotmob.com/api/teams?id=${teamHit.id}&tab=matches&type=europe&timeZone=Europe/London`,
+          { headers: { Accept: "application/json" } }
+        );
+        const matchesData = await matchesRes.json();
+
+        // Get last played match id
+        const lastMatch = matchesData?.matches?.previousMatches?.[matchesData.matches.previousMatches.length - 1];
+
+        if (lastMatch?.id) {
+          const matchRes = await fetch(
+            `https://www.fotmob.com/api/matchDetails?matchId=${lastMatch.id}`,
+            { headers: { Accept: "application/json" } }
+          );
+          const matchDetail = await matchRes.json();
+
+          // Find which side is our team
+          const homeId = matchDetail?.header?.teams?.[0]?.id;
+          const side = homeId === teamHit.id ? "home" : "away";
+          const lineup = matchDetail?.content?.lineup?.[side];
+          const formationStr = lineup?.formation || "4-3-3";
+          autoFormation = mapFotmobFormation(formationStr);
+
+          // Starting XI
+          const starters = lineup?.starters || [];
+          starters.forEach((p, i) => {
+            autoPlayers.push({
+              id: `default_${Date.now()}_${i}`,
+              name: p.name?.fullName || p.name || `Player ${i+1}`,
+              shirtNumber: p.shirtNumber || String(i+1),
+              position: mapFotmobPosition(p.positionBoardPo || p.role),
+              role: "starting",
+              contractExpires: CONTRACT_EXPIRY,
+            });
+          });
+
+          // Bench
+          const bench = lineup?.subs || lineup?.bench || [];
+          bench.forEach((p, i) => {
+            autoPlayers.push({
+              id: `default_bench_${Date.now()}_${i}`,
+              name: p.name?.fullName || p.name || `Sub ${i+1}`,
+              shirtNumber: p.shirtNumber || "",
+              position: mapFotmobPosition(p.positionBoardPo || p.role),
+              role: "bench",
+              contractExpires: CONTRACT_EXPIRY,
+            });
+          });
+        }
+
+        // Fallback to squad list if no lineup found
+        if (autoPlayers.length === 0) {
+          const members = teamData?.members || [];
+          members.slice(0,23).forEach((p, i) => {
+            autoPlayers.push({
+              id: `default_squad_${Date.now()}_${i}`,
+              name: p.name || `Player ${i+1}`,
+              shirtNumber: p.shirtNumber || "",
+              position: mapFotmobPosition(p.role),
+              role: i < 11 ? "starting" : "bench",
+              contractExpires: CONTRACT_EXPIRY,
+            });
+          });
+        }
+      }
+
+      // If fotmob failed entirely — use Groq as fallback
+      if (autoPlayers.length === 0) {
+        const raw = await askGroq(
+          `You are a football data expert. Return ONLY valid JSON, no markdown, no <think> tags.`,
+          `Today is ${TODAY}. What is ${team}'s most recent real starting XI and formation? Return JSON:
+{"formation":"4-3-3","starters":[{"name":"","position":"GK","shirtNumber":"1"},...],"bench":[{"name":"","position":"","shirtNumber":""},...]}
+Use real current players only. Starters must be exactly 11.`
+        );
+        const clean = raw.replace(/<think>[\s\S]*?<\/think>/gi,"").replace(/```json|```/g,"").trim();
+        const match = clean.match(/\{[\s\S]*\}/);
+        const data = JSON.parse(match ? match[0] : clean);
+        autoFormation = mapFotmobFormation(data.formation);
+        (data.starters || []).forEach((p,i) => {
+          autoPlayers.push({ id:`groq_${Date.now()}_${i}`, name:p.name, shirtNumber:p.shirtNumber||"", position:mapFotmobPosition(p.position), role:"starting", contractExpires:CONTRACT_EXPIRY });
+        });
+        (data.bench || []).forEach((p,i) => {
+          autoPlayers.push({ id:`groq_bench_${Date.now()}_${i}`, name:p.name, shirtNumber:p.shirtNumber||"", position:mapFotmobPosition(p.position), role:"bench", contractExpires:CONTRACT_EXPIRY });
+        });
+      }
+
+      setFormation(autoFormation);
+      setPlayers(autoPlayers.slice(0,23));
+    } catch(e) {
+      setError("Auto-fill failed: " + e.message);
+    }
+    setSettingDefault(false);
+  }
+
   function addPlayer() {
     if (!newName.trim()) return;
     if (players.length >= 23) { setError("Maximum squad size is 23 players."); return; }
     setError("");
-    const player = {
+    setPlayers(prev => [...prev, {
       id: Date.now().toString(),
       name: newName.trim(),
-      shirtNumber: newShirt || "?",
+      shirtNumber: newShirt || "",
       position: newPosition,
       role: newRole,
       contractExpires: CONTRACT_EXPIRY,
-    };
-    setPlayers(prev => [...prev, player]);
+    }]);
     setNewName(""); setNewShirt("");
   }
 
@@ -278,42 +416,32 @@ export default function SquadModal({ team, onClose }) {
     setSaving(false);
   }
 
-  // Smart position matching: place player in the slot whose pos matches their position best
   const slots = FORMATION_LAYOUTS[formation] || FORMATION_LAYOUTS["4-3-3"];
   const startingPlayers = players.filter(p => p.role === "starting");
   const benchPlayers = players.filter(p => p.role === "bench");
-
-  // Build pitch display: for each slot find the best matching starting player
-  function buildPitchDisplay() {
-    const used = new Set();
-    return slots.map(slot => {
-      // Try exact match first
-      let match = startingPlayers.find(p => !used.has(p.id) && p.position === slot.pos);
-      // Try group match
-      if (!match) {
-        const group = POS_GROUP[slot.pos] || [slot.pos];
-        match = startingPlayers.find(p => !used.has(p.id) && group.includes(p.position));
-      }
-      // No fallback — only place player if position matches
-      if (match) used.add(match.id);
-      return { slot, player: match || null };
-    });
-  }
-
-  const pitchDisplay = buildPitchDisplay();
+  const pitchDisplay = buildPitchDisplay(slots, startingPlayers);
 
   return (
     <div style={{ fontFamily:"'Inter', sans-serif" }}>
       <h3 style={{ color:"#FF1493", fontFamily:"'Bebas Neue', sans-serif", fontSize:"2.8rem", marginBottom:"8px", letterSpacing:"3px" }}>
         👥 SQUAD BUILDER
       </h3>
+      <div style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.9rem", marginBottom:"20px" }}>Team: <span style={{ color:"#FF1493", fontWeight:700 }}>{team}</span></div>
 
-      <div style={{ background:"rgba(255,170,0,0.1)", border:"2px solid rgba(255,170,0,0.5)", borderRadius:"14px", padding:"16px 20px", marginBottom:"24px" }}>
-        <div style={{ color:"#ffaa00", fontWeight:800, fontSize:"1rem", marginBottom:"6px", textTransform:"uppercase", letterSpacing:"1px" }}>⚠️ Disclaimer</div>
-        <div style={{ color:"rgba(255,255,255,0.85)", fontSize:"0.95rem", lineHeight:1.6 }}>
-          Only use real players that play for <strong>"{team}"</strong>. No retired players or unsigned players.
-        </div>
+      {/* Disclaimer */}
+      <div style={{ background:"rgba(255,170,0,0.1)", border:"2px solid rgba(255,170,0,0.5)", borderRadius:"14px", padding:"14px 18px", marginBottom:"20px" }}>
+        <div style={{ color:"#ffaa00", fontWeight:800, fontSize:"0.95rem", marginBottom:"4px", textTransform:"uppercase", letterSpacing:"1px" }}>⚠️ Disclaimer</div>
+        <div style={{ color:"rgba(255,255,255,0.8)", fontSize:"0.9rem", lineHeight:1.6 }}>Only use real players that play for <strong>"{team}"</strong>. No retired or unsigned players.</div>
       </div>
+
+      {/* Set Default Squad button */}
+      <button
+        onClick={handleSetDefaultSquad}
+        disabled={settingDefault}
+        style={{ width:"100%", padding:"18px", background:settingDefault?"rgba(255,20,147,0.15)":"linear-gradient(135deg,rgba(255,20,147,0.2),rgba(255,20,147,0.05))", border:"2px solid rgba(255,20,147,0.5)", borderRadius:"14px", color:settingDefault?"rgba(255,20,147,0.5)":"#FF1493", fontWeight:700, fontSize:"1.1rem", cursor:settingDefault?"not-allowed":"pointer", marginBottom:"24px", fontFamily:"inherit", letterSpacing:"0.5px" }}
+      >
+        {settingDefault ? "🔍 Researching on Fotmob..." : "⚡ Set Default Squad (Auto-fill from Fotmob)"}
+      </button>
 
       {/* Formation */}
       <div style={{ marginBottom:"24px" }}>
@@ -325,32 +453,28 @@ export default function SquadModal({ team, onClose }) {
         </div>
       </div>
 
-      {/* Pitch */}
+      {/* Pitch preview */}
       <div style={{ marginBottom:"28px" }}>
-        <label style={labelStyle}>Pitch — {formation} · {startingPlayers.length} players · click a shirt to edit</label>
+        <label style={labelStyle}>Pitch Preview — {formation} · {startingPlayers.length} starting · click shirt to edit</label>
         <div style={{ position:"relative", width:"100%", paddingBottom:"140%", background:"linear-gradient(180deg,#1a5c1a 0%,#2d8c2d 20%,#1a5c1a 40%,#2d8c2d 60%,#1a5c1a 80%,#2d8c2d 100%)", borderRadius:"16px", border:"3px solid rgba(255,255,255,0.15)", overflow:"hidden" }}>
           <svg style={{ position:"absolute", inset:0, width:"100%", height:"100%" }} viewBox="0 0 100 140" preserveAspectRatio="none">
             <rect x="2" y="2" width="96" height="136" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="0.5"/>
             <line x1="2" y1="70" x2="98" y2="70" stroke="rgba(255,255,255,0.3)" strokeWidth="0.5"/>
             <circle cx="50" cy="70" r="12" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="0.5"/>
-            <circle cx="50" cy="70" r="1" fill="rgba(255,255,255,0.4)"/>
             <rect x="22" y="2" width="56" height="20" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="0.5"/>
             <rect x="22" y="118" width="56" height="20" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="0.5"/>
-            <rect x="36" y="2" width="28" height="8" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="0.5"/>
-            <rect x="36" y="130" width="28" height="8" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="0.5"/>
           </svg>
-
           {pitchDisplay.map(({ slot, player }, i) => (
             <div key={i} style={{ position:"absolute", left:`${slot.x}%`, top:`${slot.y}%`, transform:"translate(-50%,-50%)", display:"flex", flexDirection:"column", alignItems:"center", zIndex:2 }}>
               <div
                 onClick={() => player && setEditingPlayer(player)}
-                style={{ width:"72px", height:"72px", background:player?"#FF1493":"rgba(255,255,255,0.15)", borderRadius:"12px", border:player?"2px solid #fff":"2px dashed rgba(255,255,255,0.3)", display:"flex", alignItems:"center", justifyContent:"center", boxShadow:player?"0 2px 16px rgba(255,20,147,0.7)":"none", cursor:player?"pointer":"default", transition:"all 0.2s" }}
+                style={{ width:"64px", height:"64px", background:player?"#FF1493":"rgba(255,255,255,0.15)", borderRadius:"10px", border:player?"2px solid #fff":"2px dashed rgba(255,255,255,0.3)", display:"flex", alignItems:"center", justifyContent:"center", boxShadow:player?"0 2px 14px rgba(255,20,147,0.7)":"none", cursor:player?"pointer":"default", transition:"transform 0.15s" }}
                 onMouseOver={e=>{ if(player) e.currentTarget.style.transform="scale(1.1)"; }}
                 onMouseOut={e=>{ e.currentTarget.style.transform="scale(1)"; }}
               >
-                <span style={{ color:"#fff", fontWeight:900, fontSize:"1.4rem" }}>{player?(player.shirtNumber||"#"):slot.pos}</span>
+                <span style={{ color:"#fff", fontWeight:900, fontSize:"1.1rem" }}>{player?(player.shirtNumber||"#"):slot.pos}</span>
               </div>
-              <div style={{ color:player?"#fff":"rgba(255,255,255,0.3)", fontSize:"0.8rem", fontWeight:700, marginTop:"4px", textAlign:"center", maxWidth:"70px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textShadow:"0 1px 4px rgba(0,0,0,0.9)", background:"rgba(0,0,0,0.5)", borderRadius:"4px", padding:"2px 6px" }}>
+              <div style={{ color:player?"#fff":"rgba(255,255,255,0.3)", fontSize:"0.7rem", fontWeight:700, marginTop:"3px", textAlign:"center", maxWidth:"64px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textShadow:"0 1px 4px rgba(0,0,0,0.9)", background:"rgba(0,0,0,0.5)", borderRadius:"4px", padding:"2px 5px" }}>
                 {player ? player.name.split(" ").pop() : slot.pos}
               </div>
             </div>
@@ -385,34 +509,39 @@ export default function SquadModal({ team, onClose }) {
         </button>
       </div>
 
-      {/* Starting list */}
+      {/* Player lists */}
       {startingPlayers.length > 0 && (
-        <div style={{ marginBottom:"20px" }}>
+        <div style={{ marginBottom:"16px" }}>
           <label style={labelStyle}>Starting XI ({startingPlayers.length})</label>
           <div style={{ display:"flex", flexDirection:"column", gap:"8px" }}>
             {startingPlayers.map(p=>(
-              <div key={p.id} onClick={()=>setEditingPlayer(p)} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 16px", background:"rgba(255,20,147,0.08)", border:"1px solid rgba(255,20,147,0.2)", borderRadius:"12px", cursor:"pointer" }}>
+              <div key={p.id} onClick={()=>setEditingPlayer(p)} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 16px", background:"rgba(255,20,147,0.08)", border:"1px solid rgba(255,20,147,0.2)", borderRadius:"12px", cursor:"pointer" }}
+                onMouseOver={e=>e.currentTarget.style.borderColor="rgba(255,20,147,0.5)"}
+                onMouseOut={e=>e.currentTarget.style.borderColor="rgba(255,20,147,0.2)"}
+              >
                 <div style={{ display:"flex", alignItems:"center", gap:"12px" }}>
                   <div style={{ width:"32px", height:"32px", background:"#FF1493", borderRadius:"6px", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontWeight:900, fontSize:"0.85rem" }}>{p.shirtNumber||"#"}</div>
                   <div>
                     <div style={{ color:"#fff", fontWeight:700, fontSize:"1rem" }}>{p.name}</div>
-                    <div style={{ color:"rgba(255,255,255,0.45)", fontSize:"0.8rem" }}>{p.position} · {p.role}</div>
+                    <div style={{ color:"rgba(255,255,255,0.45)", fontSize:"0.8rem" }}>{p.position}</div>
                   </div>
                 </div>
-                <span style={{ color:"rgba(255,20,147,0.7)", fontSize:"0.85rem" }}>✏️ Edit</span>
+                <span style={{ color:"rgba(255,20,147,0.7)", fontSize:"0.85rem" }}>✏️</span>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* Bench list */}
       {benchPlayers.length > 0 && (
         <div style={{ marginBottom:"24px" }}>
           <label style={labelStyle}>Bench ({benchPlayers.length})</label>
           <div style={{ display:"flex", flexDirection:"column", gap:"8px" }}>
             {benchPlayers.map(p=>(
-              <div key={p.id} onClick={()=>setEditingPlayer(p)} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 16px", background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"12px", cursor:"pointer" }}>
+              <div key={p.id} onClick={()=>setEditingPlayer(p)} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 16px", background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"12px", cursor:"pointer" }}
+                onMouseOver={e=>e.currentTarget.style.borderColor="rgba(255,20,147,0.3)"}
+                onMouseOut={e=>e.currentTarget.style.borderColor="rgba(255,255,255,0.1)"}
+              >
                 <div style={{ display:"flex", alignItems:"center", gap:"12px" }}>
                   <div style={{ width:"32px", height:"32px", background:"rgba(255,255,255,0.1)", borderRadius:"6px", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontWeight:900, fontSize:"0.85rem" }}>{p.shirtNumber||"#"}</div>
                   <div>
@@ -420,7 +549,7 @@ export default function SquadModal({ team, onClose }) {
                     <div style={{ color:"rgba(255,255,255,0.45)", fontSize:"0.8rem" }}>{p.position} · Bench</div>
                   </div>
                 </div>
-                <span style={{ color:"rgba(255,20,147,0.7)", fontSize:"0.85rem" }}>✏️ Edit</span>
+                <span style={{ color:"rgba(255,20,147,0.7)", fontSize:"0.85rem" }}>✏️</span>
               </div>
             ))}
           </div>
@@ -441,11 +570,7 @@ export default function SquadModal({ team, onClose }) {
       )}
 
       {editingPlayer && (
-        <PlayerEditPopup
-          player={editingPlayer}
-          teamPath={teamPath}
-          onClose={() => setEditingPlayer(null)}
-        />
+        <PlayerEditPopup player={editingPlayer} teamPath={teamPath} onClose={() => setEditingPlayer(null)} />
       )}
 
       <style>{`select option { background:#000033; color:#fff; } input::placeholder { color:rgba(255,255,255,0.3); }`}</style>
