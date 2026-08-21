@@ -151,38 +151,24 @@ function NegotiationCard({ offer, isOwn, isAdmin, manager }) {
       const monthIndex = now.getMonth();
       const monthName = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][monthIndex];
       const year = now.getFullYear();
-      const accountsSnap = await get(ref(db, PATHS.accounts));
-      const accounts = accountsSnap.val() || {};
 
-      // Buying club — expense
+      // Buying club — expense transaction only
       if (offer.fromClub && amt > 0) {
-        const buyerEntry = Object.entries(accounts).find(([, a]) => a.team === offer.fromClub && a.role === "manager");
-        if (buyerEntry) {
-          const [buyerUid, buyerData] = buyerEntry;
-          const buyerBalance = buyerData.balance ?? 1_000_000_000;
-          await update(ref(db, `${PATHS.accounts}/${buyerUid}`), { balance: Math.max(0, buyerBalance - amt) });
-          await push(ref(db, `career_team_management/${offer.fromClub}/finance/transactions`), {
-            type: "expense", category: "Player Wages",
-            source: offer.playerName, amount: amt,
-            month: monthName, monthIndex, year, createdAt: Date.now(),
-          });
-        }
+        await push(ref(db, `career_team_management/${offer.fromClub}/finance/transactions`), {
+          type: "expense", category: "Player Purchase",
+          source: offer.playerName, amount: amt,
+          month: monthName, monthIndex, year, createdAt: Date.now(),
+        });
       }
 
-      // Selling club — income
+      // Selling club — income transaction only
       const sellingClub = offer.toClub || offer.playerClub;
       if (sellingClub && amt > 0) {
-        const sellerEntry = Object.entries(accounts).find(([, a]) => a.team === sellingClub && a.role === "manager");
-        if (sellerEntry) {
-          const [sellerUid, sellerData] = sellerEntry;
-          const sellerBalance = sellerData.balance ?? 1_000_000_000;
-          await update(ref(db, `${PATHS.accounts}/${sellerUid}`), { balance: sellerBalance + amt });
-          await push(ref(db, `career_team_management/${sellingClub}/finance/transactions`), {
-            type: "income", category: "Player Sales",
-            source: offer.playerName, amount: amt,
-            month: monthName, monthIndex, year, createdAt: Date.now(),
-          });
-        }
+        await push(ref(db, `career_team_management/${sellingClub}/finance/transactions`), {
+          type: "income", category: "Player Sales",
+          source: offer.playerName, amount: amt,
+          month: monthName, monthIndex, year, createdAt: Date.now(),
+        });
       }
 
       await update(ref(db, `${PATHS.transfers}/negotiations/${offer.id}`), { status: "accepted" });
