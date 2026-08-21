@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { db, PATHS } from "../firebase";
-import { ref, onValue, push, update, get } from "firebase/database";
+import { ref, onValue, push, update, get, remove, set } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
 import Navbar from "../components/Navbar";
 import BackgroundVideo from "../components/BackgroundVideo";
@@ -144,23 +144,23 @@ function NegotiationCard({ offer, isOwn, isAdmin, manager }) {
     setProcessing(true);
     setActionError("");
     try {
+      // --- 1. Finance transactions (unchanged) ---
       const amt = Number((offer.offerAmount || offer.loanAmount || offer.bidAmount || "0").replace(/[^0-9.]/g, ""));
       const now = new Date();
       const monthIndex = now.getMonth();
       const monthName = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][monthIndex];
       const year = now.getFullYear();
 
-      // Buying club — expense transaction only
-      if (offer.fromClub && amt > 0) {
-        await push(ref(db, `career_team_management/${offer.fromClub}/finance/transactions`), {
+      const buyingClub = offer.fromClub;
+      const sellingClub = offer.toClub || offer.playerClub;
+
+      if (buyingClub && amt > 0) {
+        await push(ref(db, `career_team_management/${buyingClub}/finance/transactions`), {
           type: "expense", category: "Player Purchase",
           source: offer.playerName, amount: amt,
           month: monthName, monthIndex, year, createdAt: Date.now(),
         });
       }
-
-      // Selling club — income transaction only
-      const sellingClub = offer.toClub || offer.playerClub;
       if (sellingClub && amt > 0) {
         await push(ref(db, `career_team_management/${sellingClub}/finance/transactions`), {
           type: "income", category: "Player Sales",
@@ -169,7 +169,78 @@ function NegotiationCard({ offer, isOwn, isAdmin, manager }) {
         });
       }
 
+      // --- 2. Squad updates ---
+      const playerName = offer.playerName;
+      const lendingClub = sellingClub;      // the club that currently owns the player
+      const borrowingClub = buyingClub;     // the club that wants the player
+
+      if (offer.type === "buy") {
+        // --- Permanent transfer: remove from selling club, add to buying club ---
+        // Find the player in the selling club's squad by name
+        const sellingSquadRef = ref(db, `career_team_management/${lendingClub}/squad`);
+        const sellingSnap = await get(sellingSquadRef);
+        const sellingData = sellingSnap.val();
+        if (sellingData) {
+          let playerKey = null;
+          let playerObj = null;
+          for (const [key, p] of Object.entries(sellingData)) {
+            if (p.name === playerName) {
+              playerKey = key;
+              playerObj = p;
+              break;
+            }
+          }
+          if (playerKey && playerObj) {
+            // Remove from selling club
+            await remove(ref(db, `career_team_management/${lendingClub}/squad/${playerKey}`));
+            // Add to buying club (copy, remove any loan status)
+            const { loanStatus, loanClub, loanFrom, ...cleanPlayer } = playerObj; // strip loan fields
+            await push(ref(db, `career_team_management/${borrowingClub}/squad`), cleanPlayer);
+          } else {
+            // Fallback: if not found, just log, but continue (maybe player was manually named)
+            console.warn("Player not found in selling squad:", playerName);
+          }
+        }
+      } else if (offer.type === "loan") {
+        // --- Loan: mark as loaned out in lending club, add to borrowing club ---
+        const sellingSquadRef = ref(db, `career_team_management/${lendingClub}/squad`);
+        const sellingSnap = await get(sellingSquadRef);
+        const sellingData = sellingSnap.val();
+        if (sellingData) {
+          let playerKey = null;
+          let playerObj = null;
+          for (const [key, p] of Object.entries(sellingData)) {
+            if (p.name === playerName) {
+              playerKey = key;
+              playerObj = p;
+              break;
+            }
+          }
+          if (playerKey && playerObj) {
+            // Update lending club's player: set role to "reserve", add loan status
+            await update(ref(db, `career_team_management/${lendingClub}/squad/${playerKey}`), {
+              role: "reserve",
+              loanStatus: "out",
+              loanClub: borrowingClub,
+            });
+            // Add a copy to borrowing club with loan status "in"
+            const { loanStatus, loanClub, loanFrom, ...cleanPlayer } = playerObj;
+            const loanCopy = {
+              ...cleanPlayer,
+              role: "reserve", // default, manager can change
+              loanStatus: "in",
+              loanFrom: lendingClub,
+            };
+            await push(ref(db, `career_team_management/${borrowingClub}/squad`), loanCopy);
+          } else {
+            console.warn("Player not found in lending squad for loan:", playerName);
+          }
+        }
+      }
+
+      // --- 3. Mark offer as accepted ---
       await update(ref(db, `${PATHS.transfers}/negotiations/${offer.id}`), { status: "accepted" });
+
     } catch (e) {
       setActionError("Failed: " + e.message);
     }
@@ -327,7 +398,6 @@ export default function TransferMarketPage() {
   // Universal player search — fetches live data from fotmob
   async function handleAiSearch(e) {
     if (e.key !== "Enter" || !search.trim() || tab === "negotiations") return;
-    // Check if player already exists in current tab first
     const existing = (players[tab] || []).find(p => p.name?.toLowerCase().includes(search.toLowerCase()));
     if (existing) { setSelectedPlayer(existing); setSelectedPlayerId(existing.id); return; }
 
@@ -335,32 +405,22 @@ export default function TransferMarketPage() {
     setAiResult(null);
 
     try {
-      // Step 1 — search fotmob for player
       const searchRes = await fetch(
         `https://www.fotmob.com/api/search?term=${encodeURIComponent(search)}`,
         { headers: { "Accept": "application/json" } }
       );
       const searchData = await searchRes.json();
-
-      // Find first player result
       const playerHit = searchData?.squad?.find(r => r.participantType === "player")
         || searchData?.squad?.[0]
         || searchData?.players?.[0];
-
       if (!playerHit) throw new Error("not_found");
-
       const playerId = playerHit.id || playerHit.participantId;
       const playerName = playerHit.name || search;
-
-      // Step 2 — fetch full player details from fotmob
       const detailRes = await fetch(
         `https://www.fotmob.com/api/playerData?id=${playerId}`,
         { headers: { "Accept": "application/json" } }
       );
       const detail = await detailRes.json();
-
-      // Extract stats from fotmob response
-      const props = detail?.careerHistory?.careerItems?.[0] || {};
       const mainTeam = detail?.recentMatches?.[0]?.teamName || detail?.primaryTeam?.teamName || playerHit.teamName || "—";
       const position = detail?.positionDescription?.primaryPosition?.label || detail?.playerProps?.find(p => p.title === "Position")?.value || "—";
       const age = detail?.playerProps?.find(p => p.title === "Age")?.value || "—";
@@ -370,7 +430,6 @@ export default function TransferMarketPage() {
       const contractEnd = detail?.playerInformation?.find(p => p.title === "Contract expires")?.value?.text || "—";
       const shirtNumber = detail?.playerProps?.find(p => p.title === "Shirt number")?.value || "—";
 
-      // Step 3 — use Groq only for wage (fotmob doesn't show wages) — include club for accuracy
       let weeklyWage = "—";
       try {
         const { askGroq } = await import("../utils/groq");
@@ -400,7 +459,6 @@ export default function TransferMarketPage() {
       if (err.message === "not_found") {
         setAiResult({ error: `No player found for "${search}". Try their full name.` });
       } else {
-        // Fallback to Groq if fotmob fails (CORS etc)
         try {
           const { askGroq } = await import("../utils/groq");
           const system = `You are a football data expert. Return ONLY valid JSON, no markdown, no preamble, no <think> tags.`;
@@ -431,7 +489,6 @@ export default function TransferMarketPage() {
       <Navbar
         extraActions={
           <div style={{ display: "flex", gap: "10px" }}>
-            {/* Admin add player */}
             {isAdmin && (
               <button onClick={() => setShowAddModal(true)} style={{ padding: "10px 18px", background: "#FF1493", border: "none", borderRadius: "10px", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "0.95rem" }}>
                 ➕ Add Player
