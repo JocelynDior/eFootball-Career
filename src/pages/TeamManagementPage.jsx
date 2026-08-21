@@ -117,7 +117,7 @@ function AdminFinanceModal({ onClose }) {
       const monthName = ALL_MONTHS[monthIndex];
       const year = now.getFullYear();
 
-      // Write transaction
+      // Write transaction only — balance is calculated from transactions
       await push(ref(db, `career_team_management/${selectedTeam}/finance/transactions`), {
         type: txType,
         category,
@@ -129,17 +129,6 @@ function AdminFinanceModal({ onClose }) {
         createdAt: Date.now(),
         addedByAdmin: true,
       });
-
-      // Update manager balance
-      const accountsSnap = await get(ref(db, PATHS.accounts));
-      const accounts = accountsSnap.val() || {};
-      const managerEntry = Object.entries(accounts).find(([, a]) => a.team === selectedTeam && a.role === "manager");
-      if (managerEntry) {
-        const [uid, managerData] = managerEntry;
-        const currentBalance = managerData.balance ?? 1_000_000_000;
-        const newBalance = txType === "income" ? currentBalance + amt : Math.max(0, currentBalance - amt);
-        await update(ref(db, `${PATHS.accounts}/${uid}`), { balance: newBalance });
-      }
 
       setDone(true);
       setTimeout(onClose, 1600);
@@ -594,15 +583,12 @@ function SquadTab({ team, isAdmin, onEditSquad }) {
   const [squad, setSquad] = useState([]);
   const [formation, setFormation] = useState("4-3-3");
   const [selectedPlayer, setSelectedPlayer] = useState(null);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!team) return;
-    setLoading(true);
     const unsub = onValue(ref(db, `career_team_management/${team}/squad`), snap => {
       const data = snap.val();
       setSquad(data ? Object.entries(data).map(([id,p])=>({id,...p})) : []);
-      setLoading(false);
     });
     const fUnsub = onValue(ref(db, `career_team_management/${team}/formation`), snap => {
       if (snap.val()) setFormation(snap.val());
@@ -633,12 +619,6 @@ function SquadTab({ team, isAdmin, onEditSquad }) {
   }
 
   const pitchDisplay = buildPitchDisplay();
-
-  if (loading) return (
-    <div style={{ textAlign:"center", padding:"80px 20px", color:"rgba(255,255,255,0.3)" }}>
-      <div style={{ fontFamily:"'Bebas Neue', sans-serif", fontSize:"2rem", letterSpacing:"3px" }}>Loading Squad...</div>
-    </div>
-  );
 
   return (
     <div>
@@ -837,17 +817,14 @@ function NegotiationDetailPopup({ offer, onClose }) {
 function TransfersTab({ team, teamIcons }) {
   const [negotiations, setNegotiations] = useState([]);
   const [selectedOffer, setSelectedOffer] = useState(null);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!team) return;
-    setLoading(true);
     const unsub = onValue(ref(db, `${PATHS.transfers}/negotiations`), snap => {
       const data = snap.val();
-      if (!data) { setNegotiations([]); } else {
-        setNegotiations(Object.entries(data).map(([id, n]) => ({ id, ...n })));
-      }
-      setLoading(false);
+      if (!data) { setNegotiations([]); return; }
+      const all = Object.entries(data).map(([id, n]) => ({ id, ...n }));
+      setNegotiations(all);
     });
     return () => unsub();
   }, [team]);
@@ -868,12 +845,6 @@ function TransfersTab({ team, teamIcons }) {
     <div style={{ textAlign: "center", padding: "48px 20px", color: "rgba(255,255,255,0.2)" }}>
       <div style={{ fontSize: "3rem", marginBottom: "12px" }}>📋</div>
       <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", letterSpacing: "2px" }}>{label}</div>
-    </div>
-  );
-
-  if (loading) return (
-    <div style={{ textAlign:"center", padding:"80px 20px", color:"rgba(255,255,255,0.3)" }}>
-      <div style={{ fontFamily:"'Bebas Neue', sans-serif", fontSize:"2rem", letterSpacing:"3px" }}>Loading Negotiations...</div>
     </div>
   );
 
@@ -1111,7 +1082,7 @@ function FinanceTab({ team }) {
 export default function TeamManagementPage() {
   const { isAdmin, manager, teamIconsCache, managerLoading } = useAdmin();
   const [tab, setTab] = useState("stadium");
-  const [balance, setBalance] = useState(1_000_000_000);
+  const [balance, setBalance] = useState(0);
   const [teamIcon, setTeamIcon] = useState(null);
   const [teamIcons, setTeamIcons] = useState({});
 
@@ -1135,25 +1106,21 @@ export default function TeamManagementPage() {
     return () => unsub();
   }, []);
 
+  // Calculate balance live from transaction history
   useEffect(() => {
-    if (!manager?.uid) return;
-    const unsub = onValue(ref(db, `${PATHS.accounts}/${manager.uid}`), snap => {
+    if (!team) return;
+    const unsub = onValue(ref(db, `career_team_management/${team}/finance/transactions`), snap => {
       const data = snap.val();
-      if (data && typeof data.balance === "number") setBalance(data.balance);
+      if (!data) { setBalance(0); return; }
+      const txs = Object.values(data);
+      const total = txs.reduce((sum, tx) => {
+        const amt = Number(tx.amount) || 0;
+        return tx.type === "income" ? sum + amt : sum - amt;
+      }, 0);
+      setBalance(Math.max(0, total));
     });
     return () => unsub();
-  }, [manager?.uid]);
-
-  // Load balance for admin viewing a team
-  useEffect(() => {
-    if (!adminTeam || manager?.team) return;
-    const unsub = onValue(ref(db, PATHS.accounts), snap => {
-      const data = snap.val() || {};
-      const entry = Object.values(data).find(a => a.team === adminTeam && a.role === "manager");
-      if (entry && typeof entry.balance === "number") setBalance(entry.balance);
-    });
-    return () => unsub();
-  }, [adminTeam, manager?.team]);
+  }, [team]);
 
   useEffect(() => {
     if (!team) return;
@@ -1210,26 +1177,26 @@ export default function TeamManagementPage() {
   return (
     <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
       <BackgroundVideo />
-      <Navbar
-        extraActions={
-          isAdmin && (
-            <div style={{ position: "relative", display: "flex", gap: "10px" }}>
-              {adminTeam && (
-                <button
-                  onClick={() => { setAdminTeam(null); setTab("stadium"); }}
-                  style={{ padding: "10px 18px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "10px", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem" }}
-                >
-                  ← Teams
-                </button>
-              )}
+      <Navbar />
+
+      <div style={{ padding: "32px 20px 80px" }}>
+
+        {/* Admin manage bar */}
+        {isAdmin && (
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginBottom: "24px", position: "relative" }}>
+            {adminTeam && (
+              <button
+                onClick={() => { setAdminTeam(null); setTab("stadium"); }}
+                style={{ padding: "12px 22px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "12px", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem" }}
+              >← Teams</button>
+            )}
+            <div style={{ position: "relative" }}>
               <button
                 onClick={() => setAdminMenuOpen(v => !v)}
-                style={{ padding: "10px 18px", background: "#FF1493", border: "none", borderRadius: "10px", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem" }}
-              >
-                ➕ Manage
-              </button>
+                style={{ padding: "12px 22px", background: "#FF1493", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem" }}
+              >➕ Manage</button>
               {adminMenuOpen && (
-                <div style={{ position: "absolute", right: 0, top: "calc(100% + 10px)", background: "#0a0015", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "16px", padding: "8px", minWidth: "240px", zIndex: 100, boxShadow: "0 8px 32px rgba(0,0,0,0.6)" }}>
+                <div style={{ position: "absolute", right: 0, top: "calc(100% + 10px)", background: "#0a0015", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "16px", padding: "8px", minWidth: "240px", zIndex: 200, boxShadow: "0 8px 32px rgba(0,0,0,0.6)" }}>
                   {[
                     { label: "🏟️ Edit Stadium", action: () => { setShowStadiumModal(true); setAdminMenuOpen(false); } },
                     { label: "👥 Edit Squad", action: () => { setShowSquadModal(true); setAdminMenuOpen(false); } },
@@ -1245,11 +1212,9 @@ export default function TeamManagementPage() {
                 </div>
               )}
             </div>
-          )
-        }
-      />
+          </div>
+        )}
 
-      <div style={{ padding: "32px 20px 80px" }}>
         {/* Team header */}
         <div style={{ textAlign: "center", marginBottom: "36px" }}>
           <div style={{ width: "120px", height: "120px", margin: "0 auto 16px", display: "flex", alignItems: "center", justifyContent: "center" }}>
