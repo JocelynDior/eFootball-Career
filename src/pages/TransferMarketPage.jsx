@@ -9,13 +9,11 @@ import Modal from "../components/Modal";
 import CountdownSlideshow from "../components/CountdownSlideshow";
 import PlayerPopupModal from "../modals/PlayerPopupModal";
 import AddPlayerModal from "../modals/AddPlayerModal";
-import ListPlayerModal from "../modals/ListPlayerModal";
+import BuySellModal from "../modals/BuySell";
 import { getClubColors, fetchPlayerStats } from "../utils/groq";
 
 const TABS = [
   { id: "topTargets", label: "TOP TARGETS" },
-  { id: "listed", label: "LISTED" },
-  { id: "scouts", label: "SCOUTS" },
   { id: "signings", label: "SIGNINGS" },
   { id: "auction", label: "AUCTION" },
   { id: "negotiations", label: "NEGOTIATIONS" },
@@ -212,6 +210,7 @@ function NegotiationCard({ offer, isOwn, isAdmin, manager }) {
           [offer.type === "auction" ? "Bid" : offer.type === "loan" ? "Loan Fee" : "Offer", offer.offerAmount || offer.loanAmount || offer.bidAmount],
           offer.contractLength && ["Contract", offer.contractLength],
           offer.loanTerm && ["Loan Term", offer.loanTerm],
+          offer.buyOptionClause && ["Buy Option", offer.buyOptionClause],
         ].filter(Boolean).map(([label, value]) => (
           <div key={label} style={{ background: "rgba(255,255,255,0.05)", borderRadius: "12px", padding: "12px 16px" }}>
             <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "4px" }}>{label}</div>
@@ -245,124 +244,6 @@ function NegotiationCard({ offer, isOwn, isAdmin, manager }) {
   );
 }
 
-function ListYourPlayerModal({ manager, onClose }) {
-  const [squadPlayers, setSquadPlayers] = useState([]);
-  const [step, setStep] = useState(1); // 1=pick player, 2=pick type, 3=enter details
-  const [chosenPlayer, setChosenPlayer] = useState(null);
-  const [listingType, setListingType] = useState("");
-  const [askingPrice, setAskingPrice] = useState("");
-  const [loanFee, setLoanFee] = useState("");
-  const [loanTerm, setLoanTerm] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [done, setDone] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (!manager?.team) return;
-    const unsub = onValue(ref(db, `career_team_management/${manager.team}/squad`), snap => {
-      const data = snap.val();
-      setSquadPlayers(data ? Object.entries(data).map(([id,p])=>({id,...p})) : []);
-    });
-    return () => unsub();
-  }, [manager?.team]);
-
-  async function handleSubmit() {
-    setSaving(true); setError("");
-    try {
-      const listing = {
-        name: chosenPlayer.name,
-        position: chosenPlayer.position,
-        club: manager.team,
-        listedBy: manager.team,
-        listedByUid: manager.uid,
-        listingType,
-        ...(listingType==="sale" ? { price: askingPrice, value: askingPrice } : { loanFee, loanTerm }),
-        createdAt: Date.now(),
-      };
-      await push(ref(db, `${PATHS.transfers}/listed`), listing);
-      setDone(true);
-      setTimeout(onClose, 1500);
-    } catch(e) { setError("Failed: " + e.message); }
-    setSaving(false);
-  }
-
-  const iStyle = { width:"100%", padding:"14px 18px", background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,20,147,0.35)", borderRadius:"12px", color:"#fff", fontFamily:"inherit", fontSize:"1rem", outline:"none", boxSizing:"border-box" };
-
-  return (
-    <div style={{ fontFamily:"'Inter', sans-serif" }}>
-      <h3 style={{ color:"#FF1493", fontFamily:"'Bebas Neue', sans-serif", fontSize:"2.4rem", letterSpacing:"3px", marginBottom:"6px" }}>📋 LIST YOUR PLAYER</h3>
-      <div style={{ color:"rgba(255,255,255,0.4)", fontSize:"1rem", marginBottom:"24px" }}>Step {step} of 3</div>
-      {done ? (
-        <div style={{ textAlign:"center", padding:"40px", color:"#00ff88", fontWeight:700, fontSize:"1.3rem", background:"rgba(0,255,136,0.08)", borderRadius:"16px" }}>✅ Player Listed!</div>
-      ) : step===1 ? (
-        <>
-          <div style={{ color:"rgba(255,255,255,0.65)", fontSize:"0.9rem", textTransform:"uppercase", letterSpacing:"1px", marginBottom:"14px", fontWeight:700 }}>Select a player from your squad</div>
-          {squadPlayers.length===0 ? (
-            <div style={{ textAlign:"center", padding:"32px", color:"rgba(255,255,255,0.3)" }}>No squad players found. Add players in Team Management first.</div>
-          ) : (
-            <div style={{ display:"flex", flexDirection:"column", gap:"10px", maxHeight:"400px", overflowY:"auto" }}>
-              {squadPlayers.map(p=>(
-                <div key={p.id} onClick={()=>{ setChosenPlayer(p); setStep(2); }} style={{ display:"flex", alignItems:"center", gap:"14px", padding:"14px 18px", background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,20,147,0.2)", borderRadius:"14px", cursor:"pointer" }}
-                  onMouseOver={e=>e.currentTarget.style.borderColor="rgba(255,20,147,0.6)"}
-                  onMouseOut={e=>e.currentTarget.style.borderColor="rgba(255,20,147,0.2)"}
-                >
-                  <div style={{ width:"40px", height:"40px", background:"#FF1493", borderRadius:"8px", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontWeight:900, fontSize:"1rem", flexShrink:0 }}>{p.shirtNumber||"#"}</div>
-                  <div>
-                    <div style={{ color:"#fff", fontWeight:700, fontSize:"1.05rem" }}>{p.name}</div>
-                    <div style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.85rem" }}>{p.position} · {p.role}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </>
-      ) : step===2 ? (
-        <>
-          <div style={{ color:"#fff", fontWeight:700, fontSize:"1.2rem", marginBottom:"20px" }}>Listing: <span style={{ color:"#FF1493" }}>{chosenPlayer?.name}</span></div>
-          <div style={{ color:"rgba(255,255,255,0.65)", fontSize:"0.9rem", textTransform:"uppercase", letterSpacing:"1px", marginBottom:"14px", fontWeight:700 }}>List for Sale or Loan?</div>
-          <div style={{ display:"flex", gap:"14px" }}>
-            {[["sale","🏷️ For Sale"],["loan","🔄 For Loan"]].map(([val,label])=>(
-              <button key={val} onClick={()=>{ setListingType(val); setStep(3); }} style={{ flex:1, padding:"20px", background:"rgba(255,20,147,0.1)", border:"1px solid rgba(255,20,147,0.4)", borderRadius:"16px", color:"#fff", fontWeight:700, fontSize:"1.1rem", cursor:"pointer", fontFamily:"inherit" }}
-                onMouseOver={e=>{ e.currentTarget.style.background="#FF1493"; }}
-                onMouseOut={e=>{ e.currentTarget.style.background="rgba(255,20,147,0.1)"; }}
-              >{label}</button>
-            ))}
-          </div>
-          <button onClick={()=>setStep(1)} style={{ marginTop:"16px", background:"none", border:"none", color:"rgba(255,255,255,0.4)", cursor:"pointer", fontSize:"0.95rem" }}>← Back</button>
-        </>
-      ) : (
-        <>
-          <div style={{ color:"#fff", fontWeight:700, fontSize:"1.1rem", marginBottom:"20px" }}>
-            <span style={{ color:"#FF1493" }}>{chosenPlayer?.name}</span> · {listingType==="sale"?"For Sale":"For Loan"}
-          </div>
-          {listingType==="sale" ? (
-            <div style={{ marginBottom:"18px" }}>
-              <div style={{ color:"rgba(255,255,255,0.65)", fontSize:"0.85rem", textTransform:"uppercase", letterSpacing:"1px", marginBottom:"8px", fontWeight:700 }}>Asking Price (€)</div>
-              <input value={askingPrice} onChange={e=>setAskingPrice(e.target.value)} placeholder="e.g. €25,000,000" style={iStyle} />
-            </div>
-          ) : (
-            <>
-              <div style={{ marginBottom:"14px" }}>
-                <div style={{ color:"rgba(255,255,255,0.65)", fontSize:"0.85rem", textTransform:"uppercase", letterSpacing:"1px", marginBottom:"8px", fontWeight:700 }}>Loan Fee (€) <span style={{ color:"rgba(255,255,255,0.3)", textTransform:"none" }}>(optional)</span></div>
-                <input value={loanFee} onChange={e=>setLoanFee(e.target.value)} placeholder="e.g. €2,000,000" style={iStyle} />
-              </div>
-              <div style={{ marginBottom:"14px" }}>
-                <div style={{ color:"rgba(255,255,255,0.65)", fontSize:"0.85rem", textTransform:"uppercase", letterSpacing:"1px", marginBottom:"8px", fontWeight:700 }}>Loan Term <span style={{ color:"rgba(255,255,255,0.3)", textTransform:"none" }}>(optional)</span></div>
-                <input value={loanTerm} onChange={e=>setLoanTerm(e.target.value)} placeholder="e.g. 6 months, 1 season" style={iStyle} />
-              </div>
-            </>
-          )}
-          {error && <div style={{ color:"#ff6b6b", fontSize:"0.9rem", marginBottom:"14px", padding:"12px", background:"rgba(255,0,0,0.1)", borderRadius:"10px" }}>{error}</div>}
-          <div style={{ display:"flex", gap:"12px" }}>
-            <button onClick={handleSubmit} disabled={saving} style={{ flex:2, padding:"16px", background:"#FF1493", border:"none", borderRadius:"12px", color:"#fff", fontWeight:700, fontSize:"1.05rem", cursor:saving?"not-allowed":"pointer" }}>{saving?"Listing...":"✅ List Player"}</button>
-            <button onClick={()=>setStep(2)} style={{ flex:1, padding:"16px", background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,20,147,0.3)", borderRadius:"12px", color:"#fff", cursor:"pointer" }}>← Back</button>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
 export default function TransferMarketPage() {
   const { isAdmin, manager, teamIconsCache } = useAdmin();
   const [tab, setTab] = useState("topTargets");
@@ -377,14 +258,14 @@ export default function TransferMarketPage() {
   const [selectedPlayerId, setSelectedPlayerId] = useState(null);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [showListModal, setShowListModal] = useState(false);
+  const [showBuySellModal, setShowBuySellModal] = useState(false);
+  const [buySellMode, setBuySellMode] = useState("buy");
   const [visibleCount, setVisibleCount] = useState(12);
   const [aiSearching, setAiSearching] = useState(false);
   const [aiResult, setAiResult] = useState(null);
-  const [showListYourPlayer, setShowListYourPlayer] = useState(false);
 
   useEffect(() => {
-    const tabs = ["topTargets", "listed", "scouts", "signings", "auction"];
+    const tabs = ["topTargets", "signings", "auction"];
     const unsubs = tabs.map(t =>
       onValue(ref(db, `${PATHS.transfers}/${t}`), snap => {
         const data = snap.val();
@@ -445,7 +326,7 @@ export default function TransferMarketPage() {
 
   // Universal player search — fetches live data from fotmob
   async function handleAiSearch(e) {
-    if (e.key !== "Enter" || !search.trim() || tab === "negotiations" || tab === "listed") return;
+    if (e.key !== "Enter" || !search.trim() || tab === "negotiations") return;
     // Check if player already exists in current tab first
     const existing = (players[tab] || []).find(p => p.name?.toLowerCase().includes(search.toLowerCase()));
     if (existing) { setSelectedPlayer(existing); setSelectedPlayerId(existing.id); return; }
@@ -550,12 +431,6 @@ export default function TransferMarketPage() {
       <Navbar
         extraActions={
           <div style={{ display: "flex", gap: "10px" }}>
-            {/* Manager can list their own players */}
-            {manager && (
-              <button onClick={() => setShowListModal(true)} style={{ padding: "10px 18px", background: "rgba(255,20,147,0.15)", border: "1px solid rgba(255,20,147,0.5)", borderRadius: "10px", color: "#FF1493", fontWeight: 700, cursor: "pointer", fontSize: "0.95rem" }}>
-                📋 List Player
-              </button>
-            )}
             {/* Admin add player */}
             {isAdmin && (
               <button onClick={() => setShowAddModal(true)} style={{ padding: "10px 18px", background: "#FF1493", border: "none", borderRadius: "10px", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "0.95rem" }}>
@@ -584,13 +459,61 @@ export default function TransferMarketPage() {
         </div>
       )}
 
-      {countdowns.length > 0 && <CountdownSlideshow countdowns={countdowns} />}
-
       {/* Full-width content */}
       <div style={{ padding: "24px 20px 80px" }}>
         <div style={{ marginBottom: "24px" }}>
           <TabBar tabs={TABS} activeTab={tab} onTabChange={t => { setTab(t); setSearch(""); setFilters({ club: "", nationality: "", position: "", priceSort: "" }); setVisibleCount(12); setAiResult(null); setAiSearching(false); }} />
         </div>
+
+        {/* Buy & Loan buttons (between TabBar and Countdown) */}
+        {manager && (
+          <div style={{ display: "flex", gap: "16px", marginBottom: "24px" }}>
+            <button
+              onClick={() => { setBuySellMode("buy"); setShowBuySellModal(true); }}
+              style={{
+                flex: 1,
+                padding: "20px",
+                background: "linear-gradient(135deg, #00cc66, #00994d)",
+                border: "none",
+                borderRadius: "16px",
+                color: "#fff",
+                fontWeight: 800,
+                fontSize: "1.4rem",
+                cursor: "pointer",
+                letterSpacing: "1px",
+                boxShadow: "0 4px 20px rgba(0,204,102,0.3)",
+                transition: "all 0.3s",
+              }}
+              onMouseOver={e => { e.currentTarget.style.transform = "scale(1.02)"; e.currentTarget.style.boxShadow = "0 6px 30px rgba(0,204,102,0.5)"; }}
+              onMouseOut={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "0 4px 20px rgba(0,204,102,0.3)"; }}
+            >
+              🟢 BUY PLAYER
+            </button>
+            <button
+              onClick={() => { setBuySellMode("loan"); setShowBuySellModal(true); }}
+              style={{
+                flex: 1,
+                padding: "20px",
+                background: "linear-gradient(135deg, #ffaa44, #e68a00)",
+                border: "none",
+                borderRadius: "16px",
+                color: "#fff",
+                fontWeight: 800,
+                fontSize: "1.4rem",
+                cursor: "pointer",
+                letterSpacing: "1px",
+                boxShadow: "0 4px 20px rgba(255,170,68,0.3)",
+                transition: "all 0.3s",
+              }}
+              onMouseOver={e => { e.currentTarget.style.transform = "scale(1.02)"; e.currentTarget.style.boxShadow = "0 6px 30px rgba(255,170,68,0.5)"; }}
+              onMouseOut={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "0 4px 20px rgba(255,170,68,0.3)"; }}
+            >
+              🟠 LOAN PLAYER
+            </button>
+          </div>
+        )}
+
+        {countdowns.length > 0 && <CountdownSlideshow countdowns={countdowns} />}
 
         {/* Negotiations tab */}
         {tab === "negotiations" ? (
@@ -606,56 +529,52 @@ export default function TransferMarketPage() {
           </div>
         ) : (
           <>
-            {/* Search bar — hidden on listed tab */}
-            {/* Search bar + filters — hidden on listed tab */}
-            {tab !== "listed" && (
-              <>
-                <div style={{ display: "flex", gap: "14px", marginBottom: "22px", flexWrap: "wrap" }}>
-                  <div style={{ flex: 1, minWidth: "280px" }}>
-                    <input
-                      value={search}
-                      onChange={e => setSearch(e.target.value)}
-                      onKeyDown={handleAiSearch}
-                      placeholder="🔍 Search players... press Enter to search any player with AI"
-                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-                    />
+            {/* Search bar */}
+            <div style={{ display: "flex", gap: "14px", marginBottom: "22px", flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: "280px" }}>
+                <input
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  onKeyDown={handleAiSearch}
+                  placeholder="🔍 Search players... press Enter to search any player with AI"
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
+              </div>
+              <button
+                onClick={() => setShowFilterPanel(v => !v)}
+                style={{ ...inputStyle, cursor: "pointer", background: showFilterPanel ? "rgba(255,20,147,0.2)" : "rgba(255,255,255,0.06)", borderColor: showFilterPanel ? "#FF1493" : "rgba(255,20,147,0.35)", color: "#fff", fontWeight: 700, whiteSpace: "nowrap", padding: "20px 28px", fontSize: "1.1rem" }}
+              >
+                ⚙️ Filters {Object.values(filters).some(Boolean) ? "●" : ""}
+              </button>
+            </div>
+
+            {showFilterPanel && (
+              <div style={{ ...GLASS, borderRadius: "18px", padding: "24px", marginBottom: "24px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px" }}>
+                {[
+                  { key: "club", label: "Club", options: allClubs },
+                  { key: "nationality", label: "Nationality", options: allNationalities },
+                  { key: "position", label: "Position", options: allPositions },
+                ].map(({ key, label, options }) => (
+                  <div key={key}>
+                    <label style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.8px", display: "block", marginBottom: "8px" }}>{label}</label>
+                    <select value={filters[key]} onChange={e => setFilters(prev => ({ ...prev, [key]: e.target.value }))} style={{ ...inputStyle, width: "100%", cursor: "pointer", padding: "14px 18px" }}>
+                      <option value="">All {label}s</option>
+                      {options.map(o => <option key={o} value={o}>{o}</option>)}
+                    </select>
                   </div>
-                  <button
-                    onClick={() => setShowFilterPanel(v => !v)}
-                    style={{ ...inputStyle, cursor: "pointer", background: showFilterPanel ? "rgba(255,20,147,0.2)" : "rgba(255,255,255,0.06)", borderColor: showFilterPanel ? "#FF1493" : "rgba(255,20,147,0.35)", color: "#fff", fontWeight: 700, whiteSpace: "nowrap", padding: "20px 28px", fontSize: "1.1rem" }}
-                  >
-                    ⚙️ Filters {Object.values(filters).some(Boolean) ? "●" : ""}
-                  </button>
+                ))}
+                <div>
+                  <label style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.8px", display: "block", marginBottom: "8px" }}>Price</label>
+                  <select value={filters.priceSort} onChange={e => setFilters(prev => ({ ...prev, priceSort: e.target.value }))} style={{ ...inputStyle, width: "100%", cursor: "pointer", padding: "14px 18px" }}>
+                    <option value="">Default</option>
+                    <option value="desc">Highest First</option>
+                    <option value="asc">Lowest First</option>
+                  </select>
                 </div>
-                {showFilterPanel && (
-                  <div style={{ ...GLASS, borderRadius: "18px", padding: "24px", marginBottom: "24px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px" }}>
-                    {[
-                      { key: "club", label: "Club", options: allClubs },
-                      { key: "nationality", label: "Nationality", options: allNationalities },
-                      { key: "position", label: "Position", options: allPositions },
-                    ].map(({ key, label, options }) => (
-                      <div key={key}>
-                        <label style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.8px", display: "block", marginBottom: "8px" }}>{label}</label>
-                        <select value={filters[key]} onChange={e => setFilters(prev => ({ ...prev, [key]: e.target.value }))} style={{ ...inputStyle, width: "100%", cursor: "pointer", padding: "14px 18px" }}>
-                          <option value="">All {label}s</option>
-                          {options.map(o => <option key={o} value={o}>{o}</option>)}
-                        </select>
-                      </div>
-                    ))}
-                    <div>
-                      <label style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.8px", display: "block", marginBottom: "8px" }}>Price</label>
-                      <select value={filters.priceSort} onChange={e => setFilters(prev => ({ ...prev, priceSort: e.target.value }))} style={{ ...inputStyle, width: "100%", cursor: "pointer", padding: "14px 18px" }}>
-                        <option value="">Default</option>
-                        <option value="desc">Highest First</option>
-                        <option value="asc">Lowest First</option>
-                      </select>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "flex-end" }}>
-                      <button onClick={() => setFilters({ club: "", nationality: "", position: "", priceSort: "" })} style={{ ...inputStyle, cursor: "pointer", color: "#FF1493", fontWeight: 700, padding: "14px 20px", whiteSpace: "nowrap" }}>Clear Filters</button>
-                    </div>
-                  </div>
-                )}
-              </>
+                <div style={{ display: "flex", alignItems: "flex-end" }}>
+                  <button onClick={() => setFilters({ club: "", nationality: "", position: "", priceSort: "" })} style={{ ...inputStyle, cursor: "pointer", color: "#FF1493", fontWeight: 700, padding: "14px 20px", whiteSpace: "nowrap" }}>Clear Filters</button>
+                </div>
+              </div>
             )}
 
             {/* AI search loading / result */}
@@ -705,66 +624,8 @@ export default function TransferMarketPage() {
               </div>
             )}
 
-            {/* LISTED TAB — two column layout */}
-            {tab === "listed" && !aiSearching && !aiResult && (
-              <>
-                {/* List Your Player button */}
-                {manager && (
-                  <div style={{ marginBottom:"24px" }}>
-                    <button onClick={()=>setShowListYourPlayer(true)} style={{ width:"100%", padding:"20px", background:"linear-gradient(135deg,rgba(255,20,147,0.15),rgba(255,20,147,0.05))", border:"2px solid rgba(255,20,147,0.5)", borderRadius:"16px", color:"#FF1493", fontWeight:700, fontSize:"1.3rem", cursor:"pointer", letterSpacing:"1px", fontFamily:"inherit" }}>
-                      📋 List Your Player
-                    </button>
-                  </div>
-                )}
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"24px" }}>
-                  {/* For Sale */}
-                  <div style={{ ...GLASS, borderRadius:"20px", padding:"24px" }}>
-                    <div style={{ color:"#FF1493", fontFamily:"'Bebas Neue', sans-serif", fontSize:"1.8rem", letterSpacing:"3px", marginBottom:"20px" }}>🏷️ FOR SALE</div>
-                    {(players.listed||[]).filter(p=>p.listingType==="sale"||!p.listingType).length===0 ? (
-                      <div style={{ textAlign:"center", padding:"40px 20px", color:"rgba(255,255,255,0.2)" }}>
-                        <div style={{ fontSize:"2.5rem", marginBottom:"10px" }}>🏷️</div>
-                        <div style={{ fontFamily:"'Bebas Neue', sans-serif", fontSize:"1.4rem" }}>No Players For Sale</div>
-                      </div>
-                    ) : (
-                      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:"14px" }}>
-                        {(players.listed||[]).filter(p=>p.listingType==="sale"||!p.listingType).map(player=>(
-                          <div key={player.id} style={{ position:"relative" }}>
-                            <PlayerGridCard player={player} teamIcons={mergedIcons} onClick={()=>{ setSelectedPlayer(player); setSelectedPlayerId(player.id); }} />
-                            {isAdmin && (
-                              <button onClick={()=>handleDeletePlayer(player.id)} style={{ position:"absolute", top:"8px", right:"8px", background:"rgba(255,0,0,0.8)", border:"none", borderRadius:"8px", color:"#fff", fontWeight:700, fontSize:"0.8rem", padding:"4px 8px", cursor:"pointer", zIndex:10 }}>🗑️</button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  {/* For Loan */}
-                  <div style={{ ...GLASS, borderRadius:"20px", padding:"24px" }}>
-                    <div style={{ color:"#44aaff", fontFamily:"'Bebas Neue', sans-serif", fontSize:"1.8rem", letterSpacing:"3px", marginBottom:"20px" }}>🔄 FOR LOAN</div>
-                    {(players.listed||[]).filter(p=>p.listingType==="loan").length===0 ? (
-                      <div style={{ textAlign:"center", padding:"40px 20px", color:"rgba(255,255,255,0.2)" }}>
-                        <div style={{ fontSize:"2.5rem", marginBottom:"10px" }}>🔄</div>
-                        <div style={{ fontFamily:"'Bebas Neue', sans-serif", fontSize:"1.4rem" }}>No Players For Loan</div>
-                      </div>
-                    ) : (
-                      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:"14px" }}>
-                        {(players.listed||[]).filter(p=>p.listingType==="loan").map(player=>(
-                          <div key={player.id} style={{ position:"relative" }}>
-                            <PlayerGridCard player={player} teamIcons={mergedIcons} onClick={()=>{ setSelectedPlayer(player); setSelectedPlayerId(player.id); }} />
-                            {isAdmin && (
-                              <button onClick={()=>handleDeletePlayer(player.id)} style={{ position:"absolute", top:"8px", right:"8px", background:"rgba(255,0,0,0.8)", border:"none", borderRadius:"8px", color:"#fff", fontWeight:700, fontSize:"0.8rem", padding:"4px 8px", cursor:"pointer", zIndex:10 }}>🗑️</button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </>
-            )}
-
-            {/* All other tabs — standard grid */}
-            {tab !== "listed" && !aiSearching && !aiResult && (
+            {/* All tabs — standard grid */}
+            {!aiSearching && !aiResult && (
               filteredPlayers.length === 0 ? (
                 <div style={{ textAlign:"center", padding:"80px 20px", color:"rgba(255,255,255,0.3)" }}>
                   <div style={{ fontSize:"4rem", marginBottom:"16px" }}>⚽</div>
@@ -817,14 +678,9 @@ export default function TransferMarketPage() {
         <AddPlayerModal onClose={() => setShowAddModal(false)} isAdmin={isAdmin} />
       </Modal>
 
-      {/* List Player modal (managers) */}
-      <Modal active={showListModal} onClose={() => setShowListModal(false)} wide>
-        <ListPlayerModal onClose={() => setShowListModal(false)} />
-      </Modal>
-
-      {/* List Your Player from squad */}
-      <Modal active={showListYourPlayer} onClose={() => setShowListYourPlayer(false)} wide>
-        <ListYourPlayerModal manager={manager} onClose={() => setShowListYourPlayer(false)} />
+      {/* Buy/Sell modal */}
+      <Modal active={showBuySellModal} onClose={() => setShowBuySellModal(false)} wide>
+        <BuySellModal mode={buySellMode} manager={manager} onClose={() => setShowBuySellModal(false)} />
       </Modal>
 
       <style>{`
