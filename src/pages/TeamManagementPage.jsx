@@ -579,6 +579,25 @@ function SquadPlayerPopup({ player, team, onClose }) {
   );
 }
 
+function SquadTabWrapper({ team, isAdmin, onEditSquad }) {
+  const [hasError, setHasError] = useState(false);
+  if (hasError) {
+    return (
+      <div style={{ textAlign:"center", padding:"60px 20px", color:"rgba(255,255,255,0.3)" }}>
+        <div style={{ fontSize:"3rem", marginBottom:"16px" }}>⚠️</div>
+        <div style={{ fontFamily:"'Bebas Neue', sans-serif", fontSize:"2rem", letterSpacing:"2px", marginBottom:"16px" }}>Something went wrong loading the squad</div>
+        <button onClick={() => setHasError(false)} style={{ padding:"14px 28px", background:"#FF1493", border:"none", borderRadius:"12px", color:"#fff", fontWeight:700, fontSize:"1rem", cursor:"pointer" }}>Try Again</button>
+      </div>
+    );
+  }
+  try {
+    return <SquadTab team={team} isAdmin={isAdmin} onEditSquad={onEditSquad} />;
+  } catch(e) {
+    setHasError(true);
+    return null;
+  }
+}
+
 function SquadTab({ team, isAdmin, onEditSquad }) {
   const [squad, setSquad] = useState([]);
   const [formation, setFormation] = useState("4-3-3");
@@ -1054,16 +1073,16 @@ function FinanceTab({ team }) {
                   onMouseOut={e => e.currentTarget.style.background = isIncome ? "rgba(0,255,136,0.05)" : "rgba(255,100,100,0.05)"}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-                    <div style={{ width: "48px", height: "48px", background: isIncome ? "rgba(0,255,136,0.15)" : "rgba(255,100,100,0.15)", borderRadius: "12px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.6rem" }}>
+                    <div style={{ width: "96px", height: "96px", background: isIncome ? "rgba(0,255,136,0.15)" : "rgba(255,100,100,0.15)", borderRadius: "16px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "3.2rem" }}>
                       {isIncome ? "💰" : "📤"}
                     </div>
                     <div>
-                      <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.3rem" }}>{tx.category}</div>
-                      {tx.source && <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1rem", marginTop: "2px" }}>{tx.source}</div>}
-                      <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "0.95rem", marginTop: "2px" }}>{tx.month} {tx.year}</div>
+                      <div style={{ color: "#fff", fontWeight: 700, fontSize: "2.6rem" }}>{tx.category}</div>
+                      {tx.source && <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "2rem", marginTop: "4px" }}>{tx.source}</div>}
+                      <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "1.9rem", marginTop: "4px" }}>{tx.month} {tx.year}</div>
                     </div>
                   </div>
-                  <div style={{ color: isIncome ? "#00ff88" : "#ff6b6b", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "1px", fontWeight: 700 }}>
+                  <div style={{ color: isIncome ? "#00ff88" : "#ff6b6b", fontFamily: "'Bebas Neue', sans-serif", fontSize: "4rem", letterSpacing: "1px", fontWeight: 700 }}>
                     {isIncome ? "+" : "−"}{formatAmount(tx.amount)}
                   </div>
                 </div>
@@ -1246,7 +1265,7 @@ export default function TeamManagementPage() {
 
         <div style={{ width: "100%" }}>
           {tab === "stadium" && <StadiumTab team={team} isAdmin={isAdmin} onEditStadium={() => setShowStadiumModal(true)} />}
-          {tab === "squad" && <SquadTab team={team} isAdmin={isAdmin} onEditSquad={() => setShowSquadModal(true)} />}
+          {tab === "squad" && <SquadTabWrapper team={team} isAdmin={isAdmin} onEditSquad={() => setShowSquadModal(true)} />}
           {tab === "transfers" && <TransfersTab team={team} teamIcons={mergedIcons} />}
           {tab === "finance" && <FinanceTab team={team} />}
         </div>
