@@ -202,7 +202,7 @@ function AdminFinanceModal({ onClose }) {
   );
 }
 
-// ─── ADMIN TEAM SELECTOR ──────────────────────────────────────────────────
+// ─── ADMIN TEAM SELECTOR (full page) ─────────────────────────────────────
 function AdminTeamSelector({ onSelect }) {
   const [teams, setTeams] = useState([]);
   const [selected, setSelected] = useState("");
@@ -986,9 +986,22 @@ export default function TeamManagementPage() {
   const [showSquadModal, setShowSquadModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showFinanceModal, setShowFinanceModal] = useState(false);
+  const [allTeams, setAllTeams] = useState([]);
 
   const team = manager?.team || adminTeam;
 
+  // ─── Load all teams for admin dropdown ────────────────────────────────
+  useEffect(() => {
+    if (!isAdmin) return;
+    const unsub = onValue(ref(db, PATHS.accounts), snap => {
+      const data = snap.val() || {};
+      const teams = [...new Set(Object.values(data).filter(a => a.team).map(a => a.team))];
+      setAllTeams(teams);
+    });
+    return () => unsub();
+  }, [isAdmin]);
+
+  // ─── Load team icons ──────────────────────────────────────────────────
   useEffect(() => {
     const unsub = onValue(ref(db, PATHS.teamIcons), snap => {
       if (snap.val()) setTeamIcons(snap.val());
@@ -996,6 +1009,7 @@ export default function TeamManagementPage() {
     return () => unsub();
   }, []);
 
+  // ─── Load balance ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!team) return;
     const unsub = onValue(ref(db, `career_team_management/${team}/finance/transactions`), snap => {
@@ -1011,6 +1025,7 @@ export default function TeamManagementPage() {
     return () => unsub();
   }, [team]);
 
+  // ─── Set team icon ────────────────────────────────────────────────────
   useEffect(() => {
     if (!team) return;
     const mergedIcons = { ...teamIconsCache, ...teamIcons };
@@ -1020,7 +1035,7 @@ export default function TeamManagementPage() {
 
   const mergedIcons = { ...teamIconsCache, ...teamIcons };
 
-  // ─── Admin menu items for navbar plus icon ──────────────────────────────
+  // ─── Admin menu items for navbar plus icon ──────────────────────────
   const adminNavbarMenu = isAdmin ? [
     { icon: "🏟️", label: "Edit Stadium", action: () => { setShowStadiumModal(true); } },
     { icon: "👥", label: "Edit Team", action: () => { setShowSquadModal(true); } },
@@ -1028,6 +1043,7 @@ export default function TeamManagementPage() {
     { icon: "💰", label: "Team Finances", action: () => { setShowFinanceModal(true); } },
   ] : undefined;
 
+  // ─── Loading state ────────────────────────────────────────────────────
   if (managerLoading) {
     return (
       <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
@@ -1040,6 +1056,7 @@ export default function TeamManagementPage() {
     );
   }
 
+  // ─── Not logged in ────────────────────────────────────────────────────
   if (!isAdmin && !manager) {
     return (
       <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
@@ -1056,6 +1073,7 @@ export default function TeamManagementPage() {
     );
   }
 
+  // ─── Admin with no team selected → show selector ─────────────────────
   if (isAdmin && !team) {
     return (
       <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
@@ -1068,29 +1086,44 @@ export default function TeamManagementPage() {
     );
   }
 
+  // ─── Main dashboard ──────────────────────────────────────────────────
   return (
     <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
       <BackgroundVideo />
-      {/* Pass admin menu to Navbar so the plus icon appears */}
       <Navbar tokyoMenuItems={adminNavbarMenu} />
 
       <div style={{ padding: "32px 20px 80px" }}>
 
-        {/* Optional: Keep the separate admin manage button if you want, but we already have the navbar plus */}
+        {/* ─── ADMIN TOOLBAR ───────────────────────────────────────────── */}
         {isAdmin && (
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginBottom: "24px", position: "relative" }}>
-            {adminTeam && (
-              <button
-                onClick={() => { setAdminTeam(null); setTab("stadium"); }}
-                style={{ padding: "12px 22px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "12px", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem" }}
-              >← Teams</button>
-            )}
-            {/* The separate "Manage" button is still here, but you can remove it if you want only the navbar plus */}
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "24px", flexWrap: "wrap" }}>
+            {/* "← Teams" button to go back to selector */}
+            <button
+              onClick={() => { setAdminTeam(null); setTab("stadium"); }}
+              style={{ padding: "12px 22px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "12px", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem" }}
+            >
+              ← Teams
+            </button>
+
+            {/* Team dropdown – switch to any team instantly */}
+            <div style={{ position: "relative", flex: 1, minWidth: "200px" }}>
+              <select
+                value={team}
+                onChange={e => { setAdminTeam(e.target.value); setTab("stadium"); }}
+                style={{ width: "100%", padding: "12px 20px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.35)", borderRadius: "12px", color: "#fff", fontFamily: "inherit", fontSize: "1.1rem", outline: "none", cursor: "pointer" }}
+              >
+                {allTeams.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+
+            {/* Manage button (opens dropdown) */}
             <div style={{ position: "relative" }}>
               <button
                 onClick={() => setAdminMenuOpen(v => !v)}
                 style={{ padding: "12px 22px", background: "#FF1493", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem" }}
-              >➕ Manage</button>
+              >
+                ➕ Manage
+              </button>
               {adminMenuOpen && (
                 <div style={{ position: "absolute", right: 0, top: "calc(100% + 10px)", background: "#0a0015", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "16px", padding: "8px", minWidth: "240px", zIndex: 200, boxShadow: "0 8px 32px rgba(0,0,0,0.6)" }}>
                   {[
@@ -1111,7 +1144,7 @@ export default function TeamManagementPage() {
           </div>
         )}
 
-        {/* Team header — with manager profile fallback */}
+        {/* ─── TEAM HEADER ─────────────────────────────────────────────── */}
         <div style={{ textAlign: "center", marginBottom: "36px" }}>
           <div style={{ width: "120px", height: "120px", margin: "0 auto 16px", display: "flex", alignItems: "center", justifyContent: "center" }}>
             {teamIcon ? (
@@ -1149,6 +1182,7 @@ export default function TeamManagementPage() {
 
         <div style={{ height: "1px", background: "linear-gradient(to right, transparent, rgba(255,20,147,0.4), transparent)", marginBottom: "28px" }} />
 
+        {/* ─── TABS ────────────────────────────────────────────────────── */}
         <div style={{ marginBottom: "24px" }}>
           <TabBar
             tabs={TABS}
