@@ -83,7 +83,7 @@ function ManagerCard({ mgr, onClick }) {
           {mgr.team || "No Team"}
         </div>
         <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "0.72rem", marginTop: "4px" }}>
-          €{(mgr.balance ?? 1000000000).toLocaleString("en-EU")}
+          €{(mgr.balance ?? 0).toLocaleString("en-EU")}
         </div>
       </div>
       <div style={{ color: "rgba(255,20,147,0.6)", fontSize: "1rem" }}>›</div>
@@ -221,7 +221,7 @@ function ManagerEditPopup({ mgr, onClose, onSaved }) {
             <div>
               <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: "0.5px" }}>Balance</div>
               <div style={{ color: "#fff", fontWeight: 700, fontSize: "0.9rem", marginTop: "3px" }}>
-                €{(mgr.balance ?? 1000000000).toLocaleString("en-EU")}
+                €{(mgr.balance ?? 0).toLocaleString("en-EU")}
               </div>
             </div>
             <div>
