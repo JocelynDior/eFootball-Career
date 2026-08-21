@@ -40,7 +40,7 @@ const labelStyle = {
   textTransform: "uppercase", letterSpacing: "0.8px", fontWeight: 700,
 };
 
-// ── Player Search Popup (unchanged, but with doubled sizes) ──────────────
+// ── Player Search Popup ────────────────────────────────────────────────
 function PlayerSlotPopup({ slotIndex, role, existingPlayer, teamPath, team, onClose }) {
   const [searchName, setSearchName] = useState(existingPlayer?.name || "");
   const [kitNumber, setKitNumber] = useState(existingPlayer?.shirtNumber || "");
@@ -54,20 +54,49 @@ function PlayerSlotPopup({ slotIndex, role, existingPlayer, teamPath, team, onCl
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  // ─── UPDATED: Robust JSON extraction ──────────────────────────────
   async function handleSearch() {
     if (!searchName.trim()) return;
     setSearching(true);
     setError("");
     try {
+      // 1. Get full name from Groq
       const raw = await askGroq(
         `You are a football data expert. Return ONLY valid JSON, no markdown, no <think> tags.`,
         `What is the full official name of the football player known as "${searchName}"? Return: {"fullName":"..."}`
       );
-      const clean = raw.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/```json|```/g, "").trim();
-      const match = clean.match(/\{[\s\S]*\}/);
-      const resolved = JSON.parse(match ? match[0] : clean);
+
+      // Clean the response: remove <think> tags, markdown fences, and any extra whitespace
+      let cleaned = raw
+        .replace(/<think>[\s\S]*?<\/think>/gi, "")
+        .replace(/```json|```/g, "")
+        .trim();
+
+      // Extract the JSON object using regex (first { to last })
+      const match = cleaned.match(/\{[\s\S]*\}/);
+      if (!match) {
+        throw new Error("No JSON object found in response.");
+      }
+
+      let resolved;
+      try {
+        resolved = JSON.parse(match[0]);
+      } catch (parseErr) {
+        // If parsing fails, try to fix common issues: trailing commas, extra text after }
+        let maybeJson = match[0];
+        // Remove trailing commas before } or ]
+        maybeJson = maybeJson.replace(/,\s*}/g, "}").replace(/,\s*\]/g, "]");
+        // Remove any text after the last }
+        const lastBrace = maybeJson.lastIndexOf("}");
+        if (lastBrace !== -1) {
+          maybeJson = maybeJson.substring(0, lastBrace + 1);
+        }
+        resolved = JSON.parse(maybeJson);
+      }
+
       const resolvedName = resolved.fullName || searchName;
 
+      // 2. Fetch Fotmob data
       let fotmobData = null;
       try {
         const searchRes = await fetch(
@@ -97,13 +126,28 @@ function PlayerSlotPopup({ slotIndex, role, existingPlayer, teamPath, team, onCl
         setAge(String(fotmobData.age || age));
         setWage(fotmobData.wage || wage);
       } else {
+        // Fallback: ask Groq for more details if Fotmob failed
         const raw2 = await askGroq(
           `You are a football data expert. Return ONLY valid JSON, no markdown, no <think> tags.`,
           `Give me current details for footballer "${resolvedName}". Return: {"fullName":"...","position":"...","age":0,"wage":"€X,XXX"}`
         );
-        const clean2 = raw2.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/```json|```/g, "").trim();
-        const match2 = clean2.match(/\{[\s\S]*\}/);
-        const data = JSON.parse(match2 ? match2[0] : clean2);
+        let cleaned2 = raw2
+          .replace(/<think>[\s\S]*?<\/think>/gi, "")
+          .replace(/```json|```/g, "")
+          .trim();
+        const match2 = cleaned2.match(/\{[\s\S]*\}/);
+        if (!match2) throw new Error("No JSON in second response.");
+        let data;
+        try {
+          data = JSON.parse(match2[0]);
+        } catch (parseErr2) {
+          let maybeJson2 = match2[0].replace(/,\s*}/g, "}").replace(/,\s*\]/g, "]");
+          const lastBrace2 = maybeJson2.lastIndexOf("}");
+          if (lastBrace2 !== -1) {
+            maybeJson2 = maybeJson2.substring(0, lastBrace2 + 1);
+          }
+          data = JSON.parse(maybeJson2);
+        }
         setFullName(data.fullName || resolvedName);
         setPosition(data.position || position);
         setAge(String(data.age || ""));
@@ -152,6 +196,7 @@ function PlayerSlotPopup({ slotIndex, role, existingPlayer, teamPath, team, onCl
     setDeleting(false);
   }
 
+  // ─── Popup render ────────────────────────────────────────────────────
   return ReactDOM.createPortal(
     <div
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px", fontFamily: "'Inter', sans-serif", fontSize: "1rem" }}
@@ -275,7 +320,7 @@ function PlayerSlotPopup({ slotIndex, role, existingPlayer, teamPath, team, onCl
   );
 }
 
-// ── Player Slot (used for starting, bench, and reserves) ──────────────────
+// ── Player Slot ──────────────────────────────────────────────────────────
 function PlayerSlot({ index, role, player, label, teamPath, team }) {
   const [open, setOpen] = useState(false);
 
@@ -342,7 +387,7 @@ function PlayerSlot({ index, role, player, label, teamPath, team }) {
   );
 }
 
-// ── Main Squad Page ──────────────────────────────────────────────────────────
+// ── Main Squad Page ──────────────────────────────────────────────────────
 export default function SquadPage() {
   const navigate = useNavigate();
   const { isAdmin, manager, managerLoading, teamIconsCache } = useAdmin();
@@ -356,14 +401,12 @@ export default function SquadPage() {
   const team = manager?.team || adminTeam;
   const teamPath = team ? `career_team_management/${team}/squad` : null;
 
-  // Load team icons
   useEffect(() => {
     if (!team || !teamIconsCache) return;
     const icon = teamIconsCache?.[team];
     if (icon) setTeamIcon(icon);
   }, [team, teamIconsCache]);
 
-  // Load squad
   useEffect(() => {
     if (!teamPath) return;
     const unsub = onValue(ref(db, teamPath), snap => {
@@ -373,7 +416,6 @@ export default function SquadPage() {
     return () => unsub();
   }, [teamPath]);
 
-  // Load teams for admin selector
   useEffect(() => {
     if (!isAdmin) return;
     const unsub = onValue(ref(db, PATHS.accounts), snap => {
@@ -393,10 +435,8 @@ export default function SquadPage() {
     return list.find(p => p.slotIndex === index) || null;
   }
 
-  // ─── Add Reserve Player ──────────────────────────────────────────────────
   async function handleAddReserve() {
     if (!teamPath) return;
-    // Find the next slot index for reserves
     const maxSlot = reservePlayers.reduce((max, p) => Math.max(max, p.slotIndex || 0), -1);
     const newIndex = maxSlot + 1;
     const newId = `reserve_${newIndex}_${Date.now()}`;
@@ -416,20 +456,8 @@ export default function SquadPage() {
     }
   }
 
-  // ─── Delete Reserve Player ──────────────────────────────────────────────
-  async function handleDeleteReserve(playerId) {
-    if (!window.confirm("Remove this reserve player?")) return;
-    try {
-      await remove(ref(db, `${teamPath}/${playerId}`));
-    } catch (e) {
-      console.error("Failed to delete reserve:", e);
-    }
-  }
-
-  // ─── Set Default Squad (Admin only) ─────────────────────────────────────
   async function handleSetDefaultSquad() {
     if (!team || !isAdmin) return;
-    // Check if any starting or bench slots are filled
     if (startingPlayers.length > 0 || benchPlayers.length > 0) {
       if (!window.confirm("This will overwrite your current Starting XI and Bench. Are you sure?")) return;
     }
@@ -438,7 +466,6 @@ export default function SquadPage() {
     setDefaultError("");
 
     try {
-      // 1. Search for team on Fotmob
       const searchRes = await fetch(
         `https://www.fotmob.com/api/search?term=${encodeURIComponent(team)}`,
         { headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0" } }
@@ -449,8 +476,6 @@ export default function SquadPage() {
       if (!teamHit) throw new Error(`Team "${team}" not found on Fotmob.`);
 
       const teamId = teamHit.id;
-
-      // 2. Fetch squad data
       const squadRes = await fetch(
         `https://www.fotmob.com/api/teams?id=${teamId}`,
         { headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0" } }
@@ -460,9 +485,6 @@ export default function SquadPage() {
       const squad = squadData?.squad || [];
       if (!squad.length) throw new Error(`No squad data available for "${team}" on Fotmob.`);
 
-      // 3. Map players to slots
-      // We'll attempt to assign to starting XI first, then bench.
-      // We'll use position mapping.
       const positionMap = {
         GK: "GK",
         LB: "LB", LWB: "LWB",
@@ -474,31 +496,23 @@ export default function SquadPage() {
         CF: "CF", ST: "ST"
       };
 
-      // We'll create a copy of slots and fill them
       const startingSlotsCopy = [...STARTING_SLOTS];
       const benchSlotsCopy = [...BENCH_SLOTS];
-
-      // We'll try to assign each player to the first available slot that matches their position
       const assignedStarting = [];
       const assignedBench = [];
       const skipped = [];
 
-      // Function to find a slot index for a position
       function findSlotIndex(position, slots, usedIndices) {
-        // First try exact match
         for (let i = 0; i < slots.length; i++) {
           if (usedIndices.includes(i)) continue;
           const slotPos = slots[i];
           if (slotPos === position) return i;
         }
-        // Then try group match (e.g., CB can fill CB slot, but also DEF? We'll just use exact for now)
         return -1;
       }
 
-      // Iterate squad players
       for (const p of squad) {
         const pos = p.position || "";
-        // Map to our position codes
         let mappedPos = "";
         for (const [key, val] of Object.entries(positionMap)) {
           if (pos.toLowerCase().includes(key.toLowerCase()) || key.toLowerCase().includes(pos.toLowerCase())) {
@@ -511,12 +525,10 @@ export default function SquadPage() {
           continue;
         }
 
-        // Try to assign to starting XI first
         let idx = findSlotIndex(mappedPos, startingSlotsCopy, assignedStarting);
         if (idx !== -1) {
           assignedStarting.push(idx);
-          // Create player object
-          const playerObj = {
+          assignedStarting[idx] = {
             id: `default_starting_${idx}_${Date.now()}`,
             name: p.name || "Unknown",
             shirtNumber: p.shirtNumber || "",
@@ -526,16 +538,13 @@ export default function SquadPage() {
             role: "starting",
             slotIndex: idx,
           };
-          // We'll collect updates to apply later
-          assignedStarting[idx] = playerObj; // store by index
           continue;
         }
 
-        // Try bench
         idx = findSlotIndex(mappedPos, benchSlotsCopy, assignedBench);
         if (idx !== -1) {
           assignedBench.push(idx);
-          const playerObj = {
+          assignedBench[idx] = {
             id: `default_bench_${idx}_${Date.now()}`,
             name: p.name || "Unknown",
             shirtNumber: p.shirtNumber || "",
@@ -545,24 +554,18 @@ export default function SquadPage() {
             role: "bench",
             slotIndex: idx,
           };
-          assignedBench[idx] = playerObj;
           continue;
         }
 
         skipped.push(p.name);
       }
 
-      // 4. Write to Firebase: clear existing starting/bench (but keep reserves)
-      // We'll update only starting and bench nodes.
       const updates = {};
-      // First, remove existing starting and bench players
       const existingIds = players.filter(p => p.role === "starting" || p.role === "bench").map(p => p.id);
       for (const id of existingIds) {
         updates[`${teamPath}/${id}`] = null;
       }
 
-      // Now add the new ones
-      // assignedStarting is an array with objects at indices
       for (let i = 0; i < startingSlotsCopy.length; i++) {
         const p = assignedStarting[i];
         if (p) {
@@ -578,13 +581,12 @@ export default function SquadPage() {
 
       await update(ref(db), updates);
 
-      // Show summary message
       const totalAssigned = assignedStarting.filter(Boolean).length + assignedBench.filter(Boolean).length;
       let msg = `✅ Loaded ${totalAssigned} players.`;
       if (skipped.length) {
         msg += ` ${skipped.length} player(s) couldn't be mapped to positions and were skipped: ${skipped.join(", ")}`;
       }
-      setDefaultError(msg); // reuse error state for success message
+      setDefaultError(msg);
       setTimeout(() => setDefaultError(""), 8000);
     } catch (e) {
       setDefaultError(e.message || "An error occurred while fetching the squad.");
@@ -592,7 +594,7 @@ export default function SquadPage() {
     setIsLoadingDefault(false);
   }
 
-  // ─── Loading state ──────────────────────────────────────────────────────
+  // ─── Loading / Auth states ──────────────────────────────────────────
   if (managerLoading) {
     return (
       <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
@@ -605,7 +607,6 @@ export default function SquadPage() {
     );
   }
 
-  // ─── Not logged in ──────────────────────────────────────────────────────
   if (!isAdmin && !manager) {
     return (
       <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
@@ -622,7 +623,6 @@ export default function SquadPage() {
     );
   }
 
-  // ─── Admin without selected team ────────────────────────────────────────
   if (isAdmin && !team) {
     return (
       <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
@@ -653,7 +653,7 @@ export default function SquadPage() {
     );
   }
 
-  // ─── Main render ────────────────────────────────────────────────────────
+  // ─── Main render ─────────────────────────────────────────────────────
   return (
     <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
       <BackgroundVideo />
@@ -661,7 +661,6 @@ export default function SquadPage() {
 
       <div style={{ padding: "32px 20px 80px", margin: "0 auto" }}>
 
-        {/* Back button */}
         <button
           onClick={() => navigate("/team-management")}
           style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "28px", padding: "10px 20px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.25)", borderRadius: "12px", color: "rgba(255,255,255,0.7)", cursor: "pointer", fontSize: "1.9rem", fontFamily: "inherit", fontWeight: 600, transition: "all 0.2s" }}
@@ -671,7 +670,6 @@ export default function SquadPage() {
           ← Back to Team Management
         </button>
 
-        {/* Header with Set Default Squad button (admin only) */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "32px", flexWrap: "wrap", gap: "16px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
             <div style={{ width: "64px", height: "64px", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -710,7 +708,6 @@ export default function SquadPage() {
           )}
         </div>
 
-        {/* Default squad status message */}
         {defaultError && (
           <div style={{
             padding: "16px 24px",
@@ -727,7 +724,7 @@ export default function SquadPage() {
 
         <div style={{ height: "1px", background: "linear-gradient(to right, transparent, rgba(255,20,147,0.4), transparent)", marginBottom: "28px" }} />
 
-        {/* ─── UPDATED DISCLAIMER ──────────────────────────────────────────── */}
+        {/* ─── UPDATED DISCLAIMER ────────────────────────────────────── */}
         <div style={{ background: "rgba(255,170,0,0.08)", border: "1px solid rgba(255,170,0,0.4)", borderRadius: "14px", padding: "18px 24px", marginBottom: "28px" }}>
           <div style={{ color: "#ffaa00", fontWeight: 800, fontSize: "1.8rem", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>⚠️ DISCLAIMER</div>
           <div style={{ color: "rgba(255,255,255,0.85)", fontSize: "1.8rem", lineHeight: 1.6 }}>
@@ -739,7 +736,7 @@ export default function SquadPage() {
           </div>
         </div>
 
-        {/* ─── STARTING XI ────────────────────────────────────────────────── */}
+        {/* ─── STARTING XI ────────────────────────────────────────────── */}
         <div style={{ ...GLASS, borderRadius: "20px", padding: "28px", marginBottom: "20px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "18px" }}>
             <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.6rem", letterSpacing: "3px" }}>
@@ -764,7 +761,7 @@ export default function SquadPage() {
           </div>
         </div>
 
-        {/* ─── BENCH ──────────────────────────────────────────────────────── */}
+        {/* ─── BENCH ────────────────────────────────────────────────────── */}
         <div style={{ ...GLASS, borderRadius: "20px", padding: "28px", marginBottom: "20px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "18px" }}>
             <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.6rem", letterSpacing: "3px" }}>
@@ -789,7 +786,7 @@ export default function SquadPage() {
           </div>
         </div>
 
-        {/* ─── RESERVES ────────────────────────────────────────────────────── */}
+        {/* ─── RESERVES ────────────────────────────────────────────────── */}
         <div style={{ ...GLASS, borderRadius: "20px", padding: "28px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "18px" }}>
             <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.6rem", letterSpacing: "3px" }}>
