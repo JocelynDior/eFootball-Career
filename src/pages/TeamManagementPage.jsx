@@ -10,6 +10,7 @@ import Modal from "../components/Modal";
 import StadiumModal from "../modals/StadiumModal";
 import TeamModal from "../modals/TeamModal";
 import TeamHistoryModal from "../modals/TeamHistoryModal";
+import FinanceDateFilterModal from "../modals/FinanceDateFilterModal";
 
 const TABS = [
   { id: "stadium", label: "STADIUM" },
@@ -26,7 +27,7 @@ const GLASS = {
 };
 
 const INCOME_CATEGORIES = ["Player Sales", "Player Loans", "Stadium Income", "Sponsorship", "Broadcasting", "Shirt Sales"];
-const EXPENSE_CATEGORIES = ["Player Wages", "Staff Wages", "Facility Expenses", "Taxes", "Stadium Upgrade"];
+const EXPENSE_CATEGORIES = ["Player Wages", "Staff Wages", "Facility Expenses", "Taxes", "Stadium Upgrade", "Player Purchase"];
 
 const ALL_MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
@@ -504,7 +505,7 @@ function TransfersTab({ team, teamIcons }) {
 
 // ─── NEGOTIATION CARD ──────────────────────────────────────────────────
 function NegotiationGridCard({ offer, teamIcons, onClick }) {
-  const statusColors = { pending: "#ffaa44", accepted: "#00ff88", rejected: "#ff6b6b" };
+  const statusColors = { pending: "#ffaa44", accepted: "#00ff88", rejected: "#ff6b6b", cancelled: "#aaaaaa" };
   const statusColor = statusColors[offer.status] || "#ffaa44";
   const clubLogo = teamIcons?.[offer.playerClub] || teamIcons?.[offer.fromClub];
 
@@ -617,6 +618,9 @@ function ShirtSVGSmall({ clubName, playerName, squadNumber }) {
 function FinanceTab({ team, isAdmin }) {
   const [transactions, setTransactions] = useState([]);
   const [selectedTx, setSelectedTx] = useState(null);
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  // Default filter: last 30 days
+  const [dateFilter, setDateFilter] = useState({ days: 30, from: null, to: null });
   const currentMonthIndex = getSASTMonthIndex();
   const scrollRef = useRef(null);
 
@@ -632,6 +636,32 @@ function FinanceTab({ team, isAdmin }) {
     });
     return () => unsub();
   }, [team]);
+
+  // ── Compute filtered transactions for stats blocks ──────────────────
+  function getFilteredTxs() {
+    if (dateFilter.days === null && !dateFilter.from) return transactions; // All Time
+    const now = Date.now();
+    return transactions.filter(tx => {
+      if (!tx.createdAt) return true; // no timestamp → include
+      if (dateFilter.days !== null) {
+        return tx.createdAt >= now - dateFilter.days * 24 * 60 * 60 * 1000;
+      }
+      return tx.createdAt >= dateFilter.from.getTime() && tx.createdAt <= dateFilter.to.getTime();
+    });
+  }
+
+  const filteredTxs = getFilteredTxs();
+
+  // ── Filter label for display ────────────────────────────────────────
+  function getFilterLabel() {
+    if (dateFilter.days !== null) {
+      if (dateFilter.days === null) return "All Time";
+      return `Last ${dateFilter.days} Days`;
+    }
+    if (!dateFilter.from) return "All Time";
+    const fmt = d => d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+    return `${fmt(dateFilter.from)} – ${fmt(dateFilter.to)}`;
+  }
 
   const PLACEHOLDERS = {
     4: { income: 12_000_000, expense: 7_500_000 },
@@ -663,28 +693,28 @@ function FinanceTab({ team, isAdmin }) {
     scrollRef.current.scrollLeft = Math.max(0, scrollTo);
   }, [currentMonthIndex]);
 
+  // ── Totals based on filtered transactions ───────────────────────────
   const incomeTotals = {};
   const expenseTotals = {};
-  INCOME_CATEGORIES.forEach(c => { incomeTotals[c] = transactions.filter(t => t.type === "income" && t.category === c).reduce((s, t) => s + (Number(t.amount) || 0), 0); });
-  EXPENSE_CATEGORIES.forEach(c => { expenseTotals[c] = transactions.filter(t => t.type === "expense" && t.category === c).reduce((s, t) => s + (Number(t.amount) || 0), 0); });
+  INCOME_CATEGORIES.forEach(c => {
+    incomeTotals[c] = filteredTxs.filter(t => t.type === "income" && t.category === c).reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  });
+  EXPENSE_CATEGORIES.forEach(c => {
+    expenseTotals[c] = filteredTxs.filter(t => t.type === "expense" && t.category === c).reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  });
 
-  const totalIncome = transactions.filter(t => t.type === "income").reduce((s, t) => s + (Number(t.amount) || 0), 0);
-  const totalExpense = transactions.filter(t => t.type === "expense").reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  const totalIncome = filteredTxs.filter(t => t.type === "income").reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  const totalExpense = filteredTxs.filter(t => t.type === "expense").reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  const netPL = totalIncome - totalExpense;
+  const isProfit = netPL >= 0;
 
   return (
     <div>
+      {/* ── Chart block (always all-time) ───────────────────────────── */}
       <div style={{ ...GLASS, borderRadius: "20px", padding: "64px", marginBottom: "40px" }}>
         <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.6rem", letterSpacing: "3px", marginBottom: "40px" }}>📈 FINANCIAL OVERVIEW</div>
 
-        <div
-          ref={scrollRef}
-          style={{
-            width: "100%",
-            overflowX: "auto",
-            WebkitOverflowScrolling: "touch",
-            paddingBottom: "16px",
-          }}
-        >
+        <div ref={scrollRef} style={{ width: "100%", overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: "16px" }}>
           <div style={{ minWidth: `${12 * 120 + 11 * 8 + 80}px`, position: "relative", height: `${barAreaH + 80}px` }}>
             {[0, 25, 50, 75, 100].map(pct => {
               const val = (maxVal * pct / 100);
@@ -697,7 +727,6 @@ function FinanceTab({ team, isAdmin }) {
             {[0, 25, 50, 75, 100].map(pct => (
               <div key={pct} style={{ position: "absolute", left: "80px", right: 0, top: `${barAreaH - (barAreaH * pct / 100)}px`, borderTop: "1px dashed rgba(255,255,255,0.08)" }} />
             ))}
-
             <div style={{ position: "absolute", left: "80px", right: 0, bottom: "60px", top: 0, display: "flex", alignItems: "flex-end", gap: "8px" }}>
               {ALL_MONTHS.map((month, i) => {
                 const d = chartData[i];
@@ -705,46 +734,18 @@ function FinanceTab({ team, isAdmin }) {
                 const expH = d.empty || d.expense === 0 ? 0 : (d.expense / maxVal) * barAreaH;
                 const isFuture = d.empty;
                 const isActive = i === currentMonthIndex && !d.empty;
-
                 return (
                   <div key={month} style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: "0 0 120px" }}>
                     <div style={{ display: "flex", alignItems: "flex-end", gap: "10px", height: `${barAreaH}px` }}>
-                      <div style={{
-                        flex: 1,
-                        height: `${Math.max(incH, 0)}px`,
-                        minWidth: "36px",
-                        background: isFuture ? "rgba(255,255,255,0.04)" : "linear-gradient(to top, #FF1493, #ff69b4)",
-                        borderRadius: "8px 8px 0 0",
-                        border: isFuture ? "1px dashed rgba(255,255,255,0.1)" : isActive ? "3px solid #fff" : "none",
-                        boxShadow: isActive ? "0 0 20px rgba(255,20,147,0.8)" : "none",
-                        position: "relative", transition: "height 0.5s",
-                      }}>
-                        {incH > 20 && (
-                          <div style={{ position: "absolute", top: "-30px", left: "50%", transform: "translateX(-50%)", color: "#FF1493", fontSize: "1.2rem", fontWeight: 700, whiteSpace: "nowrap" }}>
-                            {formatAmount(d.income)}
-                          </div>
-                        )}
+                      <div style={{ flex: 1, height: `${Math.max(incH, 0)}px`, minWidth: "36px", background: isFuture ? "rgba(255,255,255,0.04)" : "linear-gradient(to top, #FF1493, #ff69b4)", borderRadius: "8px 8px 0 0", border: isFuture ? "1px dashed rgba(255,255,255,0.1)" : isActive ? "3px solid #fff" : "none", boxShadow: isActive ? "0 0 20px rgba(255,20,147,0.8)" : "none", position: "relative", transition: "height 0.5s" }}>
+                        {incH > 20 && <div style={{ position: "absolute", top: "-30px", left: "50%", transform: "translateX(-50%)", color: "#FF1493", fontSize: "1.2rem", fontWeight: 700, whiteSpace: "nowrap" }}>{formatAmount(d.income)}</div>}
                       </div>
-                      <div style={{
-                        flex: 1,
-                        height: `${Math.max(expH, 0)}px`,
-                        minWidth: "36px",
-                        background: isFuture ? "rgba(255,255,255,0.04)" : "linear-gradient(to top, #000033, #001a66)",
-                        borderRadius: "8px 8px 0 0",
-                        border: isFuture ? "1px dashed rgba(255,255,255,0.1)" : isActive ? "3px solid #fff" : "1px solid rgba(0,100,255,0.4)",
-                        boxShadow: isActive ? "0 0 20px rgba(0,100,255,0.8)" : "none",
-                        position: "relative", transition: "height 0.5s",
-                      }}>
-                        {expH > 20 && (
-                          <div style={{ position: "absolute", top: "-30px", left: "50%", transform: "translateX(-50%)", color: "#4488ff", fontSize: "1.2rem", fontWeight: 700, whiteSpace: "nowrap" }}>
-                            {formatAmount(d.expense)}
-                          </div>
-                        )}
+                      <div style={{ flex: 1, height: `${Math.max(expH, 0)}px`, minWidth: "36px", background: isFuture ? "rgba(255,255,255,0.04)" : "linear-gradient(to top, #000033, #001a66)", borderRadius: "8px 8px 0 0", border: isFuture ? "1px dashed rgba(255,255,255,0.1)" : isActive ? "3px solid #fff" : "1px solid rgba(0,100,255,0.4)", boxShadow: isActive ? "0 0 20px rgba(0,100,255,0.8)" : "none", position: "relative", transition: "height 0.5s" }}>
+                        {expH > 20 && <div style={{ position: "absolute", top: "-30px", left: "50%", transform: "translateX(-50%)", color: "#4488ff", fontSize: "1.2rem", fontWeight: 700, whiteSpace: "nowrap" }}>{formatAmount(d.expense)}</div>}
                       </div>
                     </div>
                     <div style={{ color: isFuture ? "rgba(255,255,255,0.2)" : isActive ? "#fff" : "rgba(255,255,255,0.5)", fontSize: isActive ? "2rem" : "1.6rem", fontWeight: isActive ? 900 : 700, marginTop: "12px" }}>
-                      {month}
-                      {isActive && <span style={{ fontSize: "1.2rem", marginLeft: "6px", color: "#FF1493" }}>⬅️</span>}
+                      {month}{isActive && <span style={{ fontSize: "1.2rem", marginLeft: "6px", color: "#FF1493" }}>⬅️</span>}
                     </div>
                     {isFuture && <div style={{ color: "rgba(255,255,255,0.15)", fontSize: "1rem", marginTop: "2px" }}>upcoming</div>}
                   </div>
@@ -766,8 +767,72 @@ function FinanceTab({ team, isAdmin }) {
         </div>
       </div>
 
-      {/* Income & Expense blocks */}
+      {/* ── Net Profit / Loss banner ─────────────────────────────────── */}
+      <div style={{
+        ...GLASS,
+        borderRadius: "20px",
+        padding: "36px 48px",
+        marginBottom: "20px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        border: `1px solid ${isProfit ? "rgba(0,255,136,0.3)" : "rgba(255,107,107,0.3)"}`,
+        background: isProfit ? "rgba(0,255,136,0.05)" : "rgba(255,107,107,0.05)",
+        flexWrap: "wrap",
+        gap: "16px",
+      }}>
+        <div>
+          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.2rem", textTransform: "uppercase", letterSpacing: "2px", fontWeight: 700, marginBottom: "6px" }}>
+            Net {isProfit ? "Profit" : "Loss"} · {getFilterLabel()}
+          </div>
+          <div style={{
+            fontFamily: "'Bebas Neue', sans-serif",
+            fontSize: "clamp(2.4rem, 6vw, 4rem)",
+            letterSpacing: "3px",
+            color: isProfit ? "#00ff88" : "#ff6b6b",
+            textShadow: isProfit ? "0 0 20px rgba(0,255,136,0.4)" : "0 0 20px rgba(255,107,107,0.4)",
+          }}>
+            {isProfit ? "+" : "−"}{formatAmount(Math.abs(netPL))}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: "24px", flexWrap: "wrap" }}>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1rem", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "4px" }}>Income</div>
+            <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem" }}>+{formatAmount(totalIncome)}</div>
+          </div>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1rem", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "4px" }}>Expenses</div>
+            <div style={{ color: "#ff6b6b", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem" }}>−{formatAmount(totalExpense)}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Date Filter button ───────────────────────────────────────── */}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "28px" }}>
+        <button
+          onClick={() => setShowFilterModal(true)}
+          style={{
+            display: "flex", alignItems: "center", gap: "10px",
+            padding: "14px 24px",
+            background: "rgba(255,20,147,0.1)",
+            border: "1px solid rgba(255,20,147,0.4)",
+            borderRadius: "14px",
+            color: "#FF1493",
+            fontWeight: 700,
+            fontSize: "1.1rem",
+            cursor: "pointer",
+            transition: "all 0.2s",
+          }}
+          onMouseOver={e => { e.currentTarget.style.background = "rgba(255,20,147,0.2)"; }}
+          onMouseOut={e => { e.currentTarget.style.background = "rgba(255,20,147,0.1)"; }}
+        >
+          📅 {getFilterLabel()} ▾
+        </button>
+      </div>
+
+      {/* ── Income & Expense blocks ──────────────────────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "28px", marginBottom: "40px" }}>
+        {/* Income */}
         <div style={{ ...GLASS, borderRadius: "20px", padding: "48px" }}>
           <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "2px", marginBottom: "28px" }}>💰 INCOME</div>
           <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.2rem", letterSpacing: "1px", marginBottom: "24px" }}>Total: {formatAmount(totalIncome)}</div>
@@ -780,6 +845,8 @@ function FinanceTab({ team, isAdmin }) {
             </div>
           ))}
         </div>
+
+        {/* Expenses — no click action for managers */}
         <div style={{ ...GLASS, borderRadius: "20px", padding: "48px" }}>
           <div style={{ color: "#4488ff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "2px", marginBottom: "28px" }}>📤 EXPENSES</div>
           <div style={{ color: "#ff6b6b", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.2rem", letterSpacing: "1px", marginBottom: "24px" }}>Total: {formatAmount(totalExpense)}</div>
@@ -794,7 +861,7 @@ function FinanceTab({ team, isAdmin }) {
         </div>
       </div>
 
-      {/* Transaction History with Edit/Delete for admin */}
+      {/* ── Transaction History ──────────────────────────────────────── */}
       <div style={{ ...GLASS, borderRadius: "20px", padding: "48px" }}>
         <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "3px", marginBottom: "28px" }}>📋 TRANSACTION HISTORY</div>
         {transactions.length === 0 ? (
@@ -809,10 +876,18 @@ function FinanceTab({ team, isAdmin }) {
               return (
                 <div
                   key={tx.id}
-                  onClick={() => setSelectedTx(tx)}
-                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 24px", background: isIncome ? "rgba(0,255,136,0.05)" : "rgba(255,100,100,0.05)", border: `1px solid ${isIncome ? "rgba(0,255,136,0.15)" : "rgba(255,100,100,0.15)"}`, borderRadius: "14px", cursor: "pointer", transition: "all 0.2s" }}
-                  onMouseOver={e => e.currentTarget.style.background = isIncome ? "rgba(0,255,136,0.1)" : "rgba(255,100,100,0.1)"}
-                  onMouseOut={e => e.currentTarget.style.background = isIncome ? "rgba(0,255,136,0.05)" : "rgba(255,100,100,0.05)"}
+                  onClick={() => isAdmin ? setSelectedTx(tx) : undefined}
+                  style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    padding: "20px 24px",
+                    background: isIncome ? "rgba(0,255,136,0.05)" : "rgba(255,100,100,0.05)",
+                    border: `1px solid ${isIncome ? "rgba(0,255,136,0.15)" : "rgba(255,100,100,0.15)"}`,
+                    borderRadius: "14px",
+                    cursor: isAdmin ? "pointer" : "default",
+                    transition: "all 0.2s",
+                  }}
+                  onMouseOver={e => { if (isAdmin) e.currentTarget.style.background = isIncome ? "rgba(0,255,136,0.1)" : "rgba(255,100,100,0.1)"; }}
+                  onMouseOut={e => { if (isAdmin) e.currentTarget.style.background = isIncome ? "rgba(0,255,136,0.05)" : "rgba(255,100,100,0.05)"; }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
                     <div style={{ width: "96px", height: "96px", background: isIncome ? "rgba(0,255,136,0.15)" : "rgba(255,100,100,0.15)", borderRadius: "16px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "3.2rem" }}>
@@ -834,12 +909,22 @@ function FinanceTab({ team, isAdmin }) {
         )}
       </div>
 
-      {selectedTx && (
+      {/* ── Admin-only edit popup ────────────────────────────────────── */}
+      {isAdmin && selectedTx && (
         <TransactionEditPopup
           tx={selectedTx}
           team={team}
           isAdmin={isAdmin}
           onClose={() => setSelectedTx(null)}
+        />
+      )}
+
+      {/* ── Date Filter Modal ────────────────────────────────────────── */}
+      {showFilterModal && (
+        <FinanceDateFilterModal
+          current={dateFilter}
+          onApply={filter => { setDateFilter(filter); setShowFilterModal(false); }}
+          onClose={() => setShowFilterModal(false)}
         />
       )}
     </div>
