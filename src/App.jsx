@@ -1,6 +1,9 @@
 import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
 import { useEffect } from "react";
 import { AdminProvider } from "./context/AdminContext";
+import { MusicProvider } from "./context/MusicContext";
+import BackgroundMusic from "./components/BackgroundMusic";
+import SoundEffects from "./components/SoundEffects";
 import FeedPage from "./pages/FeedPage";
 import PremierLeaguePage from "./pages/PremierLeaguePage";
 import LaLigaPage from "./pages/LaLigaPage";
@@ -24,9 +27,10 @@ import ManagerProfilePage from "./pages/ManagerProfilePage";
 import AdminProfilePage from "./pages/AdminProfilePage";
 import RivalsSquadPage from "./pages/RivalsSquadPage";
 import SquadPage from "./pages/SquadPage";
+import SettingsPage from "./pages/SettingsPage";
 
 // Newly created files
-import { groq } from "./utils/groq"; // adjust import style if it's default or named
+import { groq } from "./utils/groq";
 import AddPlayerModal from "./modals/AddPlayerModal";
 import RequestBuyModal from "./modals/RequestBuyModal";
 import RequestLoanModal from "./modals/RequestLoanModal";
@@ -62,37 +66,50 @@ function InactivityWatcher() {
   return null;
 }
 
+function AppInner() {
+  return (
+    <>
+      <BackgroundMusic />
+      <SoundEffects />
+      <InactivityWatcher />
+      <Routes>
+        <Route path="/" element={<FeedPage />} />
+        <Route path="/premier-league" element={<PremierLeaguePage />} />
+        <Route path="/la-liga" element={<LaLigaPage />} />
+        <Route path="/serie-a" element={<SerieAPage />} />
+        <Route path="/bundesliga" element={<BundesligaPage />} />
+        <Route path="/ligue-1" element={<Ligue1Page />} />
+        <Route path="/champions-league" element={<ChampionsLeaguePage />} />
+        <Route path="/europa-league" element={<EuropaLeaguePage />} />
+        <Route path="/club-world-cup" element={<ClubWorldCupPage />} />
+        <Route path="/super-cup" element={<SuperCupPage />} />
+        <Route path="/tokyo" element={<TokyoPage />} />
+        <Route path="/create-account" element={<CreateAccountPage />} />
+        <Route path="/transfer-market" element={<TransferMarketPage />} />
+        <Route path="/team-management" element={<TeamManagementPage />} />
+        <Route path="/calendar" element={<CalendarPage />} />
+        <Route path="/manager-rankings" element={<ManagerRankingsPage />} />
+        <Route path="/terms" element={<TermsOfServicePage />} />
+        <Route path="/privacy" element={<PrivacyPolicyPage />} />
+        <Route path="/admin-calendar" element={<AdminCalendarPage />} />
+        <Route path="/manager-profile" element={<ManagerProfilePage />} />
+        <Route path="/admin-profile" element={<AdminProfilePage />} />
+        <Route path="/rivals-squads" element={<RivalsSquadPage />} />
+        <Route path="/squad" element={<SquadPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
+      </Routes>
+    </>
+  );
+}
+
 export default function App() {
   return (
     <AdminProvider>
-      <BrowserRouter>
-        <InactivityWatcher />
-        <Routes>
-          <Route path="/" element={<FeedPage />} />
-          <Route path="/premier-league" element={<PremierLeaguePage />} />
-          <Route path="/la-liga" element={<LaLigaPage />} />
-          <Route path="/serie-a" element={<SerieAPage />} />
-          <Route path="/bundesliga" element={<BundesligaPage />} />
-          <Route path="/ligue-1" element={<Ligue1Page />} />
-          <Route path="/champions-league" element={<ChampionsLeaguePage />} />
-          <Route path="/europa-league" element={<EuropaLeaguePage />} />
-          <Route path="/club-world-cup" element={<ClubWorldCupPage />} />
-          <Route path="/super-cup" element={<SuperCupPage />} />
-          <Route path="/tokyo" element={<TokyoPage />} />
-          <Route path="/create-account" element={<CreateAccountPage />} />
-          <Route path="/transfer-market" element={<TransferMarketPage />} />
-          <Route path="/team-management" element={<TeamManagementPage />} />
-          <Route path="/calendar" element={<CalendarPage />} />
-          <Route path="/manager-rankings" element={<ManagerRankingsPage />} />
-          <Route path="/terms" element={<TermsOfServicePage />} />
-          <Route path="/privacy" element={<PrivacyPolicyPage />} />
-          <Route path="/admin-calendar" element={<AdminCalendarPage />} />
-          <Route path="/manager-profile" element={<ManagerProfilePage />} />
-          <Route path="/admin-profile" element={<AdminProfilePage />} />
-          <Route path="/rivals-squads" element={<RivalsSquadPage />} />
-          <Route path="/squad" element={<SquadPage />} />
-        </Routes>
-      </BrowserRouter>
+      <MusicProvider>
+        <BrowserRouter>
+          <AppInner />
+        </BrowserRouter>
+      </MusicProvider>
     </AdminProvider>
   );
 }
