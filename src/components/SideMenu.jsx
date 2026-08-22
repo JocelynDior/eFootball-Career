@@ -9,6 +9,7 @@ const menuItems = [
   { label: "⚔️ Rivals Squads", path: "/rivals-squads" },
   { label: "📅 Calendar", path: "/calendar" },
   { label: "📊 Manager Rankings", path: "/manager-rankings" },
+  { label: "⚙️ Settings", path: "/settings" },
   { label: "📄 Terms of Service", path: "/terms" },
   { label: "🔒 Privacy Policy", path: "/privacy" },
 ];
