@@ -72,6 +72,20 @@ export default function Navbar({ tokyoMenuItems } = {}) {
   const [savingCd, setSavingCd] = useState(false);
   const [countdowns, setCountdowns] = useState([]);
 
+  // Auction Deadline
+  const [auctionDeadlineOpen, setAuctionDeadlineOpen] = useState(false);
+  const [auctionDeadlineDate, setAuctionDeadlineDate] = useState("");
+  const [auctionDeadlineTime, setAuctionDeadlineTime] = useState("");
+  const [savingDeadline, setSavingDeadline] = useState(false);
+  const [currentDeadline, setCurrentDeadline] = useState(null);
+
+  useEffect(() => {
+    if (!isAdmin || !isTransferPage) return;
+    onValue(ref(db, "career_global_settings/auctionDeadline"), snap => {
+      setCurrentDeadline(snap.val() ? Number(snap.val()) : null);
+    });
+  }, [isAdmin, isTransferPage]);
+
   useEffect(() => {
     if (!isAdmin || !isTransferPage) return;
     TRANSFER_TABS.forEach(t => {
@@ -167,6 +181,22 @@ export default function Navbar({ tokyoMenuItems } = {}) {
     outline: "none", boxSizing: "border-box", marginBottom: "12px",
   };
 
+  async function handleSaveDeadline() {
+    if (!auctionDeadlineDate) return;
+    setSavingDeadline(true);
+    const target = new Date(`${auctionDeadlineDate}T${auctionDeadlineTime || "00:00"}`).getTime();
+    await set(ref(db, "career_global_settings/auctionDeadline"), target);
+    setSavingDeadline(false);
+    setAuctionDeadlineOpen(false);
+    setAuctionDeadlineDate("");
+    setAuctionDeadlineTime("");
+  }
+
+  async function handleResetDeadline() {
+    await set(ref(db, "career_global_settings/auctionDeadline"), null);
+    setCurrentDeadline(null);
+  }
+
   const dropdownItems = [
     { icon: "🎬", label: "Add Video", action: () => { setAddVideoOpen(true); setPlusOpen(false); } },
     { icon: "⏱️", label: "Add Countdown", action: () => { setAddCountdownOpen(true); setPlusOpen(false); } },
@@ -174,6 +204,7 @@ export default function Navbar({ tokyoMenuItems } = {}) {
     { icon: "🖼️", label: "Add Player Image", action: () => { setAddImageOpen(true); setPlusOpen(false); } },
     { icon: "🏆", label: "Add Team Icon", action: () => { setAddIconOpen(true); setPlusOpen(false); } },
     { icon: "🗑️", label: "Delete Player", action: () => { setDeletePlayerOpen(true); setPlusOpen(false); } },
+    { icon: "⏰", label: "Auction Deadline", action: () => { setAuctionDeadlineOpen(true); setPlusOpen(false); } },
   ];
 
   const sastDate = getSASTDateString();
@@ -358,6 +389,25 @@ export default function Navbar({ tokyoMenuItems } = {}) {
         <div style={{ display: "flex", gap: "12px" }}>
           <button onClick={handleDeletePlayer} disabled={deleting || !deletePlayerId} style={{ flex: 1, padding: "14px", background: "#cc0000", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, cursor: "pointer", opacity: !deletePlayerId ? 0.5 : 1 }}>{deleting ? "Deleting..." : "Delete"}</button>
           <button onClick={() => setDeletePlayerOpen(false)} style={{ flex: 1, padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "12px", color: "#fff", cursor: "pointer" }}>Cancel</button>
+        </div>
+      </Modal>
+
+      <Modal active={auctionDeadlineOpen} onClose={() => setAuctionDeadlineOpen(false)}>
+        <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: "16px", letterSpacing: "2px" }}>⏰ Auction Deadline</h3>
+        {currentDeadline && (
+          <div style={{ marginBottom: "16px", padding: "14px", background: "rgba(255,20,147,0.08)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "12px" }}>
+            <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem", marginBottom: "4px", textTransform: "uppercase", letterSpacing: "0.8px" }}>Current Deadline</div>
+            <div style={{ color: "#fff", fontWeight: 700 }}>{new Date(currentDeadline).toLocaleString()}</div>
+            <button onClick={handleResetDeadline} style={{ marginTop: "10px", padding: "8px 16px", background: "rgba(255,68,68,0.2)", border: "1px solid rgba(255,68,68,0.4)", borderRadius: "8px", color: "#ff6b6b", fontWeight: 700, cursor: "pointer", fontSize: "0.85rem" }}>🗑️ Clear Deadline</button>
+          </div>
+        )}
+        <label style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem", display: "block", marginBottom: "4px" }}>Deadline Date</label>
+        <input type="date" value={auctionDeadlineDate} onChange={e => setAuctionDeadlineDate(e.target.value)} style={inputStyle} />
+        <label style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem", display: "block", marginBottom: "4px" }}>Deadline Time</label>
+        <input type="time" value={auctionDeadlineTime} onChange={e => setAuctionDeadlineTime(e.target.value)} style={inputStyle} />
+        <div style={{ display: "flex", gap: "12px", marginTop: "4px" }}>
+          <button onClick={handleSaveDeadline} disabled={savingDeadline || !auctionDeadlineDate} style={{ flex: 1, padding: "14px", background: "#FF1493", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, cursor: "pointer", opacity: !auctionDeadlineDate ? 0.5 : 1 }}>{savingDeadline ? "Saving..." : "Set Deadline"}</button>
+          <button onClick={() => setAuctionDeadlineOpen(false)} style={{ flex: 1, padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "12px", color: "#fff", cursor: "pointer" }}>Cancel</button>
         </div>
       </Modal>
 
