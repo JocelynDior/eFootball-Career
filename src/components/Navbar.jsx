@@ -27,6 +27,10 @@ export default function Navbar({ tokyoMenuItems } = {}) {
   const [plusOpen, setPlusOpen] = useState(false);
   const plusRef = useRef(null);
 
+  // Install prompt state
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [isInstalled, setIsInstalled] = useState(false);
+
   // Modals
   const [addPlayerOpen, setAddPlayerOpen] = useState(false);
   const [addVideoOpen, setAddVideoOpen] = useState(false);
@@ -79,6 +83,48 @@ export default function Navbar({ tokyoMenuItems } = {}) {
   const [slideCaption, setSlideCaption] = useState("");
   const [savingSlide, setSavingSlide] = useState(false);
   const [slides, setSlides] = useState([]);
+
+  // ── Install prompt handler ──────────────────────────────────────────────
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+
+    const handleAppInstalled = () => {
+      setInstallPrompt(null);
+      setIsInstalled(true);
+      localStorage.setItem("app-installed", "true");
+    };
+
+    // Check if app is already installed
+    if (window.matchMedia("(display-mode: standalone)").matches) {
+      setIsInstalled(true);
+    } else if (localStorage.getItem("app-installed") === "true") {
+      setIsInstalled(true);
+    }
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener("appinstalled", handleAppInstalled);
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", handleAppInstalled);
+    };
+  }, []);
+
+  async function handlePromptInstall() {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    if (outcome === "accepted") {
+      setIsInstalled(true);
+      localStorage.setItem("app-installed", "true");
+    }
+    setInstallPrompt(null);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!isAdmin || !isTransferPage) return;
@@ -222,8 +268,43 @@ export default function Navbar({ tokyoMenuItems } = {}) {
       <nav style={{ background: "linear-gradient(90deg, #FF1493, #FF69B4)", padding: "0 1.2rem", height: "128px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 500, boxShadow: "0 4px 20px rgba(255,20,147,0.4)" }}>
         <button onClick={() => setLeagueOpen(true)} style={{ background: "rgba(0,0,51,0.7)", backdropFilter: "blur(10px)", border: "1.5px solid rgba(255,255,255,0.3)", color: "#fff", padding: "16px 36px", borderRadius: "20px", fontWeight: 700, fontSize: "1.7rem", cursor: "pointer", transition: "all 0.3s", fontFamily: "inherit" }}>View League</button>
 
-        <div style={{ flex: 1, textAlign: "center", color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", fontWeight: "bold", letterSpacing: "2px", whiteSpace: "nowrap" }}>
-          {sastDate}
+        {/* Date/Install section */}
+        <div style={{ flex: 1, textAlign: "center" }}>
+          {!isInstalled && installPrompt ? (
+            <button
+              onClick={handlePromptInstall}
+              style={{
+                background: "rgba(0,0,51,0.9)",
+                border: "2px solid #fff",
+                color: "#fff",
+                padding: "12px 28px",
+                borderRadius: "18px",
+                fontWeight: 700,
+                fontSize: "1.5rem",
+                cursor: "pointer",
+                transition: "all 0.3s",
+                fontFamily: "inherit",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "10px",
+                boxShadow: "0 4px 15px rgba(0,0,0,0.3)",
+              }}
+              onMouseOver={e => {
+                e.currentTarget.style.background = "rgba(0,0,51,1)";
+                e.currentTarget.style.transform = "scale(1.05)";
+              }}
+              onMouseOut={e => {
+                e.currentTarget.style.background = "rgba(0,0,51,0.9)";
+                e.currentTarget.style.transform = "scale(1)";
+              }}
+            >
+              ⬇️ Install App
+            </button>
+          ) : (
+            <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", fontWeight: "bold", letterSpacing: "2px", whiteSpace: "nowrap" }}>
+              {sastDate}
+            </div>
+          )}
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
