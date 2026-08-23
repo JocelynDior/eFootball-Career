@@ -17,6 +17,7 @@ export default function BackgroundMusic() {
 
   const audioRef = useRef(null);
   const hasInteracted = useRef(false);
+  const wasPlayingBeforeHide = useRef(false);
 
   // Create audio element once
   useEffect(() => {
@@ -25,7 +26,7 @@ export default function BackgroundMusic() {
     audio.preload = "auto";
     audioRef.current = audio;
 
-    // Try to autoplay on first user interaction
+    // Start on first user interaction (browser autoplay policy)
     const startOnInteraction = () => {
       if (!hasInteracted.current) {
         hasInteracted.current = true;
@@ -48,6 +49,31 @@ export default function BackgroundMusic() {
     };
   }, []);
 
+  // ── Page Visibility API — pause when tab hidden, resume when visible ──
+  useEffect(() => {
+    function handleVisibilityChange() {
+      const audio = audioRef.current;
+      if (!audio || !hasInteracted.current) return;
+
+      if (document.hidden) {
+        // User left the tab/minimized/switched app
+        wasPlayingBeforeHide.current = !audio.paused;
+        if (!audio.paused) {
+          audio.pause();
+          setIsPlaying(false);
+        }
+      } else {
+        // User came back
+        if (wasPlayingBeforeHide.current) {
+          audio.play().then(() => setIsPlaying(true)).catch(() => {});
+        }
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, []);
+
   // When track changes, load and play
   useEffect(() => {
     const audio = audioRef.current;
@@ -59,7 +85,8 @@ export default function BackgroundMusic() {
     audio.volume = isMuted ? 0 : 0.4;
     audio.load();
 
-    if (hasInteracted.current) {
+    // Only play if tab is visible and user has interacted
+    if (hasInteracted.current && !document.hidden) {
       audio.play().then(() => setIsPlaying(true)).catch(() => {});
     }
   }, [currentTrack?.id]);
@@ -72,7 +99,7 @@ export default function BackgroundMusic() {
     audio.volume = isMuted ? 0 : 0.4;
   }, [isMutedAll, mutedSongs, currentTrack?.id]);
 
-  // When current song ends, advance to next
+  // When current song ends, advance to next shuffled track
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
