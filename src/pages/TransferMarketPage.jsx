@@ -266,11 +266,18 @@ function AuctionGridCard({ player, teamIcons, onClick, isAdmin, onDelete, auctio
 }
 
 // ─── AUCTION POPUP ────────────────────────────────────────────────────────
-function AuctionPopup({ player, manager, auctionDeadline, teamIcons }) {
+function AuctionPopup({ player, manager, auctionDeadline, teamIcons, onClose }) {
   const [bidAmount, setBidAmount] = useState("");
+  const [bidDisplay, setBidDisplay] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
+
+  function handleBidInput(e) {
+    const raw = e.target.value.replace(/[^0-9]/g, "");
+    setBidAmount(raw);
+    setBidDisplay(raw ? Number(raw).toLocaleString() : "");
+  }
   const timeLeft = useAuctionCountdown(auctionDeadline);
   const isExpired = timeLeft?.expired;
 
@@ -294,8 +301,8 @@ function AuctionPopup({ player, manager, auctionDeadline, teamIcons }) {
         managerUid: manager.uid, createdAt: Date.now(),
       });
       await update(ref(db, `${PATHS.transfers}/auction/${player.id}`), { interestedManagers: bids.length + 1 });
-      setDone(true); setBidAmount("");
-      setTimeout(() => setDone(false), 2000);
+      setDone(true); setBidAmount(""); setBidDisplay("");
+      setTimeout(() => { onClose?.(); }, 1500);
     } catch (e) { setError("Failed: " + e.message); }
     setSubmitting(false);
   }
@@ -383,7 +390,7 @@ function AuctionPopup({ player, manager, auctionDeadline, teamIcons }) {
             <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1rem", marginBottom: "6px" }}>Manager</div>
             <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.4rem" }}>{manager.username} · {manager.team}</div>
           </div>
-          <input value={bidAmount} onChange={e => setBidAmount(e.target.value)} placeholder={`Min ${formatMoney(minBid)}`} type="number" style={{ ...inputStyle, width: "100%", boxSizing: "border-box", marginBottom: "14px", fontSize: "1.2rem" }} />
+          <input value={bidDisplay} onChange={handleBidInput} placeholder={`Min ${formatMoney(minBid)}`} type="text" inputMode="numeric" style={{ ...inputStyle, width: "100%", boxSizing: "border-box", marginBottom: "14px", fontSize: "1.2rem" }} />
           {done && <div style={{ color: "#00ff88", fontWeight: 700, textAlign: "center", marginBottom: "10px", fontSize: "1.2rem" }}>✅ Bid placed!</div>}
           {error && <div style={{ color: "#ff6b6b", fontSize: "1rem", marginBottom: "10px", padding: "12px", background: "rgba(255,0,0,0.1)", borderRadius: "10px" }}>{error}</div>}
           <button onClick={handleBid} disabled={submitting} style={{ width: "100%", padding: "20px", background: "linear-gradient(135deg, #FF1493, #cc0077)", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.4rem", cursor: submitting ? "not-allowed" : "pointer", opacity: submitting ? 0.7 : 1 }}>
@@ -664,7 +671,6 @@ export default function TransferMarketPage() {
           const now = new Date(); const monthIndex = now.getMonth(); const year = now.getFullYear();
           const buyingClub = winner.club; const sellingClub = player.club;
           if (buyingClub && amt > 0) await push(ref(db, `career_team_management/${buyingClub}/finance/transactions`), { type: "expense", category: "Player Purchase", source: player.name, amount: amt, month: MONTHS[monthIndex], monthIndex, year, createdAt: Date.now() });
-          if (sellingClub && amt > 0) await push(ref(db, `career_team_management/${sellingClub}/finance/transactions`), { type: "income", category: "Player Sales", source: player.name, amount: amt, month: MONTHS[monthIndex], monthIndex, year, createdAt: Date.now() });
           const snap = await get(ref(db, `career_team_management/${sellingClub}/squad`)); const data = snap.val();
           if (data) { for (const [key, p] of Object.entries(data)) { if (p.name === player.name) { await remove(ref(db, `career_team_management/${sellingClub}/squad/${key}`)); const { loanStatus, loanClub, loanFrom, ...clean } = p; await push(ref(db, `career_team_management/${buyingClub}/squad`), clean); break; } } }
           await update(ref(db, `${PATHS.transfers}/auction/${player.id}`), { sold: true, soldTo: `${winner.managerName} (${winner.club})`, soldAmount: amt });
@@ -810,7 +816,7 @@ export default function TransferMarketPage() {
       </Modal>
 
       <Modal active={!!selectedAuction} onClose={() => setSelectedAuction(null)} wide>
-        {selectedAuction && <AuctionPopup player={selectedAuction} manager={manager} auctionDeadline={auctionDeadline} teamIcons={mergedIcons} />}
+        {selectedAuction && <AuctionPopup player={selectedAuction} manager={manager} auctionDeadline={auctionDeadline} teamIcons={mergedIcons} onClose={() => setSelectedAuction(null)} />}
       </Modal>
 
       <Modal active={showAddModal} onClose={() => setShowAddModal(false)} wide>
