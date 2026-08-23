@@ -28,6 +28,7 @@ import AdminProfilePage from "./pages/AdminProfilePage";
 import RivalsSquadPage from "./pages/RivalsSquadPage";
 import SquadPage from "./pages/SquadPage";
 import SettingsPage from "./pages/SettingsPage";
+import RulesAndTutorialsPage from "./pages/RulesAndTutorialsPage";
 
 // Newly created files
 import { groq } from "./utils/groq";
@@ -97,6 +98,7 @@ function AppInner() {
         <Route path="/rivals-squads" element={<RivalsSquadPage />} />
         <Route path="/squad" element={<SquadPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/rules-tutorials" element={<RulesAndTutorialsPage />} />
       </Routes>
     </>
   );
