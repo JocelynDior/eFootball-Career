@@ -2,16 +2,23 @@ import { useState } from "react";
 import { db, PATHS } from "../firebase";
 import { ref, push, update } from "firebase/database";
 import { uploadToImgBB } from "../utils/imgUpload";
+import { useAdmin } from "../context/AdminContext";
 
 export default function CreatePostModal({ post = null, onClose }) {
+  const { manager, isAdmin } = useAdmin();
   const isEdit = !!post;
-  const [username, setUsername] = useState(post?.username || "");
+
+  // Auto-fill from manager session if not editing
+  const defaultUsername = post?.username || (isAdmin ? "Admin" : manager?.username || "");
+  const defaultAvatar = post?.userAvatar || manager?.profilePhoto || "";
+
+  const [username, setUsername] = useState(defaultUsername);
   const [caption, setCaption] = useState(post?.caption || "");
   const [verified, setVerified] = useState(post?.verified || false);
   const [mediaItems, setMediaItems] = useState(post?.media || []);
   const [videoLink, setVideoLink] = useState("");
   const [avatarFile, setAvatarFile] = useState(null);
-  const [avatarPreview, setAvatarPreview] = useState(post?.userAvatar || "");
+  const [avatarPreview, setAvatarPreview] = useState(defaultAvatar);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("");
 
