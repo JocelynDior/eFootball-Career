@@ -47,7 +47,6 @@ function useCountdown(deadlineTs) {
 async function settleAuction(player, playerId) {
   try {
     const cardSnap = await get(ref(db, `${PATHS.transfers}/auction/${playerId}`));
-    // Double-check: never settle if already settled or if adminReset flag is set
     const card = cardSnap.val();
     if (card?.settled || card?.adminReset) return;
 
@@ -111,6 +110,7 @@ async function settleAuction(player, playerId) {
 export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) {
   const { manager } = useAdmin();
   const [bids, setBids] = useState([]);
+  const [bidsLoading, setBidsLoading] = useState(true);
   const [deadline, setDeadline] = useState(null);
   const [bidInput, setBidInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -123,7 +123,6 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
   const [resetMsg, setResetMsg] = useState("");
   const [cancellingBid, setCancellingBid] = useState(null);
 
-  // Live auction card data from Firebase
   const [auctionCard, setAuctionCard] = useState({
     settled: player.settled || false,
     adminReset: player.adminReset || false,
@@ -134,21 +133,23 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
   useEffect(() => {
     if (!playerId) return;
 
-    // Listen to bids
+    // Listen to ALL bids under this auction — this is the source of truth for bid history
     const unsubBids = onValue(ref(db, `${PATHS.transfers}/auction/${playerId}/bids`), snap => {
       const data = snap.val();
-      setBids(data
-        ? Object.entries(data).map(([k, v]) => ({ id: k, ...v })).sort((a, b) => (b.bidAmountRaw || 0) - (a.bidAmountRaw || 0))
-        : []
+      setBids(
+        data
+          ? Object.entries(data)
+              .map(([k, v]) => ({ id: k, ...v }))
+              .sort((a, b) => (b.bidAmountRaw || 0) - (a.bidAmountRaw || 0))
+          : []
       );
+      setBidsLoading(false);
     });
 
-    // Listen to global deadline
     const unsubDeadline = onValue(ref(db, `${PATHS.globalSettings}/auctionDeadline`), snap => {
       setDeadline(snap.val() || null);
     });
 
-    // Listen to the whole auction card so settled + adminReset update live
     const unsubCard = onValue(ref(db, `${PATHS.transfers}/auction/${playerId}`), snap => {
       const data = snap.val() || {};
       setAuctionCard({
@@ -160,7 +161,6 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
     return () => { unsubBids(); unsubDeadline(); unsubCard(); };
   }, [playerId]);
 
-  // Auto-settle only when: timer expired AND not already settled AND adminReset is NOT set
   useEffect(() => {
     if (countdown.expired && !auctionCard.settled && !auctionCard.adminReset && playerId && bids.length > 0) {
       settleAuction(player, playerId);
@@ -172,10 +172,12 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
   const minNextBid = leadingRaw + MIN_BID_INCREMENT;
   const interestedCount = [...new Set(bids.map(b => b.fromManagerUid))].length;
 
-  // Auction is closed ONLY when settled=true AND adminReset is NOT set
   const isClosed = auctionCard.settled && !auctionCard.adminReset;
-  // Show the countdown when there's a deadline and auction is not closed
   const showCountdown = !!deadline && !isClosed;
+
+  // Split bids: winner (index 0) and lost bids (rest)
+  const winnerBid = bids[0] || null;
+  const lostBids = bids.slice(1);
 
   async function handleBid() {
     if (!manager) { setError("You must be logged in."); return; }
@@ -200,7 +202,9 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
         status: "pending",
         createdAt: Date.now(),
       };
+      // Push to auction bids (source of truth for history)
       await push(ref(db, `${PATHS.transfers}/auction/${playerId}/bids`), bidData);
+      // Also push to negotiations for the negotiations tab
       await push(ref(db, `${PATHS.transfers}/negotiations`), bidData);
       setBidInput("");
       setDone(true);
@@ -222,7 +226,6 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
     setSavingAdmin(false);
   }
 
-  // Reset timer: reads the new deadline from the + icon, sets adminReset=true to block auto-settle
   async function handleResetTimer() {
     setResettingTimer(true);
     setResetMsg("");
@@ -234,7 +237,6 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
         setResettingTimer(false);
         return;
       }
-      // Clear settled, set adminReset=true so auto-settle won't fire again immediately
       await update(ref(db, `${PATHS.transfers}/auction/${playerId}`), {
         settled: false,
         adminReset: true,
@@ -251,8 +253,19 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
     setResettingTimer(false);
   }
 
-  async function handleCancelBid(bidId, bidInfo) {
+  // Admin: cancel any bid
+  async function handleAdminCancelBid(bidId, bidInfo) {
     if (!window.confirm(`Cancel bid by ${bidInfo.fromManagerName} (${bidInfo.fromClub}) — ${formatAmt(bidInfo.bidAmountRaw)}?`)) return;
+    setCancellingBid(bidId);
+    try {
+      await remove(ref(db, `${PATHS.transfers}/auction/${playerId}/bids/${bidId}`));
+    } catch (e) { console.error("Cancel bid error:", e); }
+    setCancellingBid(null);
+  }
+
+  // Manager: cancel their own bid
+  async function handleManagerCancelBid(bidId, bidInfo) {
+    if (!window.confirm(`Cancel your bid of ${formatAmt(bidInfo.bidAmountRaw)}?`)) return;
     setCancellingBid(bidId);
     try {
       await remove(ref(db, `${PATHS.transfers}/auction/${playerId}/bids/${bidId}`));
@@ -289,7 +302,7 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
       {/* Player name + value */}
       <div style={{ textAlign: "center", marginBottom: "32px" }}>
         <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "4.8rem", letterSpacing: "4px", lineHeight: 1 }}>{player.name}</div>
-        <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3rem", letterSpacing: "2px", marginTop: "8px" }}>{adminValue || player.value || "—"}</div>
+        <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3rem", letterSpacing: "2px", marginTop: "8px" }}>{adminValue || player.value || "—"}</div>
       </div>
 
       {/* Info grid */}
@@ -302,7 +315,7 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
         </div>
         <div style={{ ...GLASS, borderRadius: "16px", padding: "24px 28px" }}>
           <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.4rem", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "8px" }}>Interested Managers</div>
-          <div style={{ color: "#FF1493", fontWeight: 700, fontSize: "3.2rem" }}>{interestedCount}</div>
+          <div style={{ color: "#fff", fontWeight: 700, fontSize: "3.2rem" }}>{interestedCount}</div>
           <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.4rem", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "8px", marginTop: "16px" }}>Age</div>
           <div style={{ color: "#fff", fontWeight: 700, fontSize: "2rem" }}>{player.age || "—"}</div>
         </div>
@@ -322,14 +335,14 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
         ))}
       </div>
 
-      {/* Countdown — only when auction is open */}
+      {/* Countdown */}
       {showCountdown && (
         <div style={{ ...GLASS, borderRadius: "16px", padding: "28px", marginBottom: "32px", textAlign: "center", border: "1px solid rgba(255,20,147,0.3)" }}>
           <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.4rem", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "16px" }}>Auction Ends In</div>
           <div style={{ display: "flex", justifyContent: "center", gap: "24px" }}>
             {[["Days", countdown.d], ["Hours", countdown.h], ["Mins", countdown.m], ["Secs", countdown.s]].map(([label, val]) => (
               <div key={label} style={{ textAlign: "center" }}>
-                <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "4rem", lineHeight: 1, minWidth: "60px" }}>
+                <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "4rem", lineHeight: 1, minWidth: "60px" }}>
                   {String(val).padStart(2, "0")}
                 </div>
                 <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.2rem", marginTop: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>{label}</div>
@@ -350,7 +363,7 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
               {formatAmt(leadingRaw)}
             </div>
             <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "1.8rem", marginTop: "10px" }}>
-              {leadingBid.fromClub} · <span style={{ color: "#FF1493" }}>{leadingBid.fromManagerName}</span>
+              {leadingBid.fromClub} · <span style={{ color: "#fff", fontWeight: 700 }}>{leadingBid.fromManagerName}</span>
             </div>
           </>
         ) : (
@@ -363,10 +376,10 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
       {/* Bid input — only when auction is open */}
       {!isClosed && manager && (
         <div style={{ ...GLASS, borderRadius: "20px", padding: "32px", marginBottom: "32px", border: "1px solid rgba(255,20,147,0.4)" }}>
-          <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "2px", marginBottom: "8px" }}>🔨 ENTER NEW BID</div>
+          <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "2px", marginBottom: "8px" }}>🔨 ENTER NEW BID</div>
           <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.4rem", marginBottom: "20px" }}>
             Minimum bid: <span style={{ color: "#fff", fontWeight: 700 }}>{formatAmt(minNextBid)}</span>
-            &nbsp;· Bidding as: <span style={{ color: "#FF1493", fontWeight: 700 }}>{manager.username}</span> ({manager.team})
+            &nbsp;· Bidding as: <span style={{ color: "#fff", fontWeight: 700 }}>{manager.username}</span> ({manager.team})
           </div>
           <input
             value={bidInput}
@@ -392,7 +405,7 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
         </div>
       )}
 
-      {/* Auction closed banner — only when truly closed */}
+      {/* Auction closed banner */}
       {isClosed && (
         <div style={{ textAlign: "center", padding: "28px", background: "rgba(0,255,136,0.06)", border: "1px solid rgba(0,255,136,0.2)", borderRadius: "16px", marginBottom: "32px" }}>
           <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "2px" }}>🏆 AUCTION CLOSED</div>
@@ -404,58 +417,147 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
         </div>
       )}
 
-      {/* All bids list */}
-      {bids.length > 0 && (
+      {/* All bids list — leading bid + lost bids */}
+      {bidsLoading ? (
+        <div style={{ textAlign: "center", padding: "32px", color: "rgba(255,255,255,0.4)", fontSize: "1.4rem" }}>
+          Loading bids...
+        </div>
+      ) : bids.length > 0 ? (
         <div style={{ marginBottom: "32px" }}>
-          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.6rem", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "16px" }}>
-            {bids.length > 1 ? "All Bids" : "Current Bid"}
+          {/* Leading / Winner bid */}
+          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.6rem", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "12px" }}>
+            {isClosed ? "🏆 Winning Bid" : "🥇 Leading Bid"}
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            {bids.map((bid, i) => (
-              <div
-                key={bid.id || i}
-                style={{
-                  display: "flex", justifyContent: "space-between", alignItems: "center",
-                  padding: "18px 24px",
-                  background: i === 0 ? "rgba(0,255,136,0.06)" : "rgba(255,107,107,0.06)",
-                  border: i === 0 ? "1px solid rgba(0,255,136,0.2)" : "1px solid rgba(255,107,107,0.2)",
-                  borderRadius: "14px",
-                }}
-              >
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                    {i === 0 && <span style={{ background: "#00ff88", color: "#000", fontSize: "1rem", fontWeight: 700, padding: "3px 10px", borderRadius: "6px" }}>LEADING</span>}
-                    <span style={{ color: "rgba(255,255,255,0.7)", fontSize: "1.8rem", fontWeight: 700 }}>{bid.fromClub}</span>
-                  </div>
-                  <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.4rem" }}>{bid.fromManagerName}</span>
-                  {bid.createdAt && (
-                    <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "1.2rem", marginTop: "4px" }}>
-                      {new Date(bid.createdAt).toLocaleString()}
-                    </div>
-                  )}
+          {winnerBid && (
+            <div style={{
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              padding: "20px 24px",
+              background: "rgba(0,255,136,0.06)",
+              border: "1px solid rgba(0,255,136,0.25)",
+              borderRadius: "14px",
+              marginBottom: "20px",
+            }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <span style={{ background: "#00ff88", color: "#000", fontSize: "1rem", fontWeight: 700, padding: "3px 10px", borderRadius: "6px" }}>
+                    {isClosed ? "WINNER" : "LEADING"}
+                  </span>
+                  <span style={{ color: "rgba(255,255,255,0.7)", fontSize: "1.8rem", fontWeight: 700 }}>{winnerBid.fromClub}</span>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-                  <div style={{ color: i === 0 ? "#00ff88" : "#ff6b6b", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "1px" }}>
-                    {formatAmt(bid.bidAmountRaw)}
+                <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.4rem" }}>{winnerBid.fromManagerName}</span>
+                {winnerBid.createdAt && (
+                  <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "1.2rem", marginTop: "4px" }}>
+                    {new Date(winnerBid.createdAt).toLocaleString()}
                   </div>
-                  {isAdmin && (
-                    <button
-                      onClick={() => handleCancelBid(bid.id, bid)}
-                      disabled={cancellingBid === bid.id}
-                      style={{
-                        background: "rgba(255,0,0,0.15)", border: "1px solid rgba(255,0,0,0.3)",
-                        color: "#ff6b6b", padding: "10px 18px", borderRadius: "10px",
-                        cursor: "pointer", fontSize: "1.3rem", fontWeight: 700,
-                        opacity: cancellingBid === bid.id ? 0.5 : 1,
-                      }}
-                    >
-                      {cancellingBid === bid.id ? "..." : "✕ Cancel"}
-                    </button>
-                  )}
-                </div>
+                )}
               </div>
-            ))}
-          </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+                <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "1px" }}>
+                  {formatAmt(winnerBid.bidAmountRaw)}
+                </div>
+                {/* Manager can cancel their own leading bid if auction is open */}
+                {!isClosed && manager && winnerBid.fromManagerUid === manager.uid && (
+                  <button
+                    onClick={() => handleManagerCancelBid(winnerBid.id, winnerBid)}
+                    disabled={cancellingBid === winnerBid.id}
+                    style={{
+                      background: "rgba(255,170,0,0.15)", border: "1px solid rgba(255,170,0,0.4)",
+                      color: "#ffaa44", padding: "10px 18px", borderRadius: "10px",
+                      cursor: "pointer", fontSize: "1.3rem", fontWeight: 700,
+                      opacity: cancellingBid === winnerBid.id ? 0.5 : 1,
+                    }}
+                  >
+                    {cancellingBid === winnerBid.id ? "..." : "✕ Cancel My Bid"}
+                  </button>
+                )}
+                {isAdmin && (
+                  <button
+                    onClick={() => handleAdminCancelBid(winnerBid.id, winnerBid)}
+                    disabled={cancellingBid === winnerBid.id}
+                    style={{
+                      background: "rgba(255,0,0,0.15)", border: "1px solid rgba(255,0,0,0.3)",
+                      color: "#ff6b6b", padding: "10px 18px", borderRadius: "10px",
+                      cursor: "pointer", fontSize: "1.3rem", fontWeight: 700,
+                      opacity: cancellingBid === winnerBid.id ? 0.5 : 1,
+                    }}
+                  >
+                    {cancellingBid === winnerBid.id ? "..." : "✕ Cancel"}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Lost bids */}
+          {lostBids.length > 0 && (
+            <>
+              <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.6rem", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "12px" }}>
+                ❌ Lost Bids ({lostBids.length})
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                {lostBids.map((bid, i) => (
+                  <div
+                    key={bid.id || i}
+                    style={{
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
+                      padding: "18px 24px",
+                      background: "rgba(255,107,107,0.06)",
+                      border: "1px solid rgba(255,107,107,0.2)",
+                      borderRadius: "14px",
+                    }}
+                  >
+                    <div>
+                      <div style={{ color: "rgba(255,255,255,0.7)", fontSize: "1.8rem", fontWeight: 700 }}>{bid.fromClub}</div>
+                      <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.4rem" }}>{bid.fromManagerName}</span>
+                      {bid.createdAt && (
+                        <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "1.2rem", marginTop: "4px" }}>
+                          {new Date(bid.createdAt).toLocaleString()}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+                      <div style={{ color: "#ff6b6b", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "1px" }}>
+                        {formatAmt(bid.bidAmountRaw)}
+                      </div>
+                      {/* Manager can cancel their own lost bid if auction is open */}
+                      {!isClosed && manager && bid.fromManagerUid === manager.uid && (
+                        <button
+                          onClick={() => handleManagerCancelBid(bid.id, bid)}
+                          disabled={cancellingBid === bid.id}
+                          style={{
+                            background: "rgba(255,170,0,0.15)", border: "1px solid rgba(255,170,0,0.4)",
+                            color: "#ffaa44", padding: "10px 18px", borderRadius: "10px",
+                            cursor: "pointer", fontSize: "1.3rem", fontWeight: 700,
+                            opacity: cancellingBid === bid.id ? 0.5 : 1,
+                          }}
+                        >
+                          {cancellingBid === bid.id ? "..." : "✕ Cancel My Bid"}
+                        </button>
+                      )}
+                      {isAdmin && (
+                        <button
+                          onClick={() => handleAdminCancelBid(bid.id, bid)}
+                          disabled={cancellingBid === bid.id}
+                          style={{
+                            background: "rgba(255,0,0,0.15)", border: "1px solid rgba(255,0,0,0.3)",
+                            color: "#ff6b6b", padding: "10px 18px", borderRadius: "10px",
+                            cursor: "pointer", fontSize: "1.3rem", fontWeight: 700,
+                            opacity: cancellingBid === bid.id ? 0.5 : 1,
+                          }}
+                        >
+                          {cancellingBid === bid.id ? "..." : "✕ Cancel"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      ) : (
+        <div style={{ textAlign: "center", padding: "32px", color: "rgba(255,255,255,0.3)", fontSize: "1.4rem", marginBottom: "32px" }}>
+          No bids placed yet. Be the first!
         </div>
       )}
 
@@ -464,11 +566,10 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
         <div style={{ ...GLASS, borderRadius: "16px", padding: "28px", marginBottom: "24px", border: "1px solid rgba(255,170,0,0.3)" }}>
           <div style={{ color: "#ffaa44", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px", marginBottom: "20px" }}>🔧 ADMIN CONTROLS</div>
 
-          {/* Reset Timer */}
           <div style={{ marginBottom: "24px", padding: "20px", background: "rgba(255,170,0,0.06)", border: "1px solid rgba(255,170,0,0.2)", borderRadius: "14px" }}>
             <div style={{ color: "#ffaa44", fontSize: "1.5rem", fontWeight: 700, marginBottom: "8px" }}>⏱️ Reset Timer</div>
             <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.3rem", marginBottom: "16px" }}>
-              Reads the deadline set via the + icon in the navbar and reopens this auction. Will not close it.
+              Reads the deadline set via the + icon in the navbar and reopens this auction.
             </div>
             <button
               onClick={handleResetTimer}
@@ -490,7 +591,6 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
             )}
           </div>
 
-          {/* Edit card details */}
           <div style={{ marginBottom: "16px" }}>
             <label style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.2rem", display: "block", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "1px" }}>Image URL</label>
             <input value={adminImageUrl} onChange={e => setAdminImageUrl(e.target.value)} placeholder="https://..." style={{ ...inputStyle, fontSize: "1.4rem", padding: "16px 20px" }} />
