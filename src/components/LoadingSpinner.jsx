@@ -1,61 +1,42 @@
 import { useEffect, useState, useRef } from "react";
 import { useMusic } from "../context/MusicContext";
 
-// ─── Hook: preload images then resolve ───────────────────────────────────────
-export function usePageLoader(imageUrls = []) {
-  const { loadingSpinnerEnabled, loadingVideoUrl, settingsLoaded } = useMusic();
-  const [ready, setReady] = useState(false);
-  const [fadeOut, setFadeOut] = useState(false);
-
-  useEffect(() => {
-    // If spinner disabled, show page immediately
-    if (!loadingSpinnerEnabled) { setReady(true); return; }
-    // Wait for settings to load from Firebase before deciding
-    if (!settingsLoaded) return;
-
-    const urls = imageUrls.filter(Boolean);
-
-    if (urls.length === 0) {
-      // No images to preload — still show video for minimum feel (1.5s)
-      const t = setTimeout(() => {
-        setFadeOut(true);
-        setTimeout(() => setReady(true), 400);
-      }, loadingVideoUrl ? 1500 : 0);
-      return () => clearTimeout(t);
-    }
-
-    let cancelled = false;
-    const promises = urls.map(url =>
-      new Promise(resolve => {
-        const img = new Image();
-        img.onload = resolve;
-        img.onerror = resolve; // Don't block on broken images
-        img.src = url;
-      })
-    );
-
-    Promise.all(promises).then(() => {
-      if (cancelled) return;
-      setFadeOut(true);
-      setTimeout(() => { if (!cancelled) setReady(true); }, 400);
-    });
-
-    return () => { cancelled = true; };
-  }, [imageUrls.join(","), loadingSpinnerEnabled, settingsLoaded, loadingVideoUrl]);
-
-  return { ready, fadeOut };
-}
-
-// ─── Full-screen page loading overlay ────────────────────────────────────────
-export default function LoadingSpinner({ fadeOut = false }) {
+// ─── Full-screen loading overlay ─────────────────────────────────────────────
+// Behaviour:
+//   • No video uploaded  → show pink spinner, disappear as soon as data is ready
+//   • Video uploaded     → play video, load data in background, once data ready
+//                          finish current video playback moment then fade out
+export default function LoadingSpinner({ fadeOut = false, dataReady = false }) {
   const { loadingVideoUrl } = useMusic();
   const videoRef = useRef(null);
+  const [videoCanDismiss, setVideoCanDismiss] = useState(false);
 
+  // Start video as soon as it mounts
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.play().catch(() => {});
     }
-  }, []);
+  }, [loadingVideoUrl]);
+
+  // When data is ready and video is playing, wait for the next natural pause
+  // point (end of a loop cycle ~every 1s check) then signal dismiss
+  useEffect(() => {
+    if (!loadingVideoUrl || !dataReady) return;
+    // Poll every 300ms — when video is near a loop boundary (last 0.4s) dismiss
+    const id = setInterval(() => {
+      const v = videoRef.current;
+      if (!v) return;
+      const remaining = v.duration - v.currentTime;
+      if (remaining <= 0.5 || isNaN(remaining)) {
+        setVideoCanDismiss(true);
+        clearInterval(id);
+      }
+    }, 300);
+    return () => clearInterval(id);
+  }, [dataReady, loadingVideoUrl]);
+
+  // Determine actual fadeOut: for video mode wait for videoCanDismiss too
+  const shouldFadeOut = loadingVideoUrl ? (dataReady && videoCanDismiss) : fadeOut;
 
   return (
     <div style={{
@@ -66,9 +47,9 @@ export default function LoadingSpinner({ fadeOut = false }) {
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
-      opacity: fadeOut ? 0 : 1,
-      transition: "opacity 0.4s ease",
-      pointerEvents: fadeOut ? "none" : "all",
+      opacity: shouldFadeOut ? 0 : 1,
+      transition: "opacity 0.5s ease",
+      pointerEvents: shouldFadeOut ? "none" : "all",
     }}>
       {loadingVideoUrl ? (
         <video
@@ -87,7 +68,6 @@ export default function LoadingSpinner({ fadeOut = false }) {
           }}
         />
       ) : (
-        // Fallback spinner if no video uploaded yet
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "20px" }}>
           <div style={{
             width: "60px",
@@ -104,22 +84,5 @@ export default function LoadingSpinner({ fadeOut = false }) {
         </div>
       )}
     </div>
-  );
-}
-
-// ─── Page wrapper: shows spinner until images loaded ─────────────────────────
-export function PageLoader({ imageUrls = [], children }) {
-  const { loadingSpinnerEnabled } = useMusic();
-  const { ready, fadeOut } = usePageLoader(imageUrls);
-
-  if (!loadingSpinnerEnabled) return children;
-
-  return (
-    <>
-      {!ready && <LoadingSpinner fadeOut={fadeOut} />}
-      <div style={{ visibility: ready ? "visible" : "hidden" }}>
-        {children}
-      </div>
-    </>
   );
 }
