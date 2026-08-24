@@ -10,7 +10,7 @@ import CreateCommentModal from "../modals/CreateCommentModal";
 function HomeIcon({ active }) {
   const c = active ? "#FF1493" : "rgba(255,255,255,0.45)";
   return (
-    <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <svg width="56" height="56" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path d="M3.5 11.9L14 3.5L24.5 11.9V24.5H18.667V17.111H9.333V24.5H3.5V11.9Z"
         stroke={c} strokeWidth="2" strokeLinejoin="round" fill={active ? "rgba(255,20,147,0.15)" : "none"} />
     </svg>
@@ -20,7 +20,7 @@ function HomeIcon({ active }) {
 function MessagesIcon({ active }) {
   const c = active ? "#FF1493" : "rgba(255,255,255,0.45)";
   return (
-    <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <svg width="56" height="56" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path d="M4 5.5H24C24.828 5.5 25.5 6.172 25.5 7V19C25.5 19.828 24.828 20.5 24 20.5H8L2.5 25.5V7C2.5 6.172 3.172 5.5 4 5.5Z"
         stroke={c} strokeWidth="2" strokeLinejoin="round" fill={active ? "rgba(255,20,147,0.15)" : "none"} />
       <line x1="8" y1="11" x2="20" y2="11" stroke={c} strokeWidth="1.8" strokeLinecap="round" />
@@ -31,7 +31,7 @@ function MessagesIcon({ active }) {
 
 function PlusIcon() {
   return (
-    <svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <svg width="60" height="60" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
       <line x1="15" y1="5" x2="15" y2="25" stroke="#fff" strokeWidth="3" strokeLinecap="round" />
       <line x1="5" y1="15" x2="25" y2="15" stroke="#fff" strokeWidth="3" strokeLinecap="round" />
     </svg>
@@ -41,10 +41,8 @@ function PlusIcon() {
 function SettingsIcon({ active }) {
   const c = active ? "#FF1493" : "rgba(255,255,255,0.45)";
   return (
-    <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-      {/* Outer ring */}
+    <svg width="56" height="56" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
       <circle cx="14" cy="14" r="10.5" stroke={c} strokeWidth="2" />
-      {/* Gear teeth — 6 spokes */}
       {[0,60,120,180,240,300].map(deg => {
         const rad = (deg * Math.PI) / 180;
         const x1 = 14 + 9 * Math.cos(rad);
@@ -53,7 +51,6 @@ function SettingsIcon({ active }) {
         const y2 = 14 + 12.5 * Math.sin(rad);
         return <line key={deg} x1={x1} y1={y1} x2={x2} y2={y2} stroke={c} strokeWidth="2.5" strokeLinecap="round" />;
       })}
-      {/* Inner circle */}
       <circle cx="14" cy="14" r="3.5" stroke={c} strokeWidth="2" fill={active ? "rgba(255,20,147,0.25)" : "none"} />
     </svg>
   );
@@ -100,7 +97,6 @@ function PostTypePicker({ onPost, onComment, onClose }) {
           onMouseOver={e => e.currentTarget.style.background = "rgba(255,20,147,0.18)"}
           onMouseOut={e => e.currentTarget.style.background = "rgba(255,20,147,0.08)"}
         >
-          {/* Image + text icon */}
           <div style={{ width: "52px", height: "52px", borderRadius: "14px", background: "rgba(255,20,147,0.2)", border: "1.5px solid rgba(255,20,147,0.5)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
               <rect x="2" y="2" width="22" height="16" rx="3" stroke="#FF1493" strokeWidth="1.8" />
@@ -129,7 +125,6 @@ function PostTypePicker({ onPost, onComment, onClose }) {
           onMouseOver={e => e.currentTarget.style.background = "rgba(255,20,147,0.18)"}
           onMouseOut={e => e.currentTarget.style.background = "rgba(255,20,147,0.08)"}
         >
-          {/* Speech bubble icon */}
           <div style={{ width: "52px", height: "52px", borderRadius: "14px", background: "rgba(255,20,147,0.2)", border: "1.5px solid rgba(255,20,147,0.5)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
               <path d="M3 3.5H23C23.828 3.5 24.5 4.172 24.5 5V17C24.5 17.828 23.828 18.5 23 18.5H7L1.5 24V5C1.5 4.172 2.172 3.5 3 3.5Z"
@@ -180,7 +175,7 @@ export default function BottomNavBar() {
     <>
       <nav style={{
         position: "fixed", bottom: 0, left: 0, right: 0,
-        height: "72px",
+        height: "128px",
         background: "rgba(0,0,30,0.92)",
         backdropFilter: "blur(20px)",
         WebkitBackdropFilter: "blur(20px)",
@@ -192,21 +187,21 @@ export default function BottomNavBar() {
         {/* Home */}
         <button
           onClick={() => navigate("/")}
-          style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: "4px", padding: "8px 16px", borderRadius: "14px", transition: "background 0.2s" }}
+          style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", padding: "10px 20px", borderRadius: "14px", transition: "background 0.2s" }}
           onMouseOver={e => e.currentTarget.style.background = "rgba(255,20,147,0.08)"}
           onMouseOut={e => e.currentTarget.style.background = "none"}
         >
           <HomeIcon active={isHome} />
-          <span style={{ color: isHome ? "#FF1493" : "rgba(255,255,255,0.4)", fontSize: "0.65rem", fontWeight: 600, letterSpacing: "0.5px" }}>HOME</span>
+          <span style={{ color: isHome ? "#FF1493" : "rgba(255,255,255,0.4)", fontSize: "0.75rem", fontWeight: 600, letterSpacing: "0.5px" }}>HOME</span>
         </button>
 
         {/* Messages */}
         <button
-          onClick={() => {}} // placeholder
-          style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: "4px", padding: "8px 16px", borderRadius: "14px", transition: "background 0.2s", opacity: 0.5 }}
+          onClick={() => {}}
+          style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", padding: "10px 20px", borderRadius: "14px", transition: "background 0.2s", opacity: 0.5 }}
         >
           <MessagesIcon active={isMessages} />
-          <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.65rem", fontWeight: 600, letterSpacing: "0.5px" }}>MESSAGES</span>
+          <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.75rem", fontWeight: 600, letterSpacing: "0.5px" }}>MESSAGES</span>
         </button>
 
         {/* Plus — center */}
@@ -215,11 +210,10 @@ export default function BottomNavBar() {
           style={{
             background: canPost ? "linear-gradient(135deg, #FF1493, #cc0066)" : "rgba(255,20,147,0.2)",
             border: "none", cursor: canPost ? "pointer" : "default",
-            width: "58px", height: "58px", borderRadius: "18px",
+            width: "80px", height: "80px", borderRadius: "22px",
             display: "flex", alignItems: "center", justifyContent: "center",
             boxShadow: canPost ? "0 4px 20px rgba(255,20,147,0.5)" : "none",
             transition: "all 0.2s",
-            marginBottom: "8px",
           }}
           onMouseOver={e => { if (canPost) e.currentTarget.style.transform = "scale(1.08)"; }}
           onMouseOut={e => { e.currentTarget.style.transform = "scale(1)"; }}
@@ -230,12 +224,12 @@ export default function BottomNavBar() {
         {/* Settings */}
         <button
           onClick={() => navigate("/settings")}
-          style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: "4px", padding: "8px 16px", borderRadius: "14px", transition: "background 0.2s" }}
+          style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", padding: "10px 20px", borderRadius: "14px", transition: "background 0.2s" }}
           onMouseOver={e => e.currentTarget.style.background = "rgba(255,20,147,0.08)"}
           onMouseOut={e => e.currentTarget.style.background = "none"}
         >
           <SettingsIcon active={isSettings} />
-          <span style={{ color: isSettings ? "#FF1493" : "rgba(255,255,255,0.4)", fontSize: "0.65rem", fontWeight: 600, letterSpacing: "0.5px" }}>SETTINGS</span>
+          <span style={{ color: isSettings ? "#FF1493" : "rgba(255,255,255,0.4)", fontSize: "0.75rem", fontWeight: 600, letterSpacing: "0.5px" }}>SETTINGS</span>
         </button>
       </nav>
 
