@@ -4,6 +4,7 @@ import { AdminProvider } from "./context/AdminContext";
 import { MusicProvider } from "./context/MusicContext";
 import BackgroundMusic from "./components/BackgroundMusic";
 import SoundEffects from "./components/SoundEffects";
+import BottomNavBar from "./components/BottomNavBar";
 import FeedPage from "./pages/FeedPage";
 import PremierLeaguePage from "./pages/PremierLeaguePage";
 import LaLigaPage from "./pages/LaLigaPage";
@@ -100,6 +101,7 @@ function AppInner() {
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/rules-tutorials" element={<RulesAndTutorialsPage />} />
       </Routes>
+      <BottomNavBar />
     </>
   );
 }
