@@ -51,6 +51,25 @@ function parseRaw(str) {
   return Number(String(str).replace(/[^0-9.]/g, "")) || 0;
 }
 
+// ── Spinner ─────────────────────────────────────────────────────────────────
+function TabSpinner() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 20px", gap: "20px" }}>
+      <div style={{
+        width: "52px", height: "52px",
+        border: "4px solid rgba(255,20,147,0.15)",
+        borderTop: "4px solid #FF1493",
+        borderRadius: "50%",
+        animation: "tmSpin 0.8s linear infinite",
+      }} />
+      <div style={{ color: "rgba(255,255,255,0.4)", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "2px" }}>
+        LOADING...
+      </div>
+      <style>{`@keyframes tmSpin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
+
 function ShirtSVG({ clubName, playerName, squadNumber }) {
   const colors = getClubColors(clubName);
   const num = squadNumber || "?";
@@ -108,14 +127,15 @@ function PlayerGridCard({ player, teamIcons, onClick }) {
           {clubLogo ? <img src={clubLogo} alt={player.club} style={{ width: "20px", height: "20px", objectFit: "contain" }} /> : <span>⚽</span>}
           <span style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.9rem" }}>{player.club}</span>
         </div>
-        <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "1px" }}>
+        {/* white instead of pink */}
+        <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "1px" }}>
           {player.value || player.price || "—"}
         </div>
         <button
           onClick={e => { e.stopPropagation(); onClick(); }}
-          style={{ marginTop: "auto", padding: "12px", background: "rgba(255,20,147,0.12)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: "12px", color: "#FF1493", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer", transition: "all 0.2s" }}
+          style={{ marginTop: "auto", padding: "12px", background: "rgba(255,20,147,0.12)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: "12px", color: "#fff", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer", transition: "all 0.2s" }}
           onMouseOver={e => { e.currentTarget.style.background = "#FF1493"; e.currentTarget.style.color = "#fff"; }}
-          onMouseOut={e => { e.currentTarget.style.background = "rgba(255,20,147,0.12)"; e.currentTarget.style.color = "#FF1493"; }}
+          onMouseOut={e => { e.currentTarget.style.background = "rgba(255,20,147,0.12)"; e.currentTarget.style.color = "#fff"; }}
         >
           More Info →
         </button>
@@ -145,7 +165,8 @@ function AuctionGridCard({ player, onClick, bidCount }) {
       </div>
       <div style={{ padding: "16px", flex: 1, display: "flex", flexDirection: "column", gap: "8px" }}>
         <div style={{ color: "#fff", fontWeight: 800, fontSize: "1.1rem" }}>{player.name}</div>
-        <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem" }}>{player.value || "—"}</div>
+        {/* white instead of pink */}
+        <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem" }}>{player.value || "—"}</div>
         <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.9rem" }}>
           👥 Interested Managers: <span style={{ color: "#fff", fontWeight: 700 }}>{bidCount}</span>
         </div>
@@ -271,6 +292,61 @@ function AuctionDeadlineModal({ onClose }) {
   );
 }
 
+// ── Transfer Window Toggle (admin) ───────────────────────────────────────────
+function TransferWindowModal({ onClose }) {
+  const [windowOpen, setWindowOpen] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const unsub = onValue(ref(db, `${PATHS.globalSettings}/transferWindowOpen`), snap => {
+      const val = snap.val();
+      setWindowOpen(val === null || val === undefined ? true : !!val);
+      setLoading(false);
+    });
+    return () => unsub();
+  }, []);
+
+  async function handleToggle(open) {
+    setSaving(true);
+    await set(ref(db, `${PATHS.globalSettings}/transferWindowOpen`), open);
+    setSaving(false);
+    onClose();
+  }
+
+  return (
+    <div style={{ fontFamily: "'Inter', sans-serif", maxWidth: "440px", margin: "0 auto", textAlign: "center" }}>
+      <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3rem", letterSpacing: "3px", marginBottom: "12px" }}>🪟 TRANSFER WINDOW</div>
+      {loading ? (
+        <div style={{ color: "rgba(255,255,255,0.4)", padding: "20px" }}>Loading...</div>
+      ) : (
+        <>
+          <div style={{ marginBottom: "28px" }}>
+            <span style={{
+              display: "inline-block", padding: "10px 28px", borderRadius: "30px",
+              background: windowOpen ? "rgba(0,255,136,0.12)" : "rgba(255,107,107,0.12)",
+              border: `1px solid ${windowOpen ? "rgba(0,255,136,0.3)" : "rgba(255,107,107,0.3)"}`,
+              color: windowOpen ? "#00ff88" : "#ff6b6b",
+              fontWeight: 700, fontSize: "1.2rem",
+            }}>
+              {windowOpen ? "🟢 CURRENTLY OPEN" : "🔴 CURRENTLY CLOSED"}
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: "12px" }}>
+            <button onClick={() => handleToggle(true)} disabled={saving || windowOpen} style={{ flex: 1, padding: "18px", background: windowOpen ? "rgba(0,255,136,0.08)" : "#00cc66", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.1rem", cursor: windowOpen || saving ? "not-allowed" : "pointer", opacity: windowOpen ? 0.5 : 1 }}>
+              🟢 Open Window
+            </button>
+            <button onClick={() => handleToggle(false)} disabled={saving || !windowOpen} style={{ flex: 1, padding: "18px", background: !windowOpen ? "rgba(255,107,107,0.08)" : "rgba(255,68,68,0.8)", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.1rem", cursor: !windowOpen || saving ? "not-allowed" : "pointer", opacity: !windowOpen ? 0.5 : 1 }}>
+              🔴 Close Window
+            </button>
+          </div>
+          <button onClick={onClose} style={{ width: "100%", marginTop: "12px", padding: "16px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "14px", color: "#fff", cursor: "pointer" }}>Cancel</button>
+        </>
+      )}
+    </div>
+  );
+}
+
 function NegotiationCard({ offer, isOwn, isAdmin, manager }) {
   const statusColors = { pending: "#ffaa44", accepted: "#00ff88", rejected: "#ff6b6b", cancelled: "#aaaaaa" };
   const statusColor = statusColors[offer.status] || "#ffaa44";
@@ -375,7 +451,7 @@ function NegotiationCard({ offer, isOwn, isAdmin, manager }) {
           </div>
         ))}
       </div>
-      {isOwn && <div style={{ marginTop: "10px", color: "#FF1493", fontSize: "0.9rem", fontWeight: 700 }}>YOUR OFFER</div>}
+      {isOwn && <div style={{ marginTop: "10px", color: "#fff", fontSize: "0.9rem", fontWeight: 700 }}>YOUR OFFER</div>}
       {isOwn && offer.status === "pending" && (
         <div style={{ marginTop: "14px" }}>
           <button onClick={handleCancel} disabled={processing} style={{ width: "100%", padding: "12px", background: "rgba(170,170,170,0.12)", border: "1px solid rgba(170,170,170,0.4)", borderRadius: "12px", color: "#aaa", fontWeight: 700, fontSize: "1rem", cursor: processing ? "not-allowed" : "pointer" }}>
@@ -401,12 +477,19 @@ function NegotiationCard({ offer, isOwn, isAdmin, manager }) {
 export default function TransferMarketPage() {
   const { isAdmin, manager, teamIconsCache } = useAdmin();
   const [tab, setTab] = useState("topTargets");
+
+  // Per-tab loading states — separate so each tab shows its own spinner
+  const [playersLoaded, setPlayersLoaded] = useState({ topTargets: false, signings: false, auction: false });
+  const [negsLoaded, setNegsLoaded] = useState(false);
+
   const [players, setPlayers] = useState({});
   const [auctionBids, setAuctionBids] = useState({});
   const [negotiations, setNegotiations] = useState([]);
   const [countdowns, setCountdowns] = useState([]);
   const [headlineVideo, setHeadlineVideo] = useState("");
   const [teamIcons, setTeamIcons] = useState({});
+  const [windowOpen, setWindowOpen] = useState(true);
+
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [selectedPlayerId, setSelectedPlayerId] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -414,6 +497,7 @@ export default function TransferMarketPage() {
   const [buySellMode, setBuySellMode] = useState("buy");
   const [showNewAuction, setShowNewAuction] = useState(false);
   const [showDeadlineModal, setShowDeadlineModal] = useState(false);
+  const [showWindowModal, setShowWindowModal] = useState(false);
   const [selectedAuction, setSelectedAuction] = useState(null);
   const [selectedAuctionId, setSelectedAuctionId] = useState(null);
   const [visibleCount, setVisibleCount] = useState(12);
@@ -424,11 +508,13 @@ export default function TransferMarketPage() {
       onValue(ref(db, `${PATHS.transfers}/${t}`), snap => {
         const data = snap.val();
         setPlayers(prev => ({ ...prev, [t]: data ? Object.entries(data).map(([k, v]) => ({ id: k, ...v })) : [] }));
+        setPlayersLoaded(prev => ({ ...prev, [t]: true }));
       })
     );
     const negUnsub = onValue(ref(db, `${PATHS.transfers}/negotiations`), snap => {
       const data = snap.val();
       setNegotiations(data ? Object.entries(data).map(([k, v]) => ({ id: k, ...v })) : []);
+      setNegsLoaded(true);
     });
     const cdUnsub = onValue(ref(db, `${PATHS.globalSettings}/transferCountdowns`), snap => {
       const data = snap.val();
@@ -440,7 +526,11 @@ export default function TransferMarketPage() {
     const iconsUnsub = onValue(ref(db, `${PATHS.teamIcons}`), snap => {
       if (snap.val()) setTeamIcons(snap.val());
     });
-    return () => { unsubs.forEach(u => u()); negUnsub(); cdUnsub(); vidUnsub(); iconsUnsub(); };
+    const winUnsub = onValue(ref(db, `${PATHS.globalSettings}/transferWindowOpen`), snap => {
+      const val = snap.val();
+      setWindowOpen(val === null || val === undefined ? true : !!val);
+    });
+    return () => { unsubs.forEach(u => u()); negUnsub(); cdUnsub(); vidUnsub(); iconsUnsub(); winUnsub(); };
   }, []);
 
   useEffect(() => {
@@ -474,6 +564,9 @@ export default function TransferMarketPage() {
     catch (e) { console.error("Delete failed:", e); }
   }
 
+  // Is current tab still loading?
+  const tabLoading = tab === "negotiations" ? !negsLoaded : !playersLoaded[tab];
+
   return (
     <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
       <BackgroundVideo />
@@ -488,11 +581,22 @@ export default function TransferMarketPage() {
                 <button onClick={() => setShowDeadlineModal(true)} style={{ padding: "10px 18px", background: "rgba(255,170,0,0.15)", border: "1px solid rgba(255,170,0,0.4)", borderRadius: "10px", color: "#ffaa44", fontWeight: 700, cursor: "pointer", fontSize: "0.95rem" }}>
                   ⏰ Auction Deadline
                 </button>
+                <button onClick={() => setShowWindowModal(true)} style={{ padding: "10px 18px", background: windowOpen ? "rgba(0,255,136,0.12)" : "rgba(255,107,107,0.12)", border: `1px solid ${windowOpen ? "rgba(0,255,136,0.3)" : "rgba(255,107,107,0.3)"}`, borderRadius: "10px", color: windowOpen ? "#00ff88" : "#ff6b6b", fontWeight: 700, cursor: "pointer", fontSize: "0.95rem" }}>
+                  {windowOpen ? "🟢 Window Open" : "🔴 Window Closed"}
+                </button>
               </>
             )}
           </div>
         }
       />
+
+      {/* Transfer window closed banner */}
+      {!windowOpen && (
+        <div style={{ background: "rgba(255,68,68,0.12)", borderBottom: "1px solid rgba(255,68,68,0.3)", padding: "14px 20px", display: "flex", alignItems: "center", justifyContent: "center", gap: "12px" }}>
+          <span style={{ fontSize: "1.4rem" }}>🔒</span>
+          <span style={{ color: "#ff6b6b", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "2px" }}>TRANSFER WINDOW CLOSED — No new bids or offers can be submitted</span>
+        </div>
+      )}
 
       {headlineVideo ? (
         <div style={{ position: "relative", width: "100%", aspectRatio: "16/7", overflow: "hidden" }}>
@@ -501,7 +605,8 @@ export default function TransferMarketPage() {
             <source src={headlineVideo} type="video/webm" />
           </video>
           <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "60%", background: "linear-gradient(to top, rgba(0,0,20,0.75), transparent)", pointerEvents: "none" }} />
-          <div style={{ position: "absolute", bottom: "20px", left: "20px", color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "3px", textShadow: "0 2px 12px rgba(0,0,0,0.8)" }}>
+          {/* white instead of pink */}
+          <div style={{ position: "absolute", bottom: "20px", left: "20px", color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "3px", textShadow: "0 2px 12px rgba(0,0,0,0.8)" }}>
             💸 Transfer Window
           </div>
         </div>
@@ -517,7 +622,8 @@ export default function TransferMarketPage() {
           <TabBar tabs={TABS} activeTab={tab} onTabChange={t => { setTab(t); setVisibleCount(12); }} />
         </div>
 
-        {manager && (
+        {/* Buy/Loan buttons — hidden when window closed */}
+        {manager && windowOpen && (
           <div style={{ display: "flex", gap: "16px", marginBottom: "24px" }}>
             <button onClick={() => { setBuySellMode("buy"); setShowBuySellModal(true); }} style={{ flex: 1, padding: "20px", background: "linear-gradient(135deg, #00cc66, #00994d)", border: "none", borderRadius: "16px", color: "#fff", fontWeight: 800, fontSize: "1.4rem", cursor: "pointer", letterSpacing: "1px", boxShadow: "0 4px 20px rgba(0,204,102,0.3)", transition: "all 0.3s" }}
               onMouseOver={e => { e.currentTarget.style.transform = "scale(1.02)"; }}
@@ -530,7 +636,10 @@ export default function TransferMarketPage() {
 
         {countdowns.length > 0 && <CountdownSlideshow countdowns={countdowns} />}
 
-        {tab === "negotiations" ? (
+        {/* ── Tab content with proper loading states ── */}
+        {tabLoading ? (
+          <TabSpinner />
+        ) : tab === "negotiations" ? (
           <div style={{ width: "100%" }}>
             {sortedNegotiations.length === 0 ? (
               <div style={{ textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.3)" }}>
@@ -544,7 +653,7 @@ export default function TransferMarketPage() {
 
         ) : tab === "auction" ? (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "16px", width: "100%" }}>
-            <NewAuctionCard onClick={() => setShowNewAuction(true)} />
+            {isAdmin && <NewAuctionCard onClick={() => setShowNewAuction(true)} />}
             {currentTabPlayers.map(player => (
               <div key={player.id} style={{ position: "relative" }}>
                 <AuctionGridCard player={player} bidCount={auctionBids[player.id] || 0} onClick={() => { setSelectedAuction(player); setSelectedAuctionId(player.id); }} />
@@ -553,6 +662,12 @@ export default function TransferMarketPage() {
                 )}
               </div>
             ))}
+            {currentTabPlayers.length === 0 && !isAdmin && (
+              <div style={{ gridColumn: "1/-1", textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.3)" }}>
+                <div style={{ fontSize: "4rem", marginBottom: "16px" }}>🔨</div>
+                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px" }}>No Auctions Yet</div>
+              </div>
+            )}
           </div>
 
         ) : (
@@ -576,9 +691,9 @@ export default function TransferMarketPage() {
               </div>
               {hasMore && (
                 <div style={{ textAlign: "center", marginTop: "40px" }}>
-                  <button onClick={() => setVisibleCount(v => v + 12)} style={{ padding: "20px 60px", background: "rgba(255,20,147,0.12)", border: "2px solid rgba(255,20,147,0.5)", borderRadius: "16px", color: "#FF1493", fontWeight: 800, fontSize: "1.2rem", cursor: "pointer", letterSpacing: "1px" }}
+                  <button onClick={() => setVisibleCount(v => v + 12)} style={{ padding: "20px 60px", background: "rgba(255,20,147,0.12)", border: "2px solid rgba(255,20,147,0.5)", borderRadius: "16px", color: "#fff", fontWeight: 800, fontSize: "1.2rem", cursor: "pointer", letterSpacing: "1px" }}
                     onMouseOver={e => { e.currentTarget.style.background = "#FF1493"; e.currentTarget.style.color = "#fff"; }}
-                    onMouseOut={e => { e.currentTarget.style.background = "rgba(255,20,147,0.12)"; e.currentTarget.style.color = "#FF1493"; }}>
+                    onMouseOut={e => { e.currentTarget.style.background = "rgba(255,20,147,0.12)"; e.currentTarget.style.color = "#fff"; }}>
                     🔍 Load More ({currentTabPlayers.length - visibleCount} remaining)
                   </button>
                 </div>
@@ -593,7 +708,7 @@ export default function TransferMarketPage() {
       </Modal>
 
       <Modal active={!!selectedAuction} onClose={() => { setSelectedAuction(null); setSelectedAuctionId(null); }} wide>
-        {selectedAuction && <AuctionBidModal player={selectedAuction} playerId={selectedAuctionId} isAdmin={isAdmin} onClose={() => { setSelectedAuction(null); setSelectedAuctionId(null); }} />}
+        {selectedAuction && <AuctionBidModal player={selectedAuction} playerId={selectedAuctionId} isAdmin={isAdmin} windowOpen={windowOpen} onClose={() => { setSelectedAuction(null); setSelectedAuctionId(null); }} />}
       </Modal>
 
       <Modal active={showNewAuction} onClose={() => setShowNewAuction(false)} wide>
@@ -610,6 +725,10 @@ export default function TransferMarketPage() {
 
       <Modal active={showDeadlineModal} onClose={() => setShowDeadlineModal(false)} wide>
         <AuctionDeadlineModal onClose={() => setShowDeadlineModal(false)} />
+      </Modal>
+
+      <Modal active={showWindowModal} onClose={() => setShowWindowModal(false)} wide>
+        <TransferWindowModal onClose={() => setShowWindowModal(false)} />
       </Modal>
 
       <style>{`select option { background: #000033; color: #fff; } input::placeholder { color: rgba(255,255,255,0.3); }`}</style>
