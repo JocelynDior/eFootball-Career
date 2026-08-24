@@ -157,11 +157,9 @@ function AuctionGridCard({ player, onClick, bidCount }) {
         ) : (
           <div style={{ width: "70%", height: "70%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "4rem" }}>⚽</div>
         )}
-        {player.settled && (
-          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "3px" }}>✅ SOLD</div>
-          </div>
-        )}
+        <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "3px" }}>✅ SOLD</div>
+        </div>
       </div>
       <div style={{ padding: "16px", flex: 1, display: "flex", flexDirection: "column", gap: "8px" }}>
         <div style={{ color: "#fff", fontWeight: 800, fontSize: "1.1rem" }}>{player.name}</div>
@@ -622,17 +620,7 @@ export default function TransferMarketPage() {
           <TabBar tabs={TABS} activeTab={tab} onTabChange={t => { setTab(t); setVisibleCount(12); }} />
         </div>
 
-        {/* Buy/Loan buttons — hidden when window closed */}
-        {manager && windowOpen && (
-          <div style={{ display: "flex", gap: "16px", marginBottom: "24px" }}>
-            <button onClick={() => { setBuySellMode("buy"); setShowBuySellModal(true); }} style={{ flex: 1, padding: "20px", background: "linear-gradient(135deg, #00cc66, #00994d)", border: "none", borderRadius: "16px", color: "#fff", fontWeight: 800, fontSize: "1.4rem", cursor: "pointer", letterSpacing: "1px", boxShadow: "0 4px 20px rgba(0,204,102,0.3)", transition: "all 0.3s" }}
-              onMouseOver={e => { e.currentTarget.style.transform = "scale(1.02)"; }}
-              onMouseOut={e => { e.currentTarget.style.transform = "scale(1)"; }}>🟢 BUY PLAYER</button>
-            <button onClick={() => { setBuySellMode("loan"); setShowBuySellModal(true); }} style={{ flex: 1, padding: "20px", background: "linear-gradient(135deg, #ffaa44, #e68a00)", border: "none", borderRadius: "16px", color: "#fff", fontWeight: 800, fontSize: "1.4rem", cursor: "pointer", letterSpacing: "1px", boxShadow: "0 4px 20px rgba(255,170,68,0.3)", transition: "all 0.3s" }}
-              onMouseOver={e => { e.currentTarget.style.transform = "scale(1.02)"; }}
-              onMouseOut={e => { e.currentTarget.style.transform = "scale(1)"; }}>🟠 LOAN PLAYER</button>
-          </div>
-        )}
+        {/* Buy/Loan buttons hidden for current window — feature preserved, buttons removed until next window */}
 
         {countdowns.length > 0 && <CountdownSlideshow countdowns={countdowns} />}
 
