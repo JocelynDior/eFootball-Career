@@ -32,6 +32,11 @@ export const PATHS = {
   topScorers: (league, season) => `career_${league}/seasons/season_${season}/top_scorers`,
   topAssistants: (league, season) => `career_${league}/seasons/season_${season}/top_assistants`,
   managerHistory: (league, season) => `career_${league}/seasons/season_${season}/manager_history`,
+  // Club management
+  clubObjectives: (teamName) => `career_team_management/${teamName}/objectives`,
+  clubInfo: (teamName) => `career_team_management/${teamName}/info`,
+  clubFans: (teamName) => `career_team_management/${teamName}/fans`,
+  teamHistory: (uid) => `career_accounts/${uid}/teamHistory`,
 };
 
 export { ref, set, get, push, update, remove };
