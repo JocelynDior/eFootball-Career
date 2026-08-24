@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import Navbar from "../components/Navbar";
+import TabBar from "../components/TabBar";
 import { useAdmin } from "../context/AdminContext";
 import { db, PATHS } from "../firebase";
-import { ref, onValue, update } from "firebase/database";
-import { uploadToImgBB } from "../utils/imgUpload";
+import { ref, onValue } from "firebase/database";
+import AdminManagerModal from "../modals/AdminManagerModal";
+import AdminClubModal from "../modals/AdminClubModal";
 
 const inputStyle = {
   width: "100%",
@@ -20,16 +22,12 @@ const inputStyle = {
   boxSizing: "border-box",
 };
 
-const labelStyle = {
-  display: "block",
-  color: "rgba(255,255,255,0.5)",
-  fontSize: "0.7rem",
-  fontWeight: 600,
-  letterSpacing: "0.5px",
-  textTransform: "uppercase",
-  marginBottom: "5px",
-};
+const ADMIN_TABS = [
+  { id: "managers", label: "MANAGERS" },
+  { id: "clubs", label: "CLUBS" },
+];
 
+// ── Manager card ─────────────────────────────────────────────────────────
 function ManagerCard({ mgr, onClick }) {
   return (
     <div
@@ -91,168 +89,66 @@ function ManagerCard({ mgr, onClick }) {
   );
 }
 
-function ManagerEditPopup({ mgr, onClose, onSaved }) {
-  const [team, setTeam] = useState(mgr.team || "");
-  const [photoFile, setPhotoFile] = useState(null);
-  const [photoPreview, setPhotoPreview] = useState(mgr.profilePhoto || "");
-  const [saving, setSaving] = useState(false);
-  const [success, setSuccess] = useState("");
-
-  async function handleSave() {
-    setSaving(true);
-    let photoUrl = mgr.profilePhoto || null;
-
-    if (photoFile) {
-      photoUrl = await uploadToImgBB(photoFile);
-    }
-
-    const updates = {
-      team: team.trim() || null,
-      profilePhoto: photoUrl,
-    };
-
-    await update(ref(db, `${PATHS.accounts}/${mgr.uid}`), updates);
-    setSaving(false);
-    setSuccess("Saved!");
-    setTimeout(() => { setSuccess(""); onSaved(); onClose(); }, 1200);
-  }
-
+// ── Club card ────────────────────────────────────────────────────────────
+function ClubCard({ club, manager, onClick }) {
   return (
     <div
-      onClick={onClose}
+      onClick={() => onClick(club)}
       style={{
-        position: "fixed", inset: 0,
-        background: "rgba(0,0,20,0.85)",
-        backdropFilter: "blur(12px)",
-        zIndex: 1000,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        padding: "20px",
+        display: "flex", alignItems: "center", gap: "14px",
+        background: "rgba(255,20,147,0.05)",
+        border: "1px solid rgba(255,20,147,0.15)",
+        borderRadius: "16px",
+        padding: "16px 20px",
+        cursor: "pointer",
+        transition: "all 0.2s",
+      }}
+      onMouseOver={e => {
+        e.currentTarget.style.background = "rgba(255,20,147,0.12)";
+        e.currentTarget.style.borderColor = "rgba(255,20,147,0.4)";
+        e.currentTarget.style.transform = "translateY(-2px)";
+      }}
+      onMouseOut={e => {
+        e.currentTarget.style.background = "rgba(255,20,147,0.05)";
+        e.currentTarget.style.borderColor = "rgba(255,20,147,0.15)";
+        e.currentTarget.style.transform = "translateY(0)";
       }}
     >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{
-          width: "100%", maxWidth: "500px",
-          background: "rgba(0,0,30,0.7)",
-          backdropFilter: "blur(30px)",
-          border: "1px solid rgba(255,20,147,0.25)",
-          borderRadius: "24px",
-          padding: "36px",
-          boxShadow: "0 16px 64px rgba(0,0,0,0.5)",
-          position: "relative",
-        }}
-      >
-        {/* Close */}
-        <button onClick={onClose} style={{
-          position: "absolute", top: "16px", right: "20px",
-          background: "none", border: "none", color: "rgba(255,255,255,0.5)",
-          fontSize: "1.4rem", cursor: "pointer",
-        }}>✕</button>
-
-        {/* Manager identity */}
-        <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "28px" }}>
-          <div style={{
-            width: "64px", height: "64px", borderRadius: "50%",
-            border: "2px solid #FF1493",
-            background: "rgba(255,20,147,0.1)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            overflow: "hidden", flexShrink: 0,
-          }}>
-            {photoPreview
-              ? <img src={photoPreview} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-              : <span style={{ fontSize: "1.8rem" }}>👤</span>
-            }
-          </div>
-          <div>
-            <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.1rem" }}>{mgr.username}</div>
-            <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem" }}>{mgr.email}</div>
-          </div>
+      <div style={{
+        width: "52px", height: "52px", borderRadius: "12px",
+        border: "2px solid rgba(255,20,147,0.5)",
+        background: "rgba(255,20,147,0.08)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        overflow: "hidden", flexShrink: 0, fontSize: "1.6rem",
+      }}>
+        {club.badge ? <img src={club.badge} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : "🏟️"}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ color: "#fff", fontWeight: 700, fontSize: "0.95rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {club.name}
         </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-          {/* Team assignment */}
-          <div>
-            <label style={labelStyle}>Assign Team</label>
-            <input
-              value={team}
-              onChange={e => setTeam(e.target.value)}
-              placeholder="e.g. Real Madrid"
-              style={inputStyle}
-              onFocus={e => e.target.style.borderColor = "#FF1493"}
-              onBlur={e => e.target.style.borderColor = "rgba(255,20,147,0.3)"}
-            />
-          </div>
-
-          {/* Profile photo */}
-          <div>
-            <label style={labelStyle}>Profile Photo</label>
-            {photoPreview && (
-              <div style={{ marginBottom: "10px" }}>
-                <img src={photoPreview} alt="" style={{
-                  width: "80px", height: "80px", objectFit: "cover",
-                  borderRadius: "50%", border: "2px solid rgba(255,20,147,0.4)"
-                }} />
-              </div>
-            )}
-            <label style={{
-              display: "inline-flex", alignItems: "center", gap: "8px",
-              background: "rgba(255,20,147,0.1)", border: "1px solid rgba(255,20,147,0.3)",
-              borderRadius: "10px", padding: "10px 18px", cursor: "pointer",
-              color: "#FF69B4", fontSize: "0.85rem", fontWeight: 600,
-            }}>
-              📸 Upload Photo
-              <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => {
-                const f = e.target.files[0];
-                if (!f) return;
-                setPhotoFile(f);
-                const r = new FileReader();
-                r.onload = ev => setPhotoPreview(ev.target.result);
-                r.readAsDataURL(f);
-              }} />
-            </label>
-          </div>
-
-          {/* Info row */}
-          <div style={{
-            background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)",
-            borderRadius: "12px", padding: "14px 16px",
-            display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px"
-          }}>
-            <div>
-              <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: "0.5px" }}>Balance</div>
-              <div style={{ color: "#fff", fontWeight: 700, fontSize: "0.9rem", marginTop: "3px" }}>
-                €{(mgr.balance ?? 0).toLocaleString("en-EU")}
-              </div>
-            </div>
-            <div>
-              <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: "0.5px" }}>Rank</div>
-              <div style={{ color: "#fff", fontWeight: 700, fontSize: "0.9rem", marginTop: "3px" }}>
-                {mgr.rank ? `#${mgr.rank}` : "—"}
-              </div>
-            </div>
-          </div>
-
-          {success && (
-            <div style={{
-              background: "rgba(0,200,100,0.12)", border: "1px solid rgba(0,200,100,0.3)",
-              borderRadius: "10px", padding: "10px", color: "#4ade80",
-              fontSize: "0.88rem", textAlign: "center"
-            }}>{success}</div>
-          )}
-
-          <button onClick={handleSave} disabled={saving} style={{
-            padding: "14px", background: "linear-gradient(135deg, #FF1493, #FF69B4)",
-            border: "none", borderRadius: "14px", color: "#fff",
-            fontWeight: 700, fontSize: "1rem", cursor: "pointer",
-            fontFamily: "'Inter', sans-serif",
-            opacity: saving ? 0.7 : 1,
-          }}>{saving ? "Saving…" : "Save Changes"}</button>
+        <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.78rem", marginTop: "2px" }}>
+          Manager: <span style={{ color: "#FF69B4" }}>{manager?.username || "Unassigned"}</span>
         </div>
       </div>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px" }}>
+        {club.bankrupt && (
+          <div style={{ background: "rgba(255,60,60,0.15)", border: "1px solid rgba(255,60,60,0.3)", borderRadius: "20px", padding: "2px 10px", color: "#ff6b6b", fontSize: "0.7rem", fontWeight: 700 }}>
+            🔴 BANKRUPT
+          </div>
+        )}
+        {club.objectives && club.objectives.length > 0 && (
+          <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "0.7rem" }}>
+            {club.objectives.length} objective{club.objectives.length !== 1 ? "s" : ""}
+          </div>
+        )}
+      </div>
+      <div style={{ color: "rgba(255,20,147,0.6)", fontSize: "1rem" }}>›</div>
     </div>
   );
 }
 
+// ── Main page ────────────────────────────────────────────────────────────
 export default function AdminProfilePage() {
   const navigate = useNavigate();
   const { isAdmin, logoutAdmin } = useAdmin();
@@ -260,11 +156,15 @@ export default function AdminProfilePage() {
     try { return JSON.parse(localStorage.getItem("careerAdminProfile") || "{}"); } catch { return {}; }
   });
 
+  const [tab, setTab] = useState("managers");
   const [managers, setManagers] = useState([]);
-  const [showManagers, setShowManagers] = useState(false);
+  const [clubs, setClubs] = useState([]);
   const [selectedMgr, setSelectedMgr] = useState(null);
-  const [search, setSearch] = useState("");
+  const [selectedClub, setSelectedClub] = useState(null);
+  const [mgrSearch, setMgrSearch] = useState("");
+  const [clubSearch, setClubSearch] = useState("");
 
+  // Load all managers
   useEffect(() => {
     const unsub = onValue(ref(db, PATHS.accounts), snap => {
       const data = snap.val() || {};
@@ -273,6 +173,23 @@ export default function AdminProfilePage() {
         .map(([uid, v]) => ({ uid, ...v }))
         .sort((a, b) => a.username?.localeCompare(b.username));
       setManagers(list);
+    });
+    return () => unsub();
+  }, []);
+
+  // Load all clubs from career_team_management
+  useEffect(() => {
+    const unsub = onValue(ref(db, "career_team_management"), snap => {
+      const data = snap.val() || {};
+      const list = Object.entries(data).map(([name, val]) => ({
+        name,
+        badge: val.info?.badge || null,
+        bankrupt: val.bankrupt || false,
+        objectives: val.objectives
+          ? (Array.isArray(val.objectives) ? val.objectives : Object.values(val.objectives))
+          : [],
+      }));
+      setClubs(list.sort((a, b) => a.name.localeCompare(b.name)));
     });
     return () => unsub();
   }, []);
@@ -307,11 +224,19 @@ export default function AdminProfilePage() {
     );
   }
 
-  const filtered = managers.filter(m =>
-    m.username?.toLowerCase().includes(search.toLowerCase()) ||
-    m.email?.toLowerCase().includes(search.toLowerCase()) ||
-    m.team?.toLowerCase().includes(search.toLowerCase())
+  const filteredManagers = managers.filter(m =>
+    m.username?.toLowerCase().includes(mgrSearch.toLowerCase()) ||
+    m.email?.toLowerCase().includes(mgrSearch.toLowerCase()) ||
+    m.team?.toLowerCase().includes(mgrSearch.toLowerCase())
   );
+
+  const filteredClubs = clubs.filter(c =>
+    c.name?.toLowerCase().includes(clubSearch.toLowerCase())
+  );
+
+  function getClubManager(clubName) {
+    return managers.find(m => m.team === clubName) || null;
+  }
 
   return (
     <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif" }}>
@@ -339,7 +264,6 @@ export default function AdminProfilePage() {
           }} />
 
           <div style={{ display: "flex", alignItems: "center", gap: "24px", flexWrap: "wrap" }}>
-            {/* Avatar */}
             <div style={{
               width: "100px", height: "100px", borderRadius: "50%",
               border: "3px solid #FF1493",
@@ -382,108 +306,135 @@ export default function AdminProfilePage() {
           </div>
         </div>
 
-        {/* ── Stats ── */}
-        <div style={{
-          display: "grid", gridTemplateColumns: "1fr 1fr",
-          gap: "12px", marginBottom: "20px"
-        }}>
+        {/* ── Stats row ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px", marginBottom: "20px" }}>
           {[
             { icon: "👥", label: "Total Managers", value: managers.length },
             { icon: "⚽", label: "Teams Assigned", value: managers.filter(m => m.team).length },
+            { icon: "🏟️", label: "Total Clubs", value: clubs.length },
           ].map(s => (
             <div key={s.label} style={{
               background: "rgba(255,20,147,0.06)", border: "1px solid rgba(255,20,147,0.15)",
-              borderRadius: "16px", padding: "20px 22px",
+              borderRadius: "16px", padding: "18px 16px",
             }}>
-              <div style={{ fontSize: "1.6rem", marginBottom: "6px" }}>{s.icon}</div>
-              <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.72rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px" }}>{s.label}</div>
-              <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.4rem", marginTop: "4px" }}>{s.value}</div>
+              <div style={{ fontSize: "1.4rem", marginBottom: "6px" }}>{s.icon}</div>
+              <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.68rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px" }}>{s.label}</div>
+              <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.3rem", marginTop: "4px" }}>{s.value}</div>
             </div>
           ))}
         </div>
 
-        {/* ── View Managers ── */}
-        <div style={{
-          background: "rgba(255,255,255,0.03)",
-          backdropFilter: "blur(24px)",
-          border: "1px solid rgba(255,20,147,0.2)",
-          borderRadius: "24px",
-          overflow: "hidden",
-          boxShadow: "0 8px 40px rgba(0,0,0,0.3)",
-        }}>
-          {/* Header button */}
-          <button
-            onClick={() => setShowManagers(v => !v)}
-            style={{
-              width: "100%", padding: "22px 28px",
-              background: "transparent",
-              border: "none",
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-              cursor: "pointer", color: "#fff",
-              borderBottom: showManagers ? "1px solid rgba(255,20,147,0.15)" : "none",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-              <span style={{ fontSize: "1.4rem" }}>👥</span>
-              <div style={{ textAlign: "left" }}>
-                <div style={{
-                  fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem",
-                  color: "#fff", letterSpacing: "2px"
-                }}>View Managers</div>
-                <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.78rem" }}>
-                  {managers.length} registered manager{managers.length !== 1 ? "s" : ""}
-                </div>
+        {/* ── Tabs ── */}
+        <TabBar tabs={ADMIN_TABS} activeTab={tab} onTabChange={setTab} />
+
+        {/* ── MANAGERS TAB ── */}
+        {tab === "managers" && (
+          <div style={{
+            background: "rgba(255,255,255,0.03)",
+            backdropFilter: "blur(24px)",
+            border: "1px solid rgba(255,20,147,0.2)",
+            borderRadius: "24px",
+            padding: "24px",
+            boxShadow: "0 8px 40px rgba(0,0,0,0.3)",
+          }}>
+            <div style={{ marginBottom: "16px" }}>
+              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", color: "#fff", letterSpacing: "2px", marginBottom: "4px" }}>
+                👥 All Managers
+              </div>
+              <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.78rem" }}>
+                {managers.length} registered manager{managers.length !== 1 ? "s" : ""}
               </div>
             </div>
-            <div style={{
-              width: "36px", height: "36px", borderRadius: "50%",
-              background: "rgba(255,20,147,0.12)", border: "1px solid rgba(255,20,147,0.3)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              color: "#FF1493", fontSize: "1rem",
-              transform: showManagers ? "rotate(180deg)" : "rotate(0deg)",
-              transition: "transform 0.3s",
-            }}>▾</div>
-          </button>
 
-          {/* Expanded managers list */}
-          {showManagers && (
-            <div style={{ padding: "20px 24px" }}>
-              {/* Search */}
-              <input
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="🔍  Search by name, email or team…"
-                style={{
-                  ...inputStyle,
-                  marginBottom: "16px",
-                  background: "rgba(255,255,255,0.04)",
-                }}
-                onFocus={e => e.target.style.borderColor = "#FF1493"}
-                onBlur={e => e.target.style.borderColor = "rgba(255,20,147,0.3)"}
-              />
+            {/* Search */}
+            <input
+              value={mgrSearch}
+              onChange={e => setMgrSearch(e.target.value)}
+              placeholder="🔍  Search by name, email or team…"
+              style={{ ...inputStyle, marginBottom: "16px", background: "rgba(255,255,255,0.04)" }}
+              onFocus={e => e.target.style.borderColor = "#FF1493"}
+              onBlur={e => e.target.style.borderColor = "rgba(255,20,147,0.3)"}
+            />
 
-              {!filtered.length ? (
-                <div style={{ textAlign: "center", padding: "32px", color: "rgba(255,255,255,0.3)", fontSize: "0.9rem" }}>
-                  {search ? "No managers match your search." : "No managers registered yet."}
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                  {filtered.map(mgr => (
-                    <ManagerCard key={mgr.uid} mgr={mgr} onClick={setSelectedMgr} />
-                  ))}
-                </div>
-              )}
+            {!filteredManagers.length ? (
+              <div style={{ textAlign: "center", padding: "32px", color: "rgba(255,255,255,0.3)", fontSize: "0.9rem" }}>
+                {mgrSearch ? "No managers match your search." : "No managers registered yet."}
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                {filteredManagers.map(mgr => (
+                  <ManagerCard key={mgr.uid} mgr={mgr} onClick={setSelectedMgr} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── CLUBS TAB ── */}
+        {tab === "clubs" && (
+          <div style={{
+            background: "rgba(255,255,255,0.03)",
+            backdropFilter: "blur(24px)",
+            border: "1px solid rgba(255,20,147,0.2)",
+            borderRadius: "24px",
+            padding: "24px",
+            boxShadow: "0 8px 40px rgba(0,0,0,0.3)",
+          }}>
+            <div style={{ marginBottom: "16px" }}>
+              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", color: "#fff", letterSpacing: "2px", marginBottom: "4px" }}>
+                🏟️ All Clubs
+              </div>
+              <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.78rem" }}>
+                {clubs.length} club{clubs.length !== 1 ? "s" : ""} in the system
+              </div>
             </div>
-          )}
-        </div>
+
+            {/* Search */}
+            <input
+              value={clubSearch}
+              onChange={e => setClubSearch(e.target.value)}
+              placeholder="🔍  Search by club name…"
+              style={{ ...inputStyle, marginBottom: "16px", background: "rgba(255,255,255,0.04)" }}
+              onFocus={e => e.target.style.borderColor = "#FF1493"}
+              onBlur={e => e.target.style.borderColor = "rgba(255,20,147,0.3)"}
+            />
+
+            {!filteredClubs.length ? (
+              <div style={{ textAlign: "center", padding: "32px", color: "rgba(255,255,255,0.3)", fontSize: "0.9rem" }}>
+                {clubSearch ? "No clubs match your search." : "No clubs in the system yet."}
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                {filteredClubs.map(club => (
+                  <ClubCard
+                    key={club.name}
+                    club={club}
+                    manager={getClubManager(club.name)}
+                    onClick={setSelectedClub}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Manager edit popup */}
+      {/* Manager modal */}
       {selectedMgr && (
-        <ManagerEditPopup
+        <AdminManagerModal
           mgr={selectedMgr}
           onClose={() => setSelectedMgr(null)}
           onSaved={() => setSelectedMgr(null)}
+        />
+      )}
+
+      {/* Club modal */}
+      {selectedClub && (
+        <AdminClubModal
+          club={selectedClub}
+          managers={managers}
+          onClose={() => setSelectedClub(null)}
+          onSaved={() => setSelectedClub(null)}
         />
       )}
     </div>
