@@ -174,6 +174,8 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
 
   const isClosed = auctionCard.settled && !auctionCard.adminReset;
   const showCountdown = !!deadline && !isClosed;
+  const timerExpired = countdown.expired && !!deadline;
+  const onlyOneBid = bids.length === 1;
 
   // Split bids: winner (index 0) and lost bids (rest)
   const winnerBid = bids[0] || null;
@@ -373,8 +375,8 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
         )}
       </div>
 
-      {/* Bid input — only when auction is open */}
-      {!isClosed && manager && (
+      {/* Bid input — only when auction is open AND timer has not expired */}
+      {!isClosed && !timerExpired && manager && (
         <div style={{ ...GLASS, borderRadius: "20px", padding: "32px", marginBottom: "32px", border: "1px solid rgba(255,20,147,0.4)" }}>
           <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "2px", marginBottom: "8px" }}>🔨 ENTER NEW BID</div>
           <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.4rem", marginBottom: "20px" }}>
@@ -445,7 +447,7 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
                   <span style={{ color: "rgba(255,255,255,0.7)", fontSize: "1.8rem", fontWeight: 700 }}>{winnerBid.fromClub}</span>
                 </div>
                 <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.4rem" }}>{winnerBid.fromManagerName}</span>
-                {winnerBid.createdAt && (
+                {winnerBid.createdAt && !onlyOneBid && (
                   <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "1.2rem", marginTop: "4px" }}>
                     {new Date(winnerBid.createdAt).toLocaleString()}
                   </div>
