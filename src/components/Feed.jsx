@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { db, PATHS } from "../firebase";
-import { ref, onValue, remove, update, query, orderByChild, limitToLast } from "firebase/database";
+import { ref, onValue, remove, update } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
 import FeedPost from "./FeedPost";
 import Modal from "./Modal";
@@ -39,7 +39,6 @@ export default function Feed({ onInitialLoaded }) {
 
   const sentinelRef = useRef(null);
 
-  // Load all posts from Firebase (sorted newest first)
   useEffect(() => {
     const dbRef = ref(db, PATHS.posts);
     const unsub = onValue(dbRef, snap => {
@@ -49,7 +48,6 @@ export default function Feed({ onInitialLoaded }) {
           .map(([id, v]) => ({ id, ...v }))
           .sort((a, b) => b.timestamp - a.timestamp);
         setAllPosts(arr);
-        // Cache images for top 10
         cachePostImages(arr.slice(0, PAGE_SIZE));
         if (onInitialLoaded) onInitialLoaded();
       } else {
@@ -61,7 +59,6 @@ export default function Feed({ onInitialLoaded }) {
     return () => unsub();
   }, []);
 
-  // Infinite scroll via IntersectionObserver
   useEffect(() => {
     if (!sentinelRef.current) return;
     const observer = new IntersectionObserver(
@@ -95,10 +92,11 @@ export default function Feed({ onInitialLoaded }) {
 
   const visiblePosts = allPosts.slice(0, visibleCount);
 
-  if (loading) return null; // parent handles loading spinner
+  if (loading) return null;
 
   return (
-    <div style={{ width: "100%", maxWidth: "680px", margin: "0 auto", paddingBottom: "100px" }}>
+    // wider: maxWidth 680px → 1240px (almost 2x), matching headline width
+    <div style={{ width: "100%", maxWidth: "1240px", margin: "0 auto", paddingBottom: "100px" }}>
       {!allPosts.length ? (
         <div style={{ textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.4)", fontSize: "1.1rem" }}>
           No posts yet.
@@ -118,7 +116,6 @@ export default function Feed({ onInitialLoaded }) {
             ))}
           </div>
 
-          {/* Sentinel for infinite scroll */}
           <div ref={sentinelRef} style={{ height: "40px" }} />
 
           {visibleCount < allPosts.length && (
