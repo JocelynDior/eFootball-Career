@@ -119,7 +119,7 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
   const [resettingTimer, setResettingTimer] = useState(false);
   const [resetMsg, setResetMsg] = useState("");
   const [cancellingBid, setCancellingBid] = useState(null);
-  const settled = player.settled;
+  const [settled, setSettled] = useState(player.settled || false);
 
   const countdown = useCountdown(deadline);
 
@@ -136,7 +136,10 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
     const dlUnsub = onValue(ref(db, `${PATHS.globalSettings}/auctionDeadline`), snap => {
       setDeadline(snap.val() || null);
     });
-    return () => { unsub(); dlUnsub(); };
+    const settledUnsub = onValue(ref(db, `${PATHS.transfers}/auction/${playerId}/settled`), snap => {
+      setSettled(snap.val() || false);
+    });
+    return () => { unsub(); dlUnsub(); settledUnsub(); };
   }, [playerId]);
 
   // Only auto-settle if NOT admin-reset (settled flag check handles this)
@@ -149,7 +152,9 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
   const leadingBid = bids[0] || null;
   const leadingRaw = leadingBid ? (leadingBid.bidAmountRaw || 0) : parseRaw(player.startingBid || player.value);
   const minNextBid = leadingRaw + MIN_BID_INCREMENT;
-  const isExpired = countdown.expired;
+  // Auction is only considered expired/closed if the timer ran out AND it has been settled.
+  // If admin resets (clears settled), the auction is open again even if the global deadline passed.
+  const isExpired = countdown.expired && !!settled;
   const interestedCount = [...new Set(bids.map(b => b.fromManagerUid))].length;
 
   async function handleBid() {
