@@ -51,7 +51,6 @@ function formatBalance(num) {
   return `€${Number(num).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-// ── 4-block stat grid ────────────────────────────────────────────────────
 function StatBlock({ icon, label, value }) {
   return (
     <div style={{
@@ -75,6 +74,8 @@ export default function ManagerProfilePage() {
   const [tab, setTab] = useState("career");
   const [teamBalance, setTeamBalance] = useState(null);
   const [managingDirector, setManagingDirector] = useState("");
+  const [fans, setFans] = useState(0);
+  const [objectives, setObjectives] = useState([]);
 
   // Account edit state
   const [editSection, setEditSection] = useState(null);
@@ -118,9 +119,31 @@ export default function ManagerProfilePage() {
     return () => unsub();
   }, [manager?.team]);
 
-  // Admin sets cover photo via manager's Firebase record — covered by updateManagerField
-  // We also fetch it here if it exists
-  const coverPhoto = manager?.coverPhoto || null;
+  // Live fans count from Firebase
+  useEffect(() => {
+    if (!manager?.team) return;
+    const unsub = onValue(ref(db, PATHS.clubFans(manager.team)), snap => {
+      const val = snap.val();
+      setFans(typeof val === "number" ? val : 0);
+    });
+    return () => unsub();
+  }, [manager?.team]);
+
+  // Load objectives set by admin for this club
+  useEffect(() => {
+    if (!manager?.team) return;
+    const unsub = onValue(ref(db, PATHS.clubObjectives(manager.team)), snap => {
+      const data = snap.val();
+      if (Array.isArray(data)) {
+        setObjectives(data);
+      } else if (data && typeof data === "object") {
+        setObjectives(Object.values(data));
+      } else {
+        setObjectives([]);
+      }
+    });
+    return () => unsub();
+  }, [manager?.team]);
 
   if (!manager) {
     return (
@@ -198,33 +221,19 @@ export default function ManagerProfilePage() {
     setUploadingPhoto(false);
   }
 
-  const managerBalance = manager.balance ?? 0;
-
   return (
     <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
       <BackgroundVideo />
       <Navbar />
 
-      {/* Cover photo */}
-      <div style={{
-        width: "100%", height: "260px",
-        background: coverPhoto ? "transparent" : "linear-gradient(135deg, rgba(255,20,147,0.2), rgba(0,0,40,0.8))",
-        position: "relative", overflow: "hidden",
-      }}>
-        {coverPhoto && (
-          <img src={coverPhoto} alt="Cover" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-        )}
-        <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, transparent 60%, rgba(0,0,10,0.9) 100%)" }} />
-      </div>
-
       {/* Profile section */}
-      <div style={{ width: "100%", padding: "0 24px", boxSizing: "border-box" }}>
+      <div style={{ width: "100%", padding: "40px 24px 0", boxSizing: "border-box" }}>
 
-        {/* Avatar + name row — Twitter/X style */}
-        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginTop: "-70px", marginBottom: "20px", flexWrap: "wrap", gap: "16px" }}>
+        {/* Avatar + name row */}
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "20px", flexWrap: "wrap", gap: "16px" }}>
 
           {/* Left: avatar + name + description */}
-          <div style={{ display: "flex", alignItems: "flex-end", gap: "24px", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "24px", flexWrap: "wrap" }}>
             {/* Avatar */}
             <div
               onClick={() => photoInputRef.current?.click()}
@@ -267,28 +276,6 @@ export default function ManagerProfilePage() {
               </div>
             </div>
           </div>
-
-          {/* Right: fans, personal balance, managing director */}
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "10px", paddingBottom: "12px" }}>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "2rem", textTransform: "uppercase", letterSpacing: "1px" }}>Fans</div>
-              <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.6rem", letterSpacing: "2px" }}>12,450</div>
-            </div>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "2rem", textTransform: "uppercase", letterSpacing: "1px" }}>Personal Balance</div>
-              <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.6rem", letterSpacing: "2px" }}>
-                €{managerBalance.toLocaleString("en-US")}
-              </div>
-            </div>
-            {(managingDirector || manager?.team) && (
-              <div style={{ textAlign: "right" }}>
-                <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "2rem", textTransform: "uppercase", letterSpacing: "1px" }}>Managing Director</div>
-                <div style={{ color: "#fff", fontSize: "2.8rem", fontWeight: 700 }}>
-                  {managingDirector || manager.team || "—"}
-                </div>
-              </div>
-            )}
-          </div>
         </div>
 
         {/* Flash messages */}
@@ -307,8 +294,8 @@ export default function ManagerProfilePage() {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "32px" }}>
           <StatBlock icon="🏆" label="Rank" value={manager.rank ? `#${manager.rank}` : "Unranked"} />
           <StatBlock icon="💰" label="Team Balance" value={teamBalance !== null ? formatBalance(teamBalance) : "Loading..."} />
-          <StatBlock icon="💸" label="Monthly Wage" value={manager.monthlyWage ? `€${Number(manager.monthlyWage).toLocaleString()}` : "—"} />
-          <StatBlock icon="🏟️" label="Clubs Owned" value="0" />
+          <StatBlock icon="📣" label="Fans" value={fans.toLocaleString("en-US")} />
+          <StatBlock icon="🏟️" label="Club" value={manager.team || "—"} />
         </div>
 
         {/* Tabs */}
@@ -316,23 +303,82 @@ export default function ManagerProfilePage() {
           <TabBar tabs={TABS} activeTab={tab} onTabChange={setTab} />
         </div>
 
-        {/* Career Tab — empty */}
+        {/* Career Tab — blank */}
         {tab === "career" && (
-          <div style={{ ...GLASS, borderRadius: "24px", padding: "80px 40px", textAlign: "center" }}>
-            <div style={{ fontSize: "5rem", marginBottom: "20px" }}>📈</div>
-            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "4rem", color: "rgba(255,255,255,0.3)", letterSpacing: "4px" }}>
-              Career Stats Coming Soon
-            </div>
-          </div>
+          <div style={{ minHeight: "200px" }} />
         )}
 
-        {/* Objectives Tab — empty */}
+        {/* Objectives Tab */}
         {tab === "objectives" && (
-          <div style={{ ...GLASS, borderRadius: "24px", padding: "80px 40px", textAlign: "center" }}>
-            <div style={{ fontSize: "5rem", marginBottom: "20px" }}>🎯</div>
-            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "4rem", color: "rgba(255,255,255,0.3)", letterSpacing: "4px" }}>
-              Objectives Coming Soon
+          <div style={{ marginBottom: "80px" }}>
+            {/* Disclaimer banner */}
+            <div style={{
+              background: "rgba(255,20,147,0.08)",
+              border: "1px solid rgba(255,20,147,0.3)",
+              borderRadius: "20px",
+              padding: "28px 32px",
+              marginBottom: "28px",
+              display: "flex",
+              gap: "16px",
+              alignItems: "flex-start",
+            }}>
+              <span style={{ fontSize: "3rem", flexShrink: 0 }}>⚠️</span>
+              <p style={{
+                color: "rgba(255,255,255,0.85)",
+                fontSize: "2.2rem",
+                lineHeight: 1.6,
+                margin: 0,
+                fontWeight: 600,
+              }}>
+                If You Fail All Objectives You Will Be Sacked, If You Pass A Objective You Will Be Given Rewards. Objective Difficulty Set Based On Club Level, Bigger Clubs = Hard Objectives. Check Rules &amp; Tutorials Page For More Information
+              </p>
             </div>
+
+            {/* Objectives list */}
+            {objectives.length === 0 ? (
+              <div style={{ ...GLASS, borderRadius: "24px", padding: "80px 40px", textAlign: "center" }}>
+                <div style={{ fontSize: "5rem", marginBottom: "20px" }}>🎯</div>
+                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.5rem", color: "rgba(255,255,255,0.3)", letterSpacing: "4px" }}>
+                  No Objectives Set Yet
+                </div>
+                <div style={{ color: "rgba(255,255,255,0.25)", fontSize: "2rem", marginTop: "12px" }}>
+                  The admin will set your club objectives soon.
+                </div>
+              </div>
+            ) : (
+              <div style={{ ...GLASS, borderRadius: "24px", padding: "40px 44px" }}>
+                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.2rem", color: "#FF1493", letterSpacing: "3px", marginBottom: "28px" }}>
+                  🎯 Club Objectives
+                </div>
+                <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "18px" }}>
+                  {objectives.map((obj, i) => (
+                    <li key={i} style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: "20px",
+                      background: "rgba(255,20,147,0.06)",
+                      border: "1px solid rgba(255,20,147,0.15)",
+                      borderRadius: "16px",
+                      padding: "24px 28px",
+                    }}>
+                      <span style={{
+                        width: "36px", height: "36px", borderRadius: "50%",
+                        background: "rgba(255,20,147,0.2)",
+                        border: "1px solid rgba(255,20,147,0.4)",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        color: "#FF1493", fontWeight: 700, fontSize: "1.8rem",
+                        flexShrink: 0,
+                      }}>
+                        {i + 1}
+                      </span>
+                      <span style={{ color: "#fff", fontSize: "2.4rem", lineHeight: 1.5, paddingTop: "4px" }}>
+                        {obj}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
 
