@@ -262,7 +262,7 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
         ) : (
           <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "6rem" }}>⚽</div>
         )}
-        {settled && (
+        {isExpired && (
           <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "6rem", letterSpacing: "6px", textShadow: "0 0 40px rgba(0,255,136,0.8)" }}>✅ SOLD</div>
           </div>
@@ -350,7 +350,7 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
       </div>
 
       {/* Bid input — managers only, auction open */}
-      {!isExpired && !settled && manager && (
+      {!isExpired && manager && (
         <div style={{ ...GLASS, borderRadius: "20px", padding: "32px", marginBottom: "32px", border: "1px solid rgba(255,20,147,0.4)" }}>
           <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "2px", marginBottom: "8px" }}>🔨 ENTER NEW BID</div>
           <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.4rem", marginBottom: "20px" }}>
@@ -382,7 +382,7 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
       )}
 
       {/* Auction closed banner */}
-      {(isExpired || settled) && (
+      {isExpired && (
         <div style={{ textAlign: "center", padding: "28px", background: "rgba(0,255,136,0.06)", border: "1px solid rgba(0,255,136,0.2)", borderRadius: "16px", marginBottom: "32px" }}>
           <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "2px" }}>🏆 AUCTION CLOSED</div>
           {leadingBid && (
