@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { db, PATHS } from "../firebase";
-import { ref, push, onValue, get, update, remove, set } from "firebase/database";
+import { ref, push, onValue, get, update, remove } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
 
 const GLASS = {
@@ -46,6 +46,11 @@ function useCountdown(deadlineTs) {
 
 async function settleAuction(player, playerId) {
   try {
+    const cardSnap = await get(ref(db, `${PATHS.transfers}/auction/${playerId}`));
+    // Double-check: never settle if already settled or if adminReset flag is set
+    const card = cardSnap.val();
+    if (card?.settled || card?.adminReset) return;
+
     const bidsSnap = await get(ref(db, `${PATHS.transfers}/auction/${playerId}/bids`));
     const bidsData = bidsSnap.val();
     if (!bidsData) return;
@@ -53,11 +58,9 @@ async function settleAuction(player, playerId) {
     const winner = bids[0];
     if (!winner) return;
 
-    const cardSnap = await get(ref(db, `${PATHS.transfers}/auction/${playerId}`));
-    if (cardSnap.val()?.settled) return;
-
     await update(ref(db, `${PATHS.transfers}/auction/${playerId}`), {
       settled: true,
+      adminReset: false,
       winnerId: winner.fromManagerUid,
       winnerClub: winner.fromClub,
       winnerName: winner.fromManagerName,
@@ -119,43 +122,60 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
   const [resettingTimer, setResettingTimer] = useState(false);
   const [resetMsg, setResetMsg] = useState("");
   const [cancellingBid, setCancellingBid] = useState(null);
-  const [settled, setSettled] = useState(player.settled || false);
+
+  // Live auction card data from Firebase
+  const [auctionCard, setAuctionCard] = useState({
+    settled: player.settled || false,
+    adminReset: player.adminReset || false,
+  });
 
   const countdown = useCountdown(deadline);
 
   useEffect(() => {
     if (!playerId) return;
-    const unsub = onValue(ref(db, `${PATHS.transfers}/auction/${playerId}/bids`), snap => {
+
+    // Listen to bids
+    const unsubBids = onValue(ref(db, `${PATHS.transfers}/auction/${playerId}/bids`), snap => {
       const data = snap.val();
-      if (data) {
-        setBids(Object.entries(data).map(([k, v]) => ({ id: k, ...v })).sort((a, b) => (b.bidAmountRaw || 0) - (a.bidAmountRaw || 0)));
-      } else {
-        setBids([]);
-      }
+      setBids(data
+        ? Object.entries(data).map(([k, v]) => ({ id: k, ...v })).sort((a, b) => (b.bidAmountRaw || 0) - (a.bidAmountRaw || 0))
+        : []
+      );
     });
-    const dlUnsub = onValue(ref(db, `${PATHS.globalSettings}/auctionDeadline`), snap => {
+
+    // Listen to global deadline
+    const unsubDeadline = onValue(ref(db, `${PATHS.globalSettings}/auctionDeadline`), snap => {
       setDeadline(snap.val() || null);
     });
-    const settledUnsub = onValue(ref(db, `${PATHS.transfers}/auction/${playerId}/settled`), snap => {
-      setSettled(snap.val() || false);
+
+    // Listen to the whole auction card so settled + adminReset update live
+    const unsubCard = onValue(ref(db, `${PATHS.transfers}/auction/${playerId}`), snap => {
+      const data = snap.val() || {};
+      setAuctionCard({
+        settled: data.settled || false,
+        adminReset: data.adminReset || false,
+      });
     });
-    return () => { unsub(); dlUnsub(); settledUnsub(); };
+
+    return () => { unsubBids(); unsubDeadline(); unsubCard(); };
   }, [playerId]);
 
-  // Only auto-settle if NOT admin-reset (settled flag check handles this)
+  // Auto-settle only when: timer expired AND not already settled AND adminReset is NOT set
   useEffect(() => {
-    if (countdown.expired && !settled && playerId && bids.length > 0) {
+    if (countdown.expired && !auctionCard.settled && !auctionCard.adminReset && playerId && bids.length > 0) {
       settleAuction(player, playerId);
     }
-  }, [countdown.expired]);
+  }, [countdown.expired, auctionCard.settled, auctionCard.adminReset]);
 
   const leadingBid = bids[0] || null;
   const leadingRaw = leadingBid ? (leadingBid.bidAmountRaw || 0) : parseRaw(player.startingBid || player.value);
   const minNextBid = leadingRaw + MIN_BID_INCREMENT;
-  // Auction is only considered expired/closed if the timer ran out AND it has been settled.
-  // If admin resets (clears settled), the auction is open again even if the global deadline passed.
-  const isExpired = countdown.expired && !!settled;
   const interestedCount = [...new Set(bids.map(b => b.fromManagerUid))].length;
+
+  // Auction is closed ONLY when settled=true AND adminReset is NOT set
+  const isClosed = auctionCard.settled && !auctionCard.adminReset;
+  // Show the countdown when there's a deadline and auction is not closed
+  const showCountdown = !!deadline && !isClosed;
 
   async function handleBid() {
     if (!manager) { setError("You must be logged in."); return; }
@@ -202,8 +222,7 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
     setSavingAdmin(false);
   }
 
-  // Reset timer: reads the current global auctionDeadline (set via + icon),
-  // applies it to this auction by clearing settled and keeping the global timer alive.
+  // Reset timer: reads the new deadline from the + icon, sets adminReset=true to block auto-settle
   async function handleResetTimer() {
     setResettingTimer(true);
     setResetMsg("");
@@ -215,15 +234,16 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
         setResettingTimer(false);
         return;
       }
-      // Clear settled flag so auction is open again with the existing global timer
+      // Clear settled, set adminReset=true so auto-settle won't fire again immediately
       await update(ref(db, `${PATHS.transfers}/auction/${playerId}`), {
         settled: false,
+        adminReset: true,
         winnerId: null,
         winnerClub: null,
         winnerName: null,
         winningBid: null,
       });
-      setResetMsg("✅ Timer reset — auction is now open with the current deadline.");
+      setResetMsg("✅ Timer reset — auction is open with the current deadline.");
       setTimeout(() => setResetMsg(""), 3000);
     } catch (e) {
       setResetMsg("❌ Failed: " + e.message);
@@ -231,15 +251,12 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
     setResettingTimer(false);
   }
 
-  // Cancel a specific bid by its id
   async function handleCancelBid(bidId, bidInfo) {
     if (!window.confirm(`Cancel bid by ${bidInfo.fromManagerName} (${bidInfo.fromClub}) — ${formatAmt(bidInfo.bidAmountRaw)}?`)) return;
     setCancellingBid(bidId);
     try {
       await remove(ref(db, `${PATHS.transfers}/auction/${playerId}/bids/${bidId}`));
-    } catch (e) {
-      console.error("Cancel bid error:", e);
-    }
+    } catch (e) { console.error("Cancel bid error:", e); }
     setCancellingBid(null);
   }
 
@@ -262,7 +279,7 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
         ) : (
           <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "6rem" }}>⚽</div>
         )}
-        {isExpired && (
+        {isClosed && (
           <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "6rem", letterSpacing: "6px", textShadow: "0 0 40px rgba(0,255,136,0.8)" }}>✅ SOLD</div>
           </div>
@@ -291,7 +308,7 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
         </div>
       </div>
 
-      {/* Extra player info */}
+      {/* Extra info */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px", marginBottom: "32px" }}>
         {[
           ["Position", player.position || "—"],
@@ -305,30 +322,24 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
         ))}
       </div>
 
-      {/* Countdown */}
-      {deadline && (
-        <div style={{ ...GLASS, borderRadius: "16px", padding: "28px", marginBottom: "32px", textAlign: "center", border: isExpired ? "1px solid rgba(255,107,107,0.4)" : "1px solid rgba(255,20,147,0.3)" }}>
-          {isExpired ? (
-            <div style={{ color: "#ff6b6b", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "3px" }}>⏰ AUCTION CLOSED</div>
-          ) : (
-            <>
-              <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.4rem", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "16px" }}>Auction Ends In</div>
-              <div style={{ display: "flex", justifyContent: "center", gap: "24px" }}>
-                {[["Days", countdown.d], ["Hours", countdown.h], ["Mins", countdown.m], ["Secs", countdown.s]].map(([label, val]) => (
-                  <div key={label} style={{ textAlign: "center" }}>
-                    <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "4rem", lineHeight: 1, minWidth: "60px" }}>
-                      {String(val).padStart(2, "0")}
-                    </div>
-                    <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.2rem", marginTop: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>{label}</div>
-                  </div>
-                ))}
+      {/* Countdown — only when auction is open */}
+      {showCountdown && (
+        <div style={{ ...GLASS, borderRadius: "16px", padding: "28px", marginBottom: "32px", textAlign: "center", border: "1px solid rgba(255,20,147,0.3)" }}>
+          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.4rem", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "16px" }}>Auction Ends In</div>
+          <div style={{ display: "flex", justifyContent: "center", gap: "24px" }}>
+            {[["Days", countdown.d], ["Hours", countdown.h], ["Mins", countdown.m], ["Secs", countdown.s]].map(([label, val]) => (
+              <div key={label} style={{ textAlign: "center" }}>
+                <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "4rem", lineHeight: 1, minWidth: "60px" }}>
+                  {String(val).padStart(2, "0")}
+                </div>
+                <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.2rem", marginTop: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>{label}</div>
               </div>
-            </>
-          )}
+            ))}
+          </div>
         </div>
       )}
 
-      {/* Leading bid */}
+      {/* Leading bid display */}
       <div style={{ textAlign: "center", marginBottom: "32px" }}>
         <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.6rem", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "12px" }}>
           {bids.length > 0 ? "Leading Bid" : "Starting Bid"}
@@ -349,8 +360,8 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
         )}
       </div>
 
-      {/* Bid input — managers only, auction open */}
-      {!isExpired && manager && (
+      {/* Bid input — only when auction is open */}
+      {!isClosed && manager && (
         <div style={{ ...GLASS, borderRadius: "20px", padding: "32px", marginBottom: "32px", border: "1px solid rgba(255,20,147,0.4)" }}>
           <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "2px", marginBottom: "8px" }}>🔨 ENTER NEW BID</div>
           <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.4rem", marginBottom: "20px" }}>
@@ -381,8 +392,8 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
         </div>
       )}
 
-      {/* Auction closed banner */}
-      {isExpired && (
+      {/* Auction closed banner — only when truly closed */}
+      {isClosed && (
         <div style={{ textAlign: "center", padding: "28px", background: "rgba(0,255,136,0.06)", border: "1px solid rgba(0,255,136,0.2)", borderRadius: "16px", marginBottom: "32px" }}>
           <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "2px" }}>🏆 AUCTION CLOSED</div>
           {leadingBid && (
@@ -457,13 +468,14 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
           <div style={{ marginBottom: "24px", padding: "20px", background: "rgba(255,170,0,0.06)", border: "1px solid rgba(255,170,0,0.2)", borderRadius: "14px" }}>
             <div style={{ color: "#ffaa44", fontSize: "1.5rem", fontWeight: 700, marginBottom: "8px" }}>⏱️ Reset Timer</div>
             <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.3rem", marginBottom: "16px" }}>
-              Reads the deadline set via the + icon in the navbar and reopens this auction with that timer. Will not close the auction.
+              Reads the deadline set via the + icon in the navbar and reopens this auction. Will not close it.
             </div>
             <button
               onClick={handleResetTimer}
               disabled={resettingTimer}
               style={{
-                padding: "18px 32px", background: resettingTimer ? "rgba(255,170,0,0.2)" : "rgba(255,170,0,0.25)",
+                padding: "18px 32px",
+                background: resettingTimer ? "rgba(255,170,0,0.2)" : "rgba(255,170,0,0.25)",
                 border: "1px solid rgba(255,170,0,0.5)", borderRadius: "12px",
                 color: "#ffaa44", fontWeight: 700, fontSize: "1.5rem",
                 cursor: resettingTimer ? "not-allowed" : "pointer",
@@ -472,13 +484,13 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
               {resettingTimer ? "Resetting..." : "🔄 Reset Timer"}
             </button>
             {resetMsg && (
-              <div style={{ marginTop: "12px", color: resetMsg.startsWith("✅") ? "#00ff88" : resetMsg.startsWith("⚠️") ? "#ffaa44" : "#ff6b6b", fontSize: "1.3rem" }}>
+              <div style={{ marginTop: "12px", fontSize: "1.3rem", color: resetMsg.startsWith("✅") ? "#00ff88" : resetMsg.startsWith("⚠️") ? "#ffaa44" : "#ff6b6b" }}>
                 {resetMsg}
               </div>
             )}
           </div>
 
-          {/* Edit card */}
+          {/* Edit card details */}
           <div style={{ marginBottom: "16px" }}>
             <label style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.2rem", display: "block", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "1px" }}>Image URL</label>
             <input value={adminImageUrl} onChange={e => setAdminImageUrl(e.target.value)} placeholder="https://..." style={{ ...inputStyle, fontSize: "1.4rem", padding: "16px 20px" }} />
