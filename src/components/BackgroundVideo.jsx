@@ -23,24 +23,17 @@ export default function BackgroundVideo() {
   if (!videoUrl) return null;
 
   return (
-    <>
-      <video
-        ref={videoRef}
-        autoPlay muted loop playsInline
-        style={{
-          position: "fixed", top: 0, left: 0,
-          width: "100vw", height: "100vh",
-          objectFit: "cover", zIndex: -2,
-          opacity: 0.4, pointerEvents: "none"
-        }}
-      >
-        <source src={videoUrl} type="video/mp4" />
-      </video>
-      <div style={{
-        position: "fixed", inset: 0, zIndex: -1,
-        background: "linear-gradient(135deg, rgba(0,0,51,0.8) 0%, rgba(0,0,30,0.9) 100%)",
-        pointerEvents: "none"
-      }} />
-    </>
+    <video
+      ref={videoRef}
+      autoPlay muted loop playsInline
+      style={{
+        position: "fixed", top: 0, left: 0,
+        width: "100vw", height: "100vh",
+        objectFit: "cover", zIndex: -2,
+        opacity: 1, pointerEvents: "none"
+      }}
+    >
+      <source src={videoUrl} type="video/mp4" />
+    </video>
   );
 }
