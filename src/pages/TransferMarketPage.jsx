@@ -530,6 +530,126 @@ function SigningCard({ offer }) {
   );
 }
 
+// ── Filter & Sort Bar ────────────────────────────────────────────────────────
+function FilterSortBar({ filterName, setFilterName, filterClub, setFilterClub, filterTypes, setFilterTypes, sortBy, setSortBy, clubOptions, showAuctionChip }) {
+  const TYPE_CHIPS = showAuctionChip
+    ? [{ id: "buy", label: "BUY" }, { id: "loan", label: "LOAN" }, { id: "auction", label: "AUCTION" }]
+    : [{ id: "buy", label: "BUY" }, { id: "loan", label: "LOAN" }];
+
+  const SORT_OPTIONS = [
+    { id: "latest",  label: "Latest First" },
+    { id: "earliest", label: "Earliest First" },
+    { id: "highest", label: "Highest Amount" },
+    { id: "lowest",  label: "Lowest Amount" },
+  ];
+
+  function toggleType(id) {
+    setFilterTypes(prev =>
+      prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id]
+    );
+  }
+
+  const chipActive = (id) => filterTypes.includes(id);
+
+  return (
+    <div style={{ marginBottom: "24px", display: "flex", flexDirection: "column", gap: "14px" }}>
+      {/* Row 1: Name search + Club dropdown */}
+      <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+        <input
+          type="text"
+          placeholder="🔍 Search by player name..."
+          value={filterName}
+          onChange={e => setFilterName(e.target.value)}
+          style={{
+            flex: "1 1 180px",
+            padding: "13px 18px",
+            background: "rgba(255,255,255,0.06)",
+            border: "1px solid rgba(255,20,147,0.35)",
+            borderRadius: "12px",
+            color: "#fff",
+            fontFamily: "inherit",
+            fontSize: "0.95rem",
+            outline: "none",
+          }}
+        />
+        <select
+          value={filterClub}
+          onChange={e => setFilterClub(e.target.value)}
+          style={{
+            flex: "1 1 160px",
+            padding: "13px 18px",
+            background: "rgba(20,0,30,0.95)",
+            border: "1px solid rgba(255,20,147,0.35)",
+            borderRadius: "12px",
+            color: filterClub ? "#fff" : "rgba(255,255,255,0.4)",
+            fontFamily: "inherit",
+            fontSize: "0.95rem",
+            outline: "none",
+            cursor: "pointer",
+          }}
+        >
+          <option value="">All Clubs</option>
+          {clubOptions.map(club => (
+            <option key={club} value={club}>{club}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Row 2: Type chips + Sort */}
+      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+        {/* Type toggle chips */}
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+          {TYPE_CHIPS.map(chip => (
+            <button
+              key={chip.id}
+              onClick={() => toggleType(chip.id)}
+              style={{
+                padding: "9px 20px",
+                borderRadius: "30px",
+                border: chipActive(chip.id)
+                  ? "1px solid rgba(255,20,147,0.9)"
+                  : "1px solid rgba(255,255,255,0.15)",
+                background: chipActive(chip.id)
+                  ? "rgba(255,20,147,0.25)"
+                  : "rgba(255,255,255,0.05)",
+                color: chipActive(chip.id) ? "#FF1493" : "rgba(255,255,255,0.5)",
+                fontWeight: 700,
+                fontSize: "0.85rem",
+                letterSpacing: "1px",
+                cursor: "pointer",
+                transition: "all 0.18s",
+              }}
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Sort dropdown */}
+        <select
+          value={sortBy}
+          onChange={e => setSortBy(e.target.value)}
+          style={{
+            padding: "9px 16px",
+            background: "rgba(20,0,30,0.95)",
+            border: "1px solid rgba(255,20,147,0.35)",
+            borderRadius: "12px",
+            color: "#fff",
+            fontFamily: "inherit",
+            fontSize: "0.9rem",
+            outline: "none",
+            cursor: "pointer",
+          }}
+        >
+          {SORT_OPTIONS.map(opt => (
+            <option key={opt.id} value={opt.id}>{opt.label}</option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function TransferMarketPage() {
   const { isAdmin, manager, teamIconsCache } = useAdmin();
@@ -551,6 +671,12 @@ export default function TransferMarketPage() {
   const [headlineVideo, setHeadlineVideo] = useState("");
   const [teamIcons, setTeamIcons]       = useState({});
   const [windowOpen, setWindowOpen]     = useState(true);
+
+  // ── Filter & sort state (reset on tab change) ───────────────────────────────
+  const [filterName, setFilterName]   = useState("");
+  const [filterClub, setFilterClub]   = useState("");
+  const [filterTypes, setFilterTypes] = useState([]);
+  const [sortBy, setSortBy]           = useState("latest");
 
   const [selectedPlayer, setSelectedPlayer]     = useState(null);
   const [selectedPlayerId, setSelectedPlayerId] = useState(null);
@@ -618,10 +744,61 @@ export default function TransferMarketPage() {
 
   // ── Derived data ────────────────────────────────────────────────────────────
 
-  // Signings tab: ALL accepted negotiations, newest first
-  const acceptedSignings = negotiations
-    .filter(n => n.status === "accepted")
-    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  // ── Helper: parse raw fee/amount from an offer ───────────────────────────────
+  function offerAmount(offer) {
+    const raw = offer.offerAmount || offer.loanAmount || offer.bidAmount || "0";
+    return Number(String(raw).replace(/[^0-9.]/g, "")) || 0;
+  }
+
+  // ── Helper: apply sort to an array of negotiations/signings ─────────────────
+  function applySort(arr, sort) {
+    return [...arr].sort((a, b) => {
+      if (sort === "latest")   return (b.createdAt || 0) - (a.createdAt || 0);
+      if (sort === "earliest") return (a.createdAt || 0) - (b.createdAt || 0);
+      if (sort === "highest")  return offerAmount(b) - offerAmount(a);
+      if (sort === "lowest")   return offerAmount(a) - offerAmount(b);
+      return 0;
+    });
+  }
+
+  // ── Helper: apply name/club/type filters ─────────────────────────────────────
+  function applyFilters(arr) {
+    return arr.filter(offer => {
+      if (filterName) {
+        const q = filterName.toLowerCase();
+        if (!(offer.playerName || "").toLowerCase().includes(q)) return false;
+      }
+      if (filterClub) {
+        const clubs = [offer.fromClub, offer.toClub, offer.playerClub, offer.fromManagerName].map(c => (c || "").toLowerCase());
+        if (!clubs.some(c => c === filterClub.toLowerCase())) return false;
+      }
+      if (filterTypes.length > 0) {
+        if (!filterTypes.includes((offer.type || "").toLowerCase())) return false;
+      }
+      return true;
+    });
+  }
+
+  // ── Club options: unique clubs from the current tab's data ──────────────────
+  function extractClubs(arr) {
+    const set = new Set();
+    arr.forEach(offer => {
+      [offer.fromClub, offer.toClub, offer.playerClub].forEach(c => { if (c) set.add(c); });
+    });
+    return [...set].sort();
+  }
+
+  // Signings tab: ALL accepted negotiations
+  const allAcceptedSignings = negotiations.filter(n => n.status === "accepted");
+  const signingsClubOptions = extractClubs(allAcceptedSignings);
+  const filteredSignings    = applySort(applyFilters(allAcceptedSignings), sortBy);
+
+  // Negotiations tab: all negotiations
+  const negsClubOptions       = extractClubs(negotiations);
+  const filteredNegotiations  = applySort(applyFilters(negotiations), sortBy);
+
+  // Legacy alias used in existing JSX below (kept for non-filter tabs)
+  const acceptedSignings = filteredSignings;
 
   const currentTabPlayers = (players[tab] || []).sort((a, b) => {
     const av = Number((a.value || a.price || "").replace(/[^0-9]/g, "") || 0);
@@ -631,7 +808,6 @@ export default function TransferMarketPage() {
 
   const visiblePlayers    = currentTabPlayers.slice(0, visibleCount);
   const hasMore           = currentTabPlayers.length > visibleCount;
-  const sortedNegotiations = [...negotiations].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   const mergedIcons       = { ...teamIconsCache, ...teamIcons };
 
   async function handleDeletePlayer(playerId) {
@@ -648,6 +824,11 @@ export default function TransferMarketPage() {
     if (!isAdmin && nextTab === "auction") return; // hard block
     setTab(nextTab);
     setVisibleCount(12);
+    // Reset filter & sort on every tab switch
+    setFilterName("");
+    setFilterClub("");
+    setFilterTypes([]);
+    setSortBy("latest");
   }
 
   return (
@@ -714,18 +895,30 @@ export default function TransferMarketPage() {
         ) : tab === "signings" ? (
           // ── SIGNINGS: show ALL accepted negotiations ────────────────────────
           <div style={{ width: "100%" }}>
-            {acceptedSignings.length === 0 ? (
+            <FilterSortBar
+              filterName={filterName} setFilterName={setFilterName}
+              filterClub={filterClub} setFilterClub={setFilterClub}
+              filterTypes={filterTypes} setFilterTypes={setFilterTypes}
+              sortBy={sortBy} setSortBy={setSortBy}
+              clubOptions={signingsClubOptions}
+              showAuctionChip={false}
+            />
+            {filteredSignings.length === 0 ? (
               <div style={{ textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.3)" }}>
                 <div style={{ fontSize: "4rem", marginBottom: "16px" }}>✍️</div>
-                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px" }}>No Signings Yet</div>
-                <div style={{ fontSize: "1rem", marginTop: "10px" }}>Accepted negotiations will appear here.</div>
+                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px" }}>
+                  {allAcceptedSignings.length === 0 ? "No Signings Yet" : "No Results Match"}
+                </div>
+                <div style={{ fontSize: "1rem", marginTop: "10px" }}>
+                  {allAcceptedSignings.length === 0 ? "Accepted negotiations will appear here." : "Try adjusting your filters."}
+                </div>
               </div>
             ) : (
               <>
-                <div style={{ marginBottom: "20px", color: "rgba(255,255,255,0.4)", fontSize: "0.95rem", letterSpacing: "1px", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.2rem" }}>
-                  {acceptedSignings.length} SIGNING{acceptedSignings.length !== 1 ? "S" : ""} COMPLETED
+                <div style={{ marginBottom: "20px", color: "rgba(255,255,255,0.4)", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.2rem" }}>
+                  {filteredSignings.length} SIGNING{filteredSignings.length !== 1 ? "S" : ""} COMPLETED
                 </div>
-                {acceptedSignings.map(offer => (
+                {filteredSignings.map(offer => (
                   <SigningCard key={offer.id} offer={offer} />
                 ))}
               </>
@@ -735,12 +928,25 @@ export default function TransferMarketPage() {
         ) : tab === "negotiations" ? (
           // ── NEGOTIATIONS ───────────────────────────────────────────────────
           <div style={{ width: "100%" }}>
-            {sortedNegotiations.length === 0 ? (
+            <FilterSortBar
+              filterName={filterName} setFilterName={setFilterName}
+              filterClub={filterClub} setFilterClub={setFilterClub}
+              filterTypes={filterTypes} setFilterTypes={setFilterTypes}
+              sortBy={sortBy} setSortBy={setSortBy}
+              clubOptions={negsClubOptions}
+              showAuctionChip={isAdmin}
+            />
+            {filteredNegotiations.length === 0 ? (
               <div style={{ textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.3)" }}>
                 <div style={{ fontSize: "4rem", marginBottom: "16px" }}>📋</div>
-                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px" }}>No Negotiations Yet</div>
+                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px" }}>
+                  {negotiations.length === 0 ? "No Negotiations Yet" : "No Results Match"}
+                </div>
+                {negotiations.length > 0 && (
+                  <div style={{ fontSize: "1rem", marginTop: "10px" }}>Try adjusting your filters.</div>
+                )}
               </div>
-            ) : sortedNegotiations.map(offer => (
+            ) : filteredNegotiations.map(offer => (
               <NegotiationCard key={offer.id} offer={offer} isOwn={offer.fromManagerUid === manager?.uid} isAdmin={isAdmin} manager={manager} />
             ))}
           </div>
