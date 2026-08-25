@@ -1,33 +1,190 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { db, PATHS } from "../firebase";
+import { ref, onValue, set, get } from "firebase/database";
 import Modal from "../components/Modal";
 import ManagerKeysModal from "./ManagerKeysModal";
 import ManagerHistoryModal from "./ManagerHistoryModal";
-import PendingFixturesModal from "./PendingFixturesModal";
 import RequestsHistoryModal from "./RequestsHistoryModal";
+
+const inputStyle = {
+  width: "100%", padding: "10px 14px",
+  background: "rgba(255,255,255,0.06)",
+  border: "1px solid rgba(255,20,147,0.4)",
+  borderRadius: 10, color: "#fff",
+  fontFamily: "inherit", fontSize: "0.9rem",
+  outline: "none", boxSizing: "border-box", marginBottom: 10,
+};
+const labelStyle = {
+  color: "rgba(255,255,255,0.6)", fontSize: "0.75rem",
+  display: "block", marginBottom: 4,
+  textTransform: "uppercase", letterSpacing: "0.5px",
+};
+const btnStyle = {
+  width: "100%", padding: "16px 20px",
+  background: "rgba(255,20,147,0.08)",
+  border: "1px solid rgba(255,20,147,0.25)",
+  borderRadius: 14, color: "#fff", cursor: "pointer",
+  fontWeight: 600, fontSize: "0.95rem", textAlign: "left",
+  display: "flex", alignItems: "center", gap: 14,
+  transition: "all 0.2s", marginBottom: 10, fontFamily: "inherit",
+};
+
+const DEFAULT_COLORS = ["#4169E1", "#FF6B00", "#ef4444", "#22c55e", "#FFB800", "#a855f7"];
 
 export default function LeagueAdminSettingsModal({ league, season, teams, onClose }) {
   const [view, setView] = useState("main");
 
+  // Zone config state
+  const [zones, setZones] = useState([]);
+  const [dashedLines, setDashedLines] = useState([]);
+  const [savingZones, setSavingZones] = useState(false);
+
+  // Table / Group Stage toggle
+  const [tabMode, setTabMode] = useState("table"); // "table" | "groupStage"
+  const [savingMode, setSavingMode] = useState(false);
+
+  // New zone form
+  const [newZoneFrom, setNewZoneFrom] = useState("");
+  const [newZoneTo, setNewZoneTo] = useState("");
+  const [newZoneColor, setNewZoneColor] = useState("#4169E1");
+  const [newZoneLabel, setNewZoneLabel] = useState("");
+
+  // New dashed line form
+  const [newDashAfter, setNewDashAfter] = useState("");
+  const [newDashLabel, setNewDashLabel] = useState("");
+
+  useEffect(() => {
+    const unsub = onValue(ref(db, `career_${league}_settings`), snap => {
+      const d = snap.val() || {};
+      setZones(d.zones?.colorZones || []);
+      setDashedLines(d.zones?.dashedLines || []);
+      setTabMode(d.tabMode || "table");
+    });
+    return () => unsub();
+  }, [league]);
+
+  async function saveTabMode(mode) {
+    setSavingMode(true);
+    await set(ref(db, `career_${league}_settings/tabMode`), mode);
+    setTabMode(mode);
+    setSavingMode(false);
+  }
+
+  function addZone() {
+    if (!newZoneFrom || !newZoneTo || !newZoneLabel) return;
+    setZones(prev => [...prev, { from: +newZoneFrom, to: +newZoneTo, color: newZoneColor, label: newZoneLabel }]);
+    setNewZoneFrom(""); setNewZoneTo(""); setNewZoneLabel(""); setNewZoneColor("#4169E1");
+  }
+
+  function removeZone(i) { setZones(prev => prev.filter((_, idx) => idx !== i)); }
+
+  function addDashedLine() {
+    if (!newDashAfter || !newDashLabel) return;
+    setDashedLines(prev => [...prev, { afterPosition: +newDashAfter, label: newDashLabel }]);
+    setNewDashAfter(""); setNewDashLabel("");
+  }
+
+  function removeDashedLine(i) { setDashedLines(prev => prev.filter((_, idx) => idx !== i)); }
+
+  async function saveZones() {
+    setSavingZones(true);
+    await set(ref(db, `career_${league}_settings/zones`), { colorZones: zones, dashedLines });
+    setSavingZones(false);
+    alert("Zone config saved!");
+  }
+
   if (view === "keys") return <Modal active onClose={() => setView("main")}><ManagerKeysModal onClose={() => setView("main")} /></Modal>;
   if (view === "history") return <Modal active onClose={() => setView("main")}><ManagerHistoryModal league={league} season={season} onClose={() => setView("main")} /></Modal>;
-  if (view === "pending") return <Modal active onClose={() => setView("main")}><PendingFixturesModal league={league} season={season} onClose={() => setView("main")} /></Modal>;
   if (view === "requests") return <Modal active onClose={() => setView("main")}><RequestsHistoryModal league={league} season={season} onClose={() => setView("main")} /></Modal>;
 
-  const btnStyle = { width: "100%", padding: "16px 20px", background: "rgba(255,20,147,0.08)", border: "1px solid rgba(255,20,147,0.25)", borderRadius: "14px", color: "#fff", cursor: "pointer", fontWeight: 600, fontSize: "0.95rem", textAlign: "left", display: "flex", alignItems: "center", gap: "14px", transition: "all 0.2s", marginBottom: "10px", fontFamily: "inherit" };
+  if (view === "zones") {
+    return (
+      <div>
+        <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: 20 }}>🎨 Zone Config</h3>
+
+        {/* Color Zones */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ color: "rgba(255,255,255,0.7)", fontWeight: 700, marginBottom: 10, fontSize: "0.95rem" }}>Color Zones</div>
+          {zones.map((z, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(255,20,147,0.06)", border: "1px solid rgba(255,20,147,0.2)", borderRadius: 10, padding: "10px 14px", marginBottom: 8 }}>
+              <span style={{ width: 16, height: 16, borderRadius: 3, background: z.color, display: "inline-block", flexShrink: 0 }} />
+              <span style={{ color: "#fff", flex: 1, fontSize: "0.9rem" }}>Pos {z.from}–{z.to}: {z.label}</span>
+              <button onClick={() => removeZone(i)} style={{ background: "rgba(255,0,0,0.2)", border: "none", color: "#ff6b6b", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontSize: "0.8rem" }}>✕</button>
+            </div>
+          ))}
+
+          {/* Add zone */}
+          <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, padding: 14, marginTop: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+              <div><label style={labelStyle}>From Position</label><input type="number" value={newZoneFrom} onChange={e => setNewZoneFrom(e.target.value)} style={inputStyle} min={1} /></div>
+              <div><label style={labelStyle}>To Position</label><input type="number" value={newZoneTo} onChange={e => setNewZoneTo(e.target.value)} style={inputStyle} min={1} /></div>
+            </div>
+            <label style={labelStyle}>Label (e.g. "Champions League")</label>
+            <input value={newZoneLabel} onChange={e => setNewZoneLabel(e.target.value)} style={inputStyle} placeholder="Zone label" />
+            <label style={labelStyle}>Color</label>
+            <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+              {DEFAULT_COLORS.map(c => (
+                <button key={c} onClick={() => setNewZoneColor(c)} style={{ width: 32, height: 32, borderRadius: "50%", background: c, border: newZoneColor === c ? "3px solid #fff" : "2px solid transparent", cursor: "pointer" }} />
+              ))}
+              <input type="color" value={newZoneColor} onChange={e => setNewZoneColor(e.target.value)} style={{ width: 36, height: 36, borderRadius: "50%", border: "none", cursor: "pointer", background: "transparent" }} />
+            </div>
+            <button onClick={addZone} style={{ width: "100%", padding: 10, background: "#FF1493", border: "none", borderRadius: 10, color: "#fff", fontWeight: 700, cursor: "pointer" }}>+ Add Zone</button>
+          </div>
+        </div>
+
+        {/* Dashed Lines */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ color: "rgba(255,255,255,0.7)", fontWeight: 700, marginBottom: 10, fontSize: "0.95rem" }}>Dashed Lines</div>
+          {dashedLines.map((d, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(255,20,147,0.06)", border: "1px solid rgba(255,20,147,0.2)", borderRadius: 10, padding: "10px 14px", marginBottom: 8 }}>
+              <span style={{ color: "#ef4444", fontSize: "0.85rem", flex: 1 }}>After pos {d.afterPosition}: {d.label}</span>
+              <button onClick={() => removeDashedLine(i)} style={{ background: "rgba(255,0,0,0.2)", border: "none", color: "#ff6b6b", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontSize: "0.8rem" }}>✕</button>
+            </div>
+          ))}
+          <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, padding: 14, marginTop: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div><label style={labelStyle}>After Position</label><input type="number" value={newDashAfter} onChange={e => setNewDashAfter(e.target.value)} style={inputStyle} min={1} /></div>
+              <div><label style={labelStyle}>Label</label><input value={newDashLabel} onChange={e => setNewDashLabel(e.target.value)} style={inputStyle} placeholder="e.g. Relegation line" /></div>
+            </div>
+            <button onClick={addDashedLine} style={{ width: "100%", padding: 10, background: "#FF1493", border: "none", borderRadius: 10, color: "#fff", fontWeight: 700, cursor: "pointer" }}>+ Add Dashed Line</button>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={saveZones} disabled={savingZones} style={{ flex: 1, padding: 14, background: "#FF1493", border: "none", borderRadius: 12, color: "#fff", fontWeight: 700, cursor: "pointer", opacity: savingZones ? 0.7 : 1 }}>{savingZones ? "Saving..." : "💾 Save Zone Config"}</button>
+          <button onClick={() => setView("main")} style={{ flex: 1, padding: 14, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, color: "#fff", cursor: "pointer" }}>← Back</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
-      <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: "20px" }}>⚙️ League Admin Settings</h3>
+      <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: 20 }}>⚙️ League Admin Settings</h3>
+
+      {/* Tab Mode Toggle */}
+      <div style={{ background: "rgba(255,20,147,0.06)", border: "1px solid rgba(255,20,147,0.2)", borderRadius: 14, padding: 16, marginBottom: 16 }}>
+        <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.75rem", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.5px" }}>First Tab Mode</div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={() => saveTabMode("table")} style={{ flex: 1, padding: "12px 0", background: tabMode === "table" ? "#FF1493" : "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: 10, color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "0.9rem" }}>
+            🏆 League Table
+          </button>
+          <button onClick={() => saveTabMode("groupStage")} style={{ flex: 1, padding: "12px 0", background: tabMode === "groupStage" ? "#FF1493" : "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: 10, color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "0.9rem" }}>
+            🗂️ Group Stage
+          </button>
+        </div>
+        {savingMode && <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", marginTop: 6, textAlign: "center" }}>Saving...</div>}
+      </div>
 
       {teams && teams.length > 0 && (
-        <div style={{ background: "rgba(255,20,147,0.06)", border: "1px solid rgba(255,20,147,0.2)", borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
-          <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.75rem", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Teams in {league} — Season {season}</div>
+        <div style={{ background: "rgba(255,20,147,0.06)", border: "1px solid rgba(255,20,147,0.2)", borderRadius: 14, padding: 16, marginBottom: 16 }}>
+          <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.75rem", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.5px" }}>Teams in {league} — Season {season}</div>
           <div style={{ color: "rgba(255,255,255,0.85)", fontSize: "0.9rem" }}>{teams.length} team{teams.length === 1 ? "" : "s"} registered</div>
         </div>
       )}
 
       {[
-        ["📋", "Pending Results", "pending"],
+        ["🎨", "Zone Config", "zones"],
         ["📜", "Submission History", "requests"],
         ["🔑", "Manager Keys", "keys"],
         ["📋", "Manager History", "history"],
@@ -39,7 +196,7 @@ export default function LeagueAdminSettingsModal({ league, season, teams, onClos
         </button>
       ))}
 
-      <button onClick={onClose} style={{ width: "100%", marginTop: "8px", padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "12px", color: "#fff", cursor: "pointer" }}>Close</button>
+      <button onClick={onClose} style={{ width: "100%", marginTop: 8, padding: 14, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, color: "#fff", cursor: "pointer" }}>Close</button>
     </div>
   );
 }
