@@ -8,6 +8,9 @@ import SideMenu from "./SideMenu";
 import LeagueGrid from "./LeagueGrid";
 import Modal from "./Modal";
 import AddPlayerModal from "../modals/AddPlayerModal";
+import ResultsHistoryModal from "../modals/ResultsHistoryModal";
+import PendingFixturesModal from "../modals/PendingFixturesModal";
+import AddTeamModal from "../modals/AddTeamModal";
 
 function getSASTDateString() {
   const formatter = new Intl.DateTimeFormat("en-ZA", { timeZone: "Africa/Johannesburg", weekday: "long", day: "numeric", month: "long", year: "numeric" });
@@ -17,7 +20,8 @@ function getSASTDateString() {
 const TRANSFER_TABS = ["topTargets", "listed", "scouts", "signings", "auction"];
 const TAB_LABELS = { topTargets: "Top Targets", listed: "Listed", scouts: "Scouts", signings: "Signings", auction: "Auction" };
 
-export default function Navbar({ tokyoMenuItems } = {}) {
+export default function Navbar({ tokyoMenuItems, leagueMenuProps } = {}) {
+  // leagueMenuProps: { league, season, teams, onAddTeam, onEditTeamIcon, onAddPlayerIcon }
   const location = useLocation();
   const { isAdmin, teamIconsCache, updateTeamIcon } = useAdmin();
   const isTransferPage = location.pathname === "/transfer-market";
@@ -40,6 +44,11 @@ export default function Navbar({ tokyoMenuItems } = {}) {
   const [addCountdownOpen, setAddCountdownOpen] = useState(false);
   const [auctionDeadlineOpen, setAuctionDeadlineOpen] = useState(false);
   const [addSlideOpen, setAddSlideOpen] = useState(false);
+
+  // League page modals
+  const [resultsHistoryOpen, setResultsHistoryOpen] = useState(false);
+  const [pendingResultsOpen, setPendingResultsOpen] = useState(false);
+  const [addLeagueTeamOpen, setAddLeagueTeamOpen] = useState(false);
 
   // Video form
   const [videoUrl, setVideoUrl] = useState("");
@@ -308,21 +317,39 @@ export default function Navbar({ tokyoMenuItems } = {}) {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-          {isAdmin && (isTransferPage || tokyoMenuItems) && (
+          {isAdmin && (isTransferPage || tokyoMenuItems || leagueMenuProps) && (
             <div ref={plusRef} style={{ position: "relative" }}>
               <button onClick={() => setPlusOpen(v => !v)} style={{ background: plusOpen ? "#FF1493" : "rgba(0,0,51,0.85)", border: "2px solid #FF1493", width: "60px", height: "60px", borderRadius: "16px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.25s", fontSize: "2rem", color: "#fff", boxShadow: plusOpen ? "0 0 20px rgba(255,20,147,0.5)" : "none" }}>
                 {plusOpen ? "✕" : "+"}
               </button>
               {plusOpen && (
                 <div style={{ position: "absolute", top: "calc(100% + 12px)", right: 0, background: "rgba(0,0,30,0.97)", backdropFilter: "blur(20px)", border: "1px solid rgba(255,20,147,0.35)", borderRadius: "20px", padding: "10px", minWidth: "340px", boxShadow: "0 20px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,20,147,0.1)", zIndex: 600, animation: "dropIn 0.2s ease" }}>
-                  {(isTransferPage ? dropdownItems : tokyoMenuItems).map(({ icon, label, action }) => (
-                    <button key={label} onClick={action} style={{ display: "flex", alignItems: "center", gap: "18px", width: "100%", padding: "22px 24px", background: "transparent", border: "none", color: "#fff", fontFamily: "inherit", fontSize: "1.6rem", fontWeight: 600, cursor: "pointer", borderRadius: "14px", transition: "all 0.15s", textAlign: "left" }}
-                      onMouseOver={e => e.currentTarget.style.background = "rgba(255,20,147,0.15)"}
-                      onMouseOut={e => e.currentTarget.style.background = "transparent"}>
-                      <span style={{ fontSize: "2rem" }}>{icon}</span>
-                      {label}
-                    </button>
-                  ))}
+                  {leagueMenuProps ? (
+                    // League page plus menu
+                    [
+                      { icon: "📋", label: "Results History", action: () => { setResultsHistoryOpen(true); setPlusOpen(false); } },
+                      { icon: "⏳", label: "Pending Results", action: () => { setPendingResultsOpen(true); setPlusOpen(false); } },
+                      { icon: "➕", label: "Add Team", action: () => { setAddLeagueTeamOpen(true); setPlusOpen(false); } },
+                      { icon: "🏆", label: "Edit Team Icon", action: () => { leagueMenuProps.onEditTeamIcon?.(); setPlusOpen(false); } },
+                      { icon: "🧑", label: "Add Player Icon", action: () => { leagueMenuProps.onAddPlayerIcon?.(); setPlusOpen(false); } },
+                    ].map(({ icon, label, action }) => (
+                      <button key={label} onClick={action} style={{ display: "flex", alignItems: "center", gap: "18px", width: "100%", padding: "22px 24px", background: "transparent", border: "none", color: "#fff", fontFamily: "inherit", fontSize: "1.6rem", fontWeight: 600, cursor: "pointer", borderRadius: "14px", transition: "all 0.15s", textAlign: "left" }}
+                        onMouseOver={e => e.currentTarget.style.background = "rgba(255,20,147,0.15)"}
+                        onMouseOut={e => e.currentTarget.style.background = "transparent"}>
+                        <span style={{ fontSize: "2rem" }}>{icon}</span>
+                        {label}
+                      </button>
+                    ))
+                  ) : (
+                    (isTransferPage ? dropdownItems : tokyoMenuItems).map(({ icon, label, action }) => (
+                      <button key={label} onClick={action} style={{ display: "flex", alignItems: "center", gap: "18px", width: "100%", padding: "22px 24px", background: "transparent", border: "none", color: "#fff", fontFamily: "inherit", fontSize: "1.6rem", fontWeight: 600, cursor: "pointer", borderRadius: "14px", transition: "all 0.15s", textAlign: "left" }}
+                        onMouseOver={e => e.currentTarget.style.background = "rgba(255,20,147,0.15)"}
+                        onMouseOut={e => e.currentTarget.style.background = "transparent"}>
+                        <span style={{ fontSize: "2rem" }}>{icon}</span>
+                        {label}
+                      </button>
+                    ))
+                  )}
                 </div>
               )}
             </div>
@@ -335,6 +362,21 @@ export default function Navbar({ tokyoMenuItems } = {}) {
       </nav>
 
       <SideMenu open={menuOpen} onClose={() => setMenuOpen(false)} />
+
+      {/* League page modals */}
+      {leagueMenuProps && (
+        <>
+          <Modal active={resultsHistoryOpen} onClose={() => setResultsHistoryOpen(false)}>
+            <ResultsHistoryModal league={leagueMenuProps.league} season={leagueMenuProps.season} onClose={() => setResultsHistoryOpen(false)} />
+          </Modal>
+          <Modal active={pendingResultsOpen} onClose={() => setPendingResultsOpen(false)}>
+            <PendingFixturesModal league={leagueMenuProps.league} season={leagueMenuProps.season} onClose={() => setPendingResultsOpen(false)} />
+          </Modal>
+          <Modal active={addLeagueTeamOpen} onClose={() => setAddLeagueTeamOpen(false)}>
+            <AddTeamModal league={leagueMenuProps.league} season={leagueMenuProps.season} onClose={() => setAddLeagueTeamOpen(false)} />
+          </Modal>
+        </>
+      )}
 
       {leagueOpen && (
         <div onClick={() => setLeagueOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,20,0.75)", backdropFilter: "blur(12px)", zIndex: 600, display: "flex", alignItems: "center", justifyContent: "center" }}>
