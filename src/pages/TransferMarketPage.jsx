@@ -13,7 +13,13 @@ import BuySellModal from "../modals/BuySell";
 import AuctionBidModal from "../modals/AuctionBidModal";
 import { getClubColors } from "../utils/groq";
 
-const TABS = [
+const MANAGER_TABS = [
+  { id: "topTargets", label: "TOP TARGETS" },
+  { id: "signings", label: "SIGNINGS" },
+  { id: "negotiations", label: "NEGOTIATIONS" },
+];
+
+const ADMIN_TABS = [
   { id: "topTargets", label: "TOP TARGETS" },
   { id: "signings", label: "SIGNINGS" },
   { id: "auction", label: "AUCTION" },
@@ -545,6 +551,12 @@ export default function TransferMarketPage() {
     return () => unsubs.forEach(u => u());
   }, [players.auction]);
 
+  const TABS = isAdmin ? ADMIN_TABS : MANAGER_TABS;
+
+  const acceptedSignings = negotiations
+    .filter(n => n.status === "accepted")
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
   const currentTabPlayers = (players[tab] || []).sort((a, b) => {
     const av = Number((a.value || a.price || "").replace(/[^0-9]/g, "") || 0);
     const bv = Number((b.value || b.price || "").replace(/[^0-9]/g, "") || 0);
@@ -563,7 +575,7 @@ export default function TransferMarketPage() {
   }
 
   // Is current tab still loading?
-  const tabLoading = tab === "negotiations" ? !negsLoaded : !playersLoaded[tab];
+  const tabLoading = (tab === "negotiations" || tab === "signings") ? !negsLoaded : !playersLoaded[tab];
 
   return (
     <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
@@ -618,6 +630,7 @@ export default function TransferMarketPage() {
       <div style={{ padding: "24px 20px 80px" }}>
         <div style={{ marginBottom: "24px" }}>
           <TabBar tabs={TABS} activeTab={tab} onTabChange={t => { setTab(t); setVisibleCount(12); }} />
+
         </div>
 
         {/* Buy/Loan buttons hidden for current window — feature preserved, buttons removed until next window */}
@@ -627,6 +640,42 @@ export default function TransferMarketPage() {
         {/* ── Tab content with proper loading states ── */}
         {tabLoading ? (
           <TabSpinner />
+        ) : tab === "signings" ? (
+          <div style={{ width: "100%" }}>
+            {acceptedSignings.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.3)" }}>
+                <div style={{ fontSize: "4rem", marginBottom: "16px" }}>✍️</div>
+                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px" }}>No Signings Yet</div>
+              </div>
+            ) : acceptedSignings.map(offer => (
+              <div key={offer.id} style={{ padding: "24px 28px", background: "rgba(0,255,136,0.06)", border: "1px solid rgba(0,255,136,0.2)", borderRadius: "20px", marginBottom: "14px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "14px" }}>
+                  <div>
+                    <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.3rem" }}>{offer.playerName}</div>
+                    <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1rem", marginTop: "4px" }}>{offer.playerClub}</div>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "6px" }}>
+                    <span style={{ background: offer.type === "buy" ? "rgba(255,20,147,0.2)" : offer.type === "loan" ? "rgba(0,150,255,0.2)" : "rgba(255,170,0,0.2)", color: offer.type === "buy" ? "#FF1493" : offer.type === "loan" ? "#44aaff" : "#ffaa44", padding: "5px 14px", borderRadius: "20px", fontSize: "0.9rem", fontWeight: 700, textTransform: "uppercase" }}>{offer.type}</span>
+                    <span style={{ background: "rgba(0,255,136,0.15)", color: "#00ff88", padding: "5px 14px", borderRadius: "20px", fontSize: "0.9rem", fontWeight: 700 }}>✅ SIGNED</span>
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                  {[
+                    ["From", offer.fromClub || offer.fromManagerName],
+                    [offer.type === "loan" ? "Loan Fee" : "Transfer Fee", offer.offerAmount || offer.loanAmount || offer.bidAmount],
+                    offer.contractLength && ["Contract", offer.contractLength],
+                    offer.loanTerm && ["Loan Term", offer.loanTerm],
+                    offer.buyOptionClause && ["Buy Option", offer.buyOptionClause],
+                  ].filter(Boolean).map(([label, value]) => (
+                    <div key={label} style={{ background: "rgba(255,255,255,0.05)", borderRadius: "12px", padding: "12px 16px" }}>
+                      <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "4px" }}>{label}</div>
+                      <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.1rem" }}>{value || "—"}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
         ) : tab === "negotiations" ? (
           <div style={{ width: "100%" }}>
             {sortedNegotiations.length === 0 ? (
