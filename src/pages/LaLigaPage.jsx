@@ -104,9 +104,9 @@ export default function LaLigaPage() {
             {tab === "fixtures" && <FixturesList tournamentName="La Liga" />}
             {tab === "results" && (
               <>
-                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
                   <button
-                    onClick={() => setManagerOpen(true)}
+                    onClick={() => setSubmitOpen(true)}
                     style={{ background: "linear-gradient(135deg, #FF1493, #FF69B4)", border: "none", color: "#fff", padding: "14px 32px", borderRadius: 30, fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: 2, cursor: "pointer", boxShadow: "0 4px 20px rgba(255,20,147,0.4)" }}
                   >
                     + ADD RESULT
