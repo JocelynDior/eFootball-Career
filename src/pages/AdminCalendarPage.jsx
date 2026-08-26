@@ -50,21 +50,33 @@ const GLASS = {
 };
 
 const inputStyle = {
-  width: "100%", padding: "0.65rem 0.9rem",
+  width: "100%",
+  padding: "0.65rem 0.9rem",
   background: "rgba(0,0,0,0.85)",
   border: "1px solid rgba(255,255,255,0.25)",
-  borderRadius: "0.7rem", color: "#fff",
-  fontFamily: "inherit", fontSize: "0.9rem",
-  outline: "none", boxSizing: "border-box", marginBottom: "10px",
+  borderRadius: "0.7rem",
+  color: "#fff",
+  fontFamily: "inherit",
+  fontSize: "0.9rem",
+  outline: "none",
+  boxSizing: "border-box",
+  marginBottom: "10px",
 };
 
 function btnStyle(variant) {
   const base = {
-    padding: "0.55rem 1.3rem", borderRadius: "2rem",
-    fontFamily: "inherit", fontWeight: 700,
-    fontSize: "0.85rem", cursor: "pointer", border: "none",
-    display: "inline-flex", alignItems: "center", gap: "0.3rem",
-    letterSpacing: "0.06em", transition: "all 0.25s",
+    padding: "0.55rem 1.3rem",
+    borderRadius: "2rem",
+    fontFamily: "inherit",
+    fontWeight: 700,
+    fontSize: "0.85rem",
+    cursor: "pointer",
+    border: "none",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "0.3rem",
+    letterSpacing: "0.06em",
+    transition: "all 0.25s",
   };
   if (variant === "gold") return { ...base, background: "linear-gradient(135deg, #FF1493, #FF69B4)", color: "#fff" };
   if (variant === "red") return { ...base, background: "rgba(239,68,68,0.8)", color: "#fff" };
@@ -75,11 +87,7 @@ function btnStyle(variant) {
 // Admin modal section label — normal size (not 2x, admin UI stays compact)
 function SectionLabel({ children }) {
   return (
-    <div style={{
-      fontFamily: "'Bebas Neue', sans-serif", fontSize: "0.6rem",
-      fontWeight: 700, color: "#fff", letterSpacing: "0.15em",
-      margin: "1.4rem 0 0.8rem", display: "flex", alignItems: "center", gap: "0.5rem",
-    }}>
+    <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "0.6rem", fontWeight: 700, color: "#fff", letterSpacing: "0.15em", margin: "1.4rem 0 0.8rem", display: "flex", alignItems: "center", gap: "0.5rem", }}>
       {children}
       <div style={{ flex: 1, height: "1px", background: "linear-gradient(90deg, rgba(255,255,255,0.3), transparent)" }} />
     </div>
@@ -122,10 +130,7 @@ function FlipInner({ pairs, pairIdx }) {
   return (
     <div className="flip-inner" ref={innerRef}>
       <div className="flip-face">
-        {initial.iconUrl
-          ? <img ref={imgRef} src={initial.iconUrl} alt={initial.name || ""} />
-          : <div style={{ width: "48px", height: "48px", borderRadius: "8px", background: "rgba(255,255,255,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.2rem" }}>⚽</div>
-        }
+        {initial.iconUrl ? <img ref={imgRef} src={initial.iconUrl} alt={initial.name || ""} /> : <div style={{ width: "48px", height: "48px", borderRadius: "8px", background: "rgba(255,255,255,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.2rem" }}>⚽</div> }
       </div>
     </div>
   );
@@ -145,59 +150,25 @@ function TeamPicker({ value, onChange, clubs, placeholder }) {
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  const filtered = search
-    ? clubs.filter(c => (c.name || "").toLowerCase().includes(search.toLowerCase()))
-    : clubs;
-
+  const filtered = search ? clubs.filter(c => (c.name || "").toLowerCase().includes(search.toLowerCase())) : clubs;
   const selected = clubs.find(c => c.name === value);
 
   return (
     <div ref={wrapRef} style={{ position: "relative", marginBottom: "10px", zIndex: 999 }}>
       {/* Trigger */}
-      <div
-        onClick={() => setOpen(o => !o)}
-        style={{
-          ...inputStyle, marginBottom: 0, cursor: "pointer",
-          display: "flex", alignItems: "center", gap: "8px", userSelect: "none",
-        }}
-      >
-        {selected?.badge
-          ? <img src={selected.badge} alt="" style={{ width: "24px", height: "24px", objectFit: "contain", borderRadius: "4px", flexShrink: 0 }} />
-          : <span style={{ width: "24px", height: "24px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1rem", flexShrink: 0 }}>🏟️</span>
-        }
+      <div onClick={() => setOpen(o => !o)} style={{ ...inputStyle, marginBottom: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: "8px", userSelect: "none", }}>
+        {selected?.badge ? <img src={selected.badge} alt="" style={{ width: "24px", height: "24px", objectFit: "contain", borderRadius: "4px", flexShrink: 0 }} /> : <span style={{ width: "24px", height: "24px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1rem", flexShrink: 0 }}>🏟️</span> }
         <span style={{ flex: 1, color: value ? "#fff" : "rgba(255,255,255,0.4)", fontSize: "0.9rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {value || placeholder || "Select team..."}
         </span>
         <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.75rem", flexShrink: 0 }}>{open ? "▲" : "▼"}</span>
       </div>
-
       {/* Dropdown — fixed position to escape any overflow:hidden parent */}
       {open && (
-        <div style={{
-          position: "fixed",
-          width: wrapRef.current ? wrapRef.current.offsetWidth + "px" : "280px",
-          left: wrapRef.current ? wrapRef.current.getBoundingClientRect().left + "px" : "auto",
-          top: wrapRef.current ? (wrapRef.current.getBoundingClientRect().bottom + 4) + "px" : "auto",
-          zIndex: 99999,
-          background: "rgba(0,0,20,0.99)",
-          border: "1px solid rgba(255,255,255,0.25)",
-          borderRadius: "10px",
-          overflow: "hidden",
-          boxShadow: "0 12px 40px rgba(0,0,0,0.7)",
-          maxHeight: "260px",
-          display: "flex",
-          flexDirection: "column",
-        }}>
+        <div style={{ position: "fixed", width: wrapRef.current ? wrapRef.current.offsetWidth + "px" : "280px", left: wrapRef.current ? wrapRef.current.getBoundingClientRect().left + "px" : "auto", top: wrapRef.current ? (wrapRef.current.getBoundingClientRect().bottom + 4) + "px" : "auto", zIndex: 99999, background: "rgba(0,0,20,0.99)", border: "1px solid rgba(255,255,255,0.25)", borderRadius: "10px", overflow: "hidden", boxShadow: "0 12px 40px rgba(0,0,0,0.7)", maxHeight: "260px", display: "flex", flexDirection: "column", }}>
           {/* Search */}
           <div style={{ padding: "8px 8px 4px" }}>
-            <input
-              autoFocus
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search club..."
-              style={{ ...inputStyle, marginBottom: 0, fontSize: "0.8rem", padding: "0.4rem 0.7rem" }}
-              onClick={e => e.stopPropagation()}
-            />
+            <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search club..." style={{ ...inputStyle, marginBottom: 0, fontSize: "0.8rem", padding: "0.4rem 0.7rem" }} onClick={e => e.stopPropagation()} />
           </div>
           {/* List */}
           <div style={{ overflowY: "auto", flex: 1 }}>
@@ -205,22 +176,8 @@ function TeamPicker({ value, onChange, clubs, placeholder }) {
               <div style={{ padding: "12px", color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", textAlign: "center" }}>No clubs found</div>
             )}
             {filtered.map(club => (
-              <div
-                key={club.id || club.name}
-                onClick={() => { onChange(club); setOpen(false); setSearch(""); }}
-                style={{
-                  display: "flex", alignItems: "center", gap: "10px",
-                  padding: "8px 14px", cursor: "pointer",
-                  background: value === club.name ? "rgba(255,255,255,0.12)" : "transparent",
-                  transition: "background 0.15s",
-                }}
-                onMouseOver={e => e.currentTarget.style.background = "rgba(255,255,255,0.1)"}
-                onMouseOut={e => e.currentTarget.style.background = value === club.name ? "rgba(255,255,255,0.12)" : "transparent"}
-              >
-                {club.badge
-                  ? <img src={club.badge} alt="" style={{ width: "28px", height: "28px", objectFit: "contain", borderRadius: "5px", flexShrink: 0 }} />
-                  : <div style={{ width: "28px", height: "28px", background: "rgba(255,255,255,0.1)", borderRadius: "5px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9rem", flexShrink: 0 }}>🏟️</div>
-                }
+              <div key={club.id || club.name} onClick={() => { onChange(club); setOpen(false); setSearch(""); }} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "8px 14px", cursor: "pointer", background: value === club.name ? "rgba(255,255,255,0.12)" : "transparent", transition: "background 0.15s", }} onMouseOver={e => e.currentTarget.style.background = "rgba(255,255,255,0.1)"} onMouseOut={e => e.currentTarget.style.background = value === club.name ? "rgba(255,255,255,0.12)" : "transparent"}>
+                {club.badge ? <img src={club.badge} alt="" style={{ width: "28px", height: "28px", objectFit: "contain", borderRadius: "5px", flexShrink: 0 }} /> : <div style={{ width: "28px", height: "28px", background: "rgba(255,255,255,0.1)", borderRadius: "5px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9rem", flexShrink: 0 }}>🏟️</div> }
                 <span style={{ color: "#fff", fontSize: "0.85rem", fontWeight: 600, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {club.name || "(Unnamed)"}
                 </span>
@@ -236,18 +193,15 @@ function TeamPicker({ value, onChange, clubs, placeholder }) {
 export default function AdminCalendarPage() {
   const { isAdmin } = useAdmin();
   const navigate = useNavigate();
-
   const [calData, setCalData] = useState({});
   const [activeMonths, setActiveMonths] = useState([]);
   const [teamIconRegistry, setTeamIconRegistry] = useState({});
   const [clubs, setClubs] = useState([]);
   const [toast, setToast] = useState({ show: false, msg: "", type: "" });
   const [globalFlipIdx, setGlobalFlipIdx] = useState(0);
-
   // Month picker
   const [addMonthYear, setAddMonthYear] = useState(new Date().getFullYear());
   const [addMonthMonth, setAddMonthMonth] = useState(new Date().getMonth());
-
   // Day modal
   const [currentDate, setCurrentDate] = useState(null);
   const [dayModalOpen, setDayModalOpen] = useState(false);
@@ -255,11 +209,9 @@ export default function AdminCalendarPage() {
   const [tempTournaments, setTempTournaments] = useState([]);
   const [tempSeason, setTempSeason] = useState("");
   const [saving, setSaving] = useState(false);
-
   // Event name autocomplete
   const [eventSuggestions, setEventSuggestions] = useState([]);
   const [activeSuggestIdx, setActiveSuggestIdx] = useState(null); // which pair input is focused
-
   // Fixture modal
   const [fixModalOpen, setFixModalOpen] = useState(false);
   const [fixTournIdx, setFixTournIdx] = useState(null);
@@ -268,13 +220,11 @@ export default function AdminCalendarPage() {
   const [fixAway, setFixAway] = useState("");
   const [fixHomeIcon, setFixHomeIcon] = useState("");
   const [fixAwayIcon, setFixAwayIcon] = useState("");
-
   // Tournament add form
   const [showAddTournForm, setShowAddTournForm] = useState(false);
   const [newTournName, setNewTournName] = useState("");
   const [newTournDesc, setNewTournDesc] = useState("");
   const [newTournIcon, setNewTournIcon] = useState("");
-
   // Add Fixtures quick entry
   const [addFixOpen, setAddFixOpen] = useState(false);
   const [afStep, setAfStep] = useState(1);
@@ -286,14 +236,16 @@ export default function AdminCalendarPage() {
   const [afParsed, setAfParsed] = useState([]);
   const [afSaveStatus, setAfSaveStatus] = useState("");
   const [afEventDates, setAfEventDates] = useState([]);
-
   // Filter
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterSearch, setFilterSearch] = useState("");
   const [selectedTeam, setSelectedTeam] = useState(null);
 
   useEffect(() => {
-    if (!isAdmin) { navigate("/"); return; }
+    if (!isAdmin) {
+      navigate("/");
+      return;
+    }
     const unsub1 = onValue(ref(db, "career_calendar/settings"), snap => {
       const d = snap.val();
       if (d?.activeMonths) setActiveMonths(d.activeMonths);
@@ -342,7 +294,9 @@ export default function AdminCalendarPage() {
 
   async function saveTeamIcon(teamName, url) {
     if (!teamName || !url) return;
-    try { await set(ref(db, PATHS.teamIcons + "/" + teamName.trim().replace(/\./g, "_")), url); } catch (e) {}
+    try {
+      await set(ref(db, PATHS.teamIcons + "/" + teamName.trim().replace(/\./g, "_")), url);
+    } catch (e) {}
   }
 
   async function syncTeam(oldName, newName, newIcon) {
@@ -357,10 +311,14 @@ export default function AdminCalendarPage() {
         for (const t of tournaments) {
           for (const f of (t.fixtures || [])) {
             if (f.home?.trim().toLowerCase() === oldName.trim().toLowerCase()) {
-              if (newName) f.home = newName; if (newIcon) f.homeIcon = newIcon; changed = true;
+              if (newName) f.home = newName;
+              if (newIcon) f.homeIcon = newIcon;
+              changed = true;
             }
             if (f.away?.trim().toLowerCase() === oldName.trim().toLowerCase()) {
-              if (newName) f.away = newName; if (newIcon) f.awayIcon = newIcon; changed = true;
+              if (newName) f.away = newName;
+              if (newIcon) f.awayIcon = newIcon;
+              changed = true;
             }
           }
         }
@@ -413,7 +371,10 @@ export default function AdminCalendarPage() {
   // Month management
   async function addMonth() {
     const exists = activeMonths.find(m => m.year === Number(addMonthYear) && m.month === Number(addMonthMonth));
-    if (exists) { showToast("This month is already added", "error"); return; }
+    if (exists) {
+      showToast("This month is already added", "error");
+      return;
+    }
     const updated = [...activeMonths, { year: Number(addMonthYear), month: Number(addMonthMonth) }]
       .sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month);
     await set(ref(db, "career_calendar/settings/activeMonths"), updated);
@@ -435,8 +396,11 @@ export default function AdminCalendarPage() {
     setTempEventPairs(ev?.eventPairs ? JSON.parse(JSON.stringify(ev.eventPairs)) : [{ name: "", iconUrl: "" }]);
     setTempTournaments(ev?.tournaments ? JSON.parse(JSON.stringify(ev.tournaments)) : []);
     setShowAddTournForm(false);
-    setNewTournName(""); setNewTournDesc(""); setNewTournIcon("");
-    setEventSuggestions([]); setActiveSuggestIdx(null);
+    setNewTournName("");
+    setNewTournDesc("");
+    setNewTournIcon("");
+    setEventSuggestions([]);
+    setActiveSuggestIdx(null);
     setDayModalOpen(true);
   }
 
@@ -450,7 +414,10 @@ export default function AdminCalendarPage() {
 
   async function saveEvent() {
     const validPairs = tempEventPairs.filter(p => p.name || p.iconUrl);
-    if (!validPairs.length) { showToast("Enter at least one event name", "error"); return; }
+    if (!validPairs.length) {
+      showToast("Enter at least one event name", "error");
+      return;
+    }
     setSaving(true);
     try {
       await set(ref(db, "career_calendarEvents/" + currentDate), {
@@ -460,7 +427,9 @@ export default function AdminCalendarPage() {
       });
       setDayModalOpen(false);
       showToast("Event saved ✓", "success");
-    } catch (e) { showToast("Failed to save", "error"); }
+    } catch (e) {
+      showToast("Failed to save", "error");
+    }
     setSaving(false);
   }
 
@@ -470,21 +439,28 @@ export default function AdminCalendarPage() {
       await remove(ref(db, "career_calendarEvents/" + currentDate));
       setDayModalOpen(false);
       showToast("Event deleted", "success");
-    } catch (e) { showToast("Failed to delete", "error"); }
+    } catch (e) {
+      showToast("Failed to delete", "error");
+    }
   }
 
   // Fixture modal
   function openFixModal(ti, fi) {
-    setFixTournIdx(ti); setFixIdx(fi);
+    setFixTournIdx(ti);
+    setFixIdx(fi);
     const f = fi !== null ? (tempTournaments[ti]?.fixtures?.[fi] || {}) : {};
-    setFixHome(f.home || ""); setFixAway(f.away || "");
+    setFixHome(f.home || "");
+    setFixAway(f.away || "");
     setFixHomeIcon(getTeamIcon(f.home) || f.homeIcon || "");
     setFixAwayIcon(getTeamIcon(f.away) || f.awayIcon || "");
     setFixModalOpen(true);
   }
 
   async function saveFix() {
-    if (!fixHome || !fixAway) { showToast("Select both teams", "error"); return; }
+    if (!fixHome || !fixAway) {
+      showToast("Select both teams", "error");
+      return;
+    }
     const oldHome = fixIdx !== null ? (tempTournaments[fixTournIdx]?.fixtures?.[fixIdx]?.home || "") : "";
     const oldAway = fixIdx !== null ? (tempTournaments[fixTournIdx]?.fixtures?.[fixIdx]?.away || "") : "";
     if (fixHomeIcon) await saveTeamIcon(fixHome, fixHomeIcon);
@@ -510,23 +486,40 @@ export default function AdminCalendarPage() {
   }
 
   async function afLoadTournaments() {
-    if (!afDate) { showToast("Select a date", "error"); return; }
+    if (!afDate) {
+      showToast("Select a date", "error");
+      return;
+    }
     try {
       const snap = await get(ref(db, "career_calendarEvents/" + afDate));
       const ev = snap.val();
-      if (!ev) { showToast("No event on this date. Create one first.", "error"); return; }
-      if (!ev.tournaments?.length) { showToast("No tournaments on this date.", "error"); return; }
+      if (!ev) {
+        showToast("No event on this date. Create one first.", "error");
+        return;
+      }
+      if (!ev.tournaments?.length) {
+        showToast("No tournaments on this date.", "error");
+        return;
+      }
       setAfDateTournaments(JSON.parse(JSON.stringify(ev.tournaments)));
       const allDates = Object.keys(calData).filter(d => calData[d]?.tournaments?.length > 0).sort();
       setAfEventDates(allDates);
       setAfStep(2);
-    } catch (e) { showToast("Failed to load", "error"); }
+    } catch (e) {
+      showToast("Failed to load", "error");
+    }
   }
 
   async function afSaveFixtures() {
-    if (afTournIdx === null) { showToast("No tournament selected", "error"); return; }
+    if (afTournIdx === null) {
+      showToast("No tournament selected", "error");
+      return;
+    }
     const parsed = parseFixtures(afFixturesText);
-    if (!parsed.length) { showToast("No valid fixtures", "error"); return; }
+    if (!parsed.length) {
+      showToast("No valid fixtures", "error");
+      return;
+    }
     setAfSaveStatus("Saving...");
     try {
       const snap = await get(ref(db, "career_calendarEvents/" + afDate));
@@ -534,25 +527,27 @@ export default function AdminCalendarPage() {
       const tournaments = JSON.parse(JSON.stringify(ev.tournaments || []));
       if (!tournaments[afTournIdx].fixtures) tournaments[afTournIdx].fixtures = [];
       const newFix = parsed.map(f => ({
-        home: f.home, homeIcon: getTeamIcon(f.home) || "",
-        away: f.away, awayIcon: getTeamIcon(f.away) || "",
+        home: f.home,
+        homeIcon: getTeamIcon(f.home) || "",
+        away: f.away,
+        awayIcon: getTeamIcon(f.away) || "",
         type: afType || null,
       }));
       tournaments[afTournIdx].fixtures.push(...newFix);
       await set(ref(db, "career_calendarEvents/" + afDate), { ...ev, tournaments });
       setAfSaveStatus(`✓ Saved ${newFix.length} fixture(s)`);
-      setAfType(""); setAfFixturesText(""); setAfParsed([]);
+      setAfType("");
+      setAfFixturesText("");
+      setAfParsed([]);
       showToast(`${newFix.length} fixture(s) saved ✓`, "success");
-    } catch (e) { setAfSaveStatus("Save failed"); showToast("Failed to save", "error"); }
+    } catch (e) {
+      setAfSaveStatus("Save failed");
+      showToast("Failed to save", "error");
+    }
   }
 
   function evHasTeam(ev, team) {
-    return ev?.tournaments?.some(t =>
-      (t.fixtures || []).some(f =>
-        (f.home || "").toLowerCase().includes(team.toLowerCase()) ||
-        (f.away || "").toLowerCase().includes(team.toLowerCase())
-      )
-    ) || false;
+    return ev?.tournaments?.some(t => (t.fixtures || []).some(f => (f.home || "").toLowerCase().includes(team.toLowerCase()) || (f.away || "").toLowerCase().includes(team.toLowerCase()) ) ) || false;
   }
 
   const allDays = getAllCalendarDays(activeMonths);
@@ -567,7 +562,6 @@ export default function AdminCalendarPage() {
       <BackgroundVideo />
       <Navbar />
       <Toast toast={toast} />
-
       <div style={{ padding: "24px 20px 60px" }}>
         {/* Header */}
         <div style={{ marginBottom: "24px", display: "flex", alignItems: "flex-end", justifyContent: "space-between", flexWrap: "wrap", gap: "16px" }}>
@@ -623,14 +617,12 @@ export default function AdminCalendarPage() {
                   <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.5rem", letterSpacing: "0.04em", color: "#fff", margin: 0, textAlign: "center" }}>{MONTH_NAMES[month].toUpperCase()} {year}</h2>
                   <button onClick={() => removeMonth(year, month)} style={{ position: "absolute", right: "1rem", background: "rgba(255,0,0,0.15)", border: "1px solid rgba(255,0,0,0.3)", color: "#ff6b6b", padding: "4px 12px", borderRadius: "20px", cursor: "pointer", fontSize: "0.75rem", fontWeight: 700 }}>Remove</button>
                 </div>
-
                 {/* Weekday headers — 2x bigger */}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", background: "rgba(255,255,255,0.05)", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
                   {WEEKDAYS.map((w, i) => (
                     <div key={i} style={{ padding: "0.65rem 0.3rem", textAlign: "center", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.3rem", color: "#fff", letterSpacing: "0.08em" }}>{w}</div>
                   ))}
                 </div>
-
                 {/* Days grid */}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
                   {Array.from({ length: swd }).map((_, i) => (
@@ -644,24 +636,8 @@ export default function AdminCalendarPage() {
                     const pairs = ev?.eventPairs || [];
                     const visibleInFilter = !selectedTeam || (ev && evHasTeam(ev, selectedTeam));
                     const pairIdx = pairs.length > 1 ? globalFlipIdx % pairs.length : 0;
-
                     return (
-                      <div
-                        key={d}
-                        onClick={() => openDayModal(ds)}
-                        style={{
-                          position: "relative",
-                          border: "1px solid rgba(255,255,255,0.05)",
-                          background: hasEvent && visibleInFilter ? "rgba(51,51,51,0.58)" : "rgba(26,26,26,0.45)",
-                          minHeight: "115px",
-                          cursor: "pointer",
-                          transition: "background 0.2s, border-color 0.25s",
-                          opacity: selectedTeam && !visibleInFilter ? 0.25 : 1,
-                          overflow: "hidden",
-                        }}
-                        onMouseOver={e => { e.currentTarget.style.background = "rgba(184,150,12,0.3)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.15)"; }}
-                        onMouseOut={e => { e.currentTarget.style.background = hasEvent && visibleInFilter ? "rgba(51,51,51,0.58)" : "rgba(26,26,26,0.45)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.05)"; }}
-                      >
+                      <div key={d} onClick={() => openDayModal(ds)} style={{ position: "relative", border: "1px solid rgba(255,255,255,0.05)", background: hasEvent && visibleInFilter ? "rgba(51,51,51,0.58)" : "rgba(26,26,26,0.45)", minHeight: "115px", cursor: "pointer", transition: "background 0.2s, border-color 0.25s", opacity: selectedTeam && !visibleInFilter ? 0.25 : 1, overflow: "hidden", }} onMouseOver={e => { e.currentTarget.style.background = "rgba(184,150,12,0.3)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.15)"; }} onMouseOut={e => { e.currentTarget.style.background = hasEvent && visibleInFilter ? "rgba(51,51,51,0.58)" : "rgba(26,26,26,0.45)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.05)"; }}>
                         {/* Icon covers cell, flip centered */}
                         {hasEvent && visibleInFilter && pairs.length > 0 && (
                           <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -670,14 +646,11 @@ export default function AdminCalendarPage() {
                             </div>
                           </div>
                         )}
-
                         {hasEvent && visibleInFilter && (
                           <div style={{ position: "absolute", top: "5px", right: "5px", width: "7px", height: "7px", background: "#fff", borderRadius: "50%", boxShadow: "0 0 6px rgba(255,255,255,0.8)", animation: "dotPulse 2.2s ease-in-out infinite", zIndex: 2 }} />
                         )}
-
                         {/* Day number — 2x bigger */}
                         <div style={{ position: "absolute", top: "6px", left: "6px", zIndex: 3, fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.36rem", fontWeight: 700, color: "#fff", textShadow: hasEvent ? "0 1px 4px rgba(0,0,0,0.9)" : "none", letterSpacing: "0.03em" }}>{d}</div>
-
                         {!hasEvent && (
                           <div style={{ position: "absolute", bottom: "6px", left: 0, right: 0, textAlign: "center", fontSize: "0.58rem", color: "rgba(255,255,255,0.2)", fontStyle: "italic" }}>+ add</div>
                         )}
@@ -696,9 +669,7 @@ export default function AdminCalendarPage() {
           <div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.2rem" }}>
               <button onClick={() => navigateDay(-1)} disabled={curIdx <= 0} style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", width: "34px", height: "34px", borderRadius: "50%", cursor: curIdx <= 0 ? "default" : "pointer", fontSize: "1.1rem", opacity: curIdx <= 0 ? 0.25 : 1, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>◀</button>
-              <h3 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.05rem", fontWeight: 700, color: "#fff", letterSpacing: "0.05em", margin: 0, textAlign: "center", flex: 1, padding: "0 0.5rem" }}>
-                📅 {getDayLabel(currentDate, activeMonths)}
-              </h3>
+              <h3 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.05rem", fontWeight: 700, color: "#fff", letterSpacing: "0.05em", margin: 0, textAlign: "center", flex: 1, padding: "0 0.5rem" }}> 📅 {getDayLabel(currentDate, activeMonths)} </h3>
               <button onClick={() => navigateDay(1)} disabled={curIdx >= allDays.length - 1} style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", width: "34px", height: "34px", borderRadius: "50%", cursor: curIdx >= allDays.length - 1 ? "default" : "pointer", fontSize: "1.1rem", opacity: curIdx >= allDays.length - 1 ? 0.25 : 1, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>▶</button>
             </div>
 
@@ -708,37 +679,12 @@ export default function AdminCalendarPage() {
               <div key={idx} style={{ display: "flex", alignItems: "flex-start", gap: "10px", background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "12px", padding: "12px", marginBottom: "8px" }}>
                 <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "0.6rem", fontWeight: 700, color: "#fff", whiteSpace: "nowrap", paddingTop: "10px" }}>EVENT {idx + 1}</div>
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "6px", position: "relative" }}>
-                  <input
-                    value={pair.name}
-                    onChange={e => {
-                      const val = e.target.value;
-                      const u = [...tempEventPairs]; u[idx].name = val; setTempEventPairs(u);
-                      setActiveSuggestIdx(idx);
-                      setEventSuggestions(getEventSuggestions(val));
-                    }}
-                    onFocus={() => { setActiveSuggestIdx(idx); setEventSuggestions(getEventSuggestions(pair.name)); }}
-                    onBlur={() => setTimeout(() => { setEventSuggestions([]); setActiveSuggestIdx(null); }, 180)}
-                    placeholder={`Event ${idx + 1} name`}
-                    style={{ ...inputStyle, marginBottom: 0 }}
-                  />
+                  <input value={pair.name} onChange={e => { const val = e.target.value; const u = [...tempEventPairs]; u[idx].name = val; setTempEventPairs(u); setActiveSuggestIdx(idx); setEventSuggestions(getEventSuggestions(val)); }} onFocus={() => { setActiveSuggestIdx(idx); setEventSuggestions(getEventSuggestions(pair.name)); }} onBlur={() => setTimeout(() => { setEventSuggestions([]); setActiveSuggestIdx(null); }, 180)} placeholder={`Event ${idx + 1} name`} style={{ ...inputStyle, marginBottom: 0 }} />
                   {/* Autocomplete dropdown */}
                   {activeSuggestIdx === idx && eventSuggestions.length > 0 && (
                     <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 9999, background: "rgba(0,0,20,0.99)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "10px", overflow: "hidden", boxShadow: "0 8px 30px rgba(0,0,0,0.6)" }}>
                       {eventSuggestions.map((sug, si) => (
-                        <div
-                          key={si}
-                          onMouseDown={() => {
-                            const u = [...tempEventPairs];
-                            u[idx].name = sug.name;
-                            u[idx].iconUrl = sug.iconUrl || u[idx].iconUrl;
-                            setTempEventPairs(u);
-                            setEventSuggestions([]);
-                            setActiveSuggestIdx(null);
-                          }}
-                          style={{ display: "flex", alignItems: "center", gap: "10px", padding: "8px 12px", cursor: "pointer" }}
-                          onMouseOver={e => e.currentTarget.style.background = "rgba(255,255,255,0.1)"}
-                          onMouseOut={e => e.currentTarget.style.background = "transparent"}
-                        >
+                        <div key={si} onMouseDown={() => { const u = [...tempEventPairs]; u[idx].name = sug.name; u[idx].iconUrl = sug.iconUrl || u[idx].iconUrl; setTempEventPairs(u); setEventSuggestions([]); setActiveSuggestIdx(null); }} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "8px 12px", cursor: "pointer" }} onMouseOver={e => e.currentTarget.style.background = "rgba(255,255,255,0.1)"} onMouseOut={e => e.currentTarget.style.background = "transparent"}>
                           {sug.iconUrl && <img src={sug.iconUrl} alt="" style={{ width: "26px", height: "26px", objectFit: "contain", borderRadius: "4px" }} />}
                           <span style={{ color: "#fff", fontSize: "0.85rem", fontWeight: 600 }}>{sug.name}</span>
                         </div>
@@ -746,12 +692,7 @@ export default function AdminCalendarPage() {
                     </div>
                   )}
                   <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <label style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.3)", color: "#fff", padding: "6px 12px", borderRadius: "20px", cursor: "pointer", fontSize: "0.75rem", fontWeight: 700 }}>
-                      📁 Image
-                      <input type="file" accept="image/*" style={{ display: "none" }} onChange={async e => {
-                        const f = e.target.files[0]; if (!f) return;
-                        try { const url = await uploadToImgBB(f); const u = [...tempEventPairs]; u[idx].iconUrl = url; setTempEventPairs(u); showToast("Image uploaded ✓", "success"); } catch { showToast("Upload failed", "error"); }
-                      }} />
+                    <label style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.3)", color: "#fff", padding: "6px 12px", borderRadius: "20px", cursor: "pointer", fontSize: "0.75rem", fontWeight: 700 }}> 📁 Image <input type="file" accept="image/*" style={{ display: "none" }} onChange={async e => { const f = e.target.files[0]; if (!f) return; try { const url = await uploadToImgBB(f); const u = [...tempEventPairs]; u[idx].iconUrl = url; setTempEventPairs(u); showToast("Image uploaded ✓", "success"); } catch { showToast("Upload failed", "error"); } }} />
                     </label>
                     {pair.iconUrl && <img src={pair.iconUrl} alt="" style={{ width: "36px", height: "36px", objectFit: "contain", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.2)" }} />}
                   </div>
@@ -775,12 +716,7 @@ export default function AdminCalendarPage() {
                     <div style={{ color: "#fff", fontWeight: 700, fontSize: "1rem" }}>{t.name}</div>
                     {t.description && <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.72rem", marginTop: "0.2rem" }}>{t.description}</div>}
                   </div>
-                  <label style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", padding: "4px 10px", borderRadius: "12px", cursor: "pointer", fontSize: "0.7rem", fontWeight: 700 }}>
-                    🖼
-                    <input type="file" accept="image/*" style={{ display: "none" }} onChange={async e => {
-                      const f = e.target.files[0]; if (!f) return;
-                      try { const url = await uploadToImgBB(f); const u = JSON.parse(JSON.stringify(tempTournaments)); u[ti].iconUrl = url; setTempTournaments(u); showToast("Icon uploaded ✓", "success"); } catch { showToast("Upload failed", "error"); }
-                    }} />
+                  <label style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", padding: "4px 10px", borderRadius: "12px", cursor: "pointer", fontSize: "0.7rem", fontWeight: 700 }}> 🖼 <input type="file" accept="image/*" style={{ display: "none" }} onChange={async e => { const f = e.target.files[0]; if (!f) return; try { const url = await uploadToImgBB(f); const u = JSON.parse(JSON.stringify(tempTournaments)); u[ti].iconUrl = url; setTempTournaments(u); showToast("Icon uploaded ✓", "success"); } catch { showToast("Upload failed", "error"); } }} />
                   </label>
                   <button onClick={() => setTempTournaments(ts => ts.filter((_, i) => i !== ti))} style={{ background: "rgba(255,0,0,0.3)", border: "none", color: "#fff", width: "28px", height: "28px", borderRadius: "50%", cursor: "pointer", fontSize: "0.8rem" }}>🗑</button>
                 </div>
@@ -815,21 +751,12 @@ export default function AdminCalendarPage() {
                 </select>
                 <input value={newTournDesc} onChange={e => setNewTournDesc(e.target.value)} placeholder="Description (optional)" style={inputStyle} />
                 <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "10px" }}>
-                  <label style={{ ...btnStyle("outline"), padding: "0.3rem 0.75rem", fontSize: "0.7rem", cursor: "pointer" }}>
-                    📁 Icon
-                    <input type="file" accept="image/*" style={{ display: "none" }} onChange={async e => {
-                      const f = e.target.files[0]; if (!f) return;
-                      try { const url = await uploadToImgBB(f); setNewTournIcon(url); showToast("Icon uploaded ✓", "success"); } catch { showToast("Upload failed", "error"); }
-                    }} />
+                  <label style={{ ...btnStyle("outline"), padding: "0.3rem 0.75rem", fontSize: "0.7rem", cursor: "pointer" }}> 📁 Icon <input type="file" accept="image/*" style={{ display: "none" }} onChange={async e => { const f = e.target.files[0]; if (!f) return; try { const url = await uploadToImgBB(f); setNewTournIcon(url); showToast("Icon uploaded ✓", "success"); } catch { showToast("Upload failed", "error"); } }} />
                   </label>
                   {newTournIcon && <img src={newTournIcon} alt="" style={{ width: "36px", height: "36px", objectFit: "contain", borderRadius: "6px" }} />}
                 </div>
                 <div style={{ display: "flex", gap: "8px" }}>
-                  <button onClick={() => {
-                    if (!newTournName.trim()) { showToast("Select a tournament", "error"); return; }
-                    setTempTournaments(ts => [...ts, { name: newTournName.trim(), description: newTournDesc.trim(), iconUrl: newTournIcon, fixtures: [] }]);
-                    setNewTournName(""); setNewTournDesc(""); setNewTournIcon(""); setShowAddTournForm(false);
-                  }} style={{ ...btnStyle("gold"), fontSize: "0.85rem" }}>Add</button>
+                  <button onClick={() => { if (!newTournName.trim()) { showToast("Select a tournament", "error"); return; } setTempTournaments(ts => [...ts, { name: newTournName.trim(), description: newTournDesc.trim(), iconUrl: newTournIcon, fixtures: [] }]); setNewTournName(""); setNewTournDesc(""); setNewTournIcon(""); setShowAddTournForm(false); }} style={{ ...btnStyle("gold"), fontSize: "0.85rem" }}>Add</button>
                   <button onClick={() => setShowAddTournForm(false)} style={{ ...btnStyle("outline"), fontSize: "0.85rem" }}>Cancel</button>
                 </div>
               </div>
@@ -873,7 +800,6 @@ export default function AdminCalendarPage() {
       {/* ── Add Fixtures Quick Entry ── */}
       <Modal active={addFixOpen} onClose={() => setAddFixOpen(false)}>
         <h3 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.05rem", fontWeight: 700, color: "#fff", letterSpacing: "0.05em", marginBottom: "1.5rem", paddingRight: "2.5rem" }}>⚽ ADD FIXTURES</h3>
-
         {afStep === 1 && (
           <div>
             <SectionLabel>Select Date</SectionLabel>
@@ -884,7 +810,6 @@ export default function AdminCalendarPage() {
             </div>
           </div>
         )}
-
         {afStep === 2 && (
           <div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "10px", padding: "10px 14px", marginBottom: "16px" }}>
@@ -905,7 +830,6 @@ export default function AdminCalendarPage() {
             <button onClick={() => setAfStep(1)} style={{ ...btnStyle("outline"), fontSize: "0.85rem", marginTop: "8px" }}>← Back</button>
           </div>
         )}
-
         {afStep === 3 && (
           <div>
             {afDateTournaments[afTournIdx] && (
@@ -949,23 +873,17 @@ export default function AdminCalendarPage() {
       {/* ── Filter Modal ── */}
       <Modal active={filterOpen} onClose={() => setFilterOpen(false)}>
         <h3 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.05rem", fontWeight: 700, color: "#fff", letterSpacing: "0.05em", marginBottom: "1.5rem", paddingRight: "2.5rem" }}>🔍 FILTER BY TEAM</h3>
-        <input value={filterSearch} onChange={e => setFilterSearch(e.target.value)} placeholder="🔍  Search team..." style={{ width: "100%", background: "rgba(0,0,0,0.7)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "0.7rem", color: "#fff", padding: "0.55rem 0.9rem", fontSize: "0.85rem", fontFamily: "inherit", outline: "none", marginBottom: "0.8rem", boxSizing: "border-box" }} />
+        <input value={filterSearch} onChange={e => setFilterSearch(e.target.value)} placeholder="🔍 Search team..." style={{ width: "100%", background: "rgba(0,0,0,0.7)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "0.7rem", color: "#fff", padding: "0.55rem 0.9rem", fontSize: "0.85rem", fontFamily: "inherit", outline: "none", marginBottom: "0.8rem", boxSizing: "border-box" }} />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", maxHeight: "320px", overflowY: "auto", marginBottom: "1rem" }}>
-          {filteredTeams.length === 0
-            ? <div style={{ gridColumn: "1/-1", color: "rgba(255,255,255,0.4)", textAlign: "center", padding: "20px", fontSize: "0.85rem" }}>No teams found</div>
-            : filteredTeams.map(team => {
-              const icon = getTeamIcon(team);
-              return (
-                <div key={team} onClick={() => { setSelectedTeam(team); setFilterOpen(false); showToast(`Filtering: ${team}`, "success"); }}
-                  style={{ background: selectedTeam === team ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.08)", border: `1px solid ${selectedTeam === team ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.15)"}`, borderRadius: "2rem", padding: "0.5rem 0.8rem", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.4rem", justifyContent: "center", transition: "all 0.2s", fontWeight: 600, fontSize: "0.8rem", color: "#fff", fontFamily: "inherit" }}
-                  onMouseOver={e => { e.currentTarget.style.background = "rgba(255,255,255,0.18)"; }}
-                  onMouseOut={e => { e.currentTarget.style.background = selectedTeam === team ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.08)"; }}
-                >
-                  {icon && <img src={icon} alt="" style={{ width: "20px", height: "20px", objectFit: "contain", borderRadius: "3px" }} />}
-                  <span>{team}</span>
-                </div>
-              );
-            })}
+          {filteredTeams.length === 0 ? <div style={{ gridColumn: "1/-1", color: "rgba(255,255,255,0.4)", textAlign: "center", padding: "20px", fontSize: "0.85rem" }}>No teams found</div> : filteredTeams.map(team => {
+            const icon = getTeamIcon(team);
+            return (
+              <div key={team} onClick={() => { setSelectedTeam(team); setFilterOpen(false); showToast(`Filtering: ${team}`, "success"); }} style={{ background: selectedTeam === team ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.08)", border: `1px solid ${selectedTeam === team ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.15)"}`, borderRadius: "2rem", padding: "0.5rem 0.8rem", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.4rem", justifyContent: "center", transition: "all 0.2s", fontWeight: 600, fontSize: "0.8rem", color: "#fff", fontFamily: "inherit" }} onMouseOver={e => { e.currentTarget.style.background = "rgba(255,255,255,0.18)"; }} onMouseOut={e => { e.currentTarget.style.background = selectedTeam === team ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.08)"; }}>
+                {icon && <img src={icon} alt="" style={{ width: "20px", height: "20px", objectFit: "contain", borderRadius: "3px" }} />}
+                <span>{team}</span>
+              </div>
+            );
+          })}
         </div>
         <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
           <button onClick={() => { setSelectedTeam(null); setFilterSearch(""); setFilterOpen(false); showToast("Filter cleared", "success"); }} style={{ flex: 1, padding: "0.55rem 1.3rem", background: "rgba(239,68,68,0.8)", border: "none", color: "#fff", borderRadius: "2rem", cursor: "pointer", fontWeight: 700, fontSize: "0.85rem", fontFamily: "inherit", letterSpacing: "0.06em" }}>CLEAR FILTER</button>
@@ -974,13 +892,43 @@ export default function AdminCalendarPage() {
       </Modal>
 
       <style>{`
-        @keyframes cardIn { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes dotPulse { 0%, 100% { opacity: 1; box-shadow: 0 0 6px rgba(255,255,255,0.8); } 50% { opacity: 0.4; box-shadow: 0 0 14px rgba(255,255,255,0.4); } }
-        .flip-inner { width: 100%; height: 100%; position: relative; transform-style: preserve-3d; transition: transform 0.5s ease; }
-        .flip-inner.flipping { transform: rotateY(90deg); }
-        .flip-face { position: absolute; inset: 0; backface-visibility: hidden; display: flex; align-items: center; justify-content: center; }
-        .flip-face img { width: 48px; height: 48px; object-fit: contain; border-radius: 8px; filter: drop-shadow(0 3px 8px rgba(0,0,0,0.5)); }
-        select option { background: #000033; color: #fff; }
+        @keyframes cardIn {
+          from { opacity: 0; transform: translateY(28px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes dotPulse {
+          0%, 100% { opacity: 1; box-shadow: 0 0 6px rgba(255,255,255,0.8); }
+          50% { opacity: 0.4; box-shadow: 0 0 14px rgba(255,255,255,0.4); }
+        }
+        .flip-inner {
+          width: 100%;
+          height: 100%;
+          position: relative;
+          transform-style: preserve-3d;
+          transition: transform 0.5s ease;
+        }
+        .flip-inner.flipping {
+          transform: rotateY(90deg);
+        }
+        .flip-face {
+          position: absolute;
+          inset: 0;
+          backface-visibility: hidden;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .flip-face img {
+          width: 48px;
+          height: 48px;
+          object-fit: contain;
+          border-radius: 8px;
+          filter: drop-shadow(0 3px 8px rgba(0,0,0,0.5));
+        }
+        select option {
+          background: #000033;
+          color: #fff;
+        }
       `}</style>
     </div>
   );
