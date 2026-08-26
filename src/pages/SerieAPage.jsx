@@ -102,7 +102,19 @@ export default function SerieAPage() {
             {tab === "main" && tabMode === "table" && <LeagueTable league={LEAGUE} season={season} teams={teams} onEdit={isAdmin ? setEditTeam : undefined} onDelete={isAdmin ? async k => { if (confirm("Delete?")) await remove(ref(db, `${PATHS.table(LEAGUE, season)}/${k}`)); } : undefined} results={results} />}
             {tab === "main" && tabMode === "groupStage" && <GroupStageModal league={LEAGUE} season={season} />}
             {tab === "fixtures" && <FixturesList league={LEAGUE} season={season} />}
-            {tab === "results" && <ResultsList league={LEAGUE} season={season} onEdit={isAdmin ? setEditResult : undefined} onDelete={isAdmin ? async k => { if (confirm("Delete?")) await remove(ref(db, `${PATHS.results(LEAGUE, season)}/${k}`)); } : undefined} />}
+            {tab === "results" && (
+              <>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+                  <button
+                    onClick={() => setManagerOpen(true)}
+                    style={{ background: "linear-gradient(135deg, #FF1493, #FF69B4)", border: "none", color: "#fff", padding: "14px 32px", borderRadius: 30, fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: 2, cursor: "pointer", boxShadow: "0 4px 20px rgba(255,20,147,0.4)" }}
+                  >
+                    + ADD RESULT
+                  </button>
+                </div>
+                <ResultsList league={LEAGUE} season={season} onEdit={isAdmin ? setEditResult : undefined} onDelete={isAdmin ? async k => { if (confirm("Delete?")) await remove(ref(db, `${PATHS.results(LEAGUE, season)}/${k}`)); } : undefined} />
+              </>
+            )}
             {tab === "scorers" && <TopScorers league={LEAGUE} season={season} onAdd={() => { setStatType("scorer"); setEditStat(null); }} onEdit={p => { setStatType("scorer"); setEditStat(p); }} onDelete={async k => await remove(ref(db, `${PATHS.topScorers(LEAGUE, season)}/${k}`))} />}
             {tab === "assists" && <TopAssistants league={LEAGUE} season={season} onAdd={() => { setStatType("assistant"); setEditStat(null); }} onEdit={p => { setStatType("assistant"); setEditStat(p); }} onDelete={async k => await remove(ref(db, `${PATHS.topAssistants(LEAGUE, season)}/${k}`))} />}
           </>
