@@ -10,7 +10,6 @@ const GLASS = {
   border: "1px solid rgba(255,20,147,0.2)",
 };
 
-// Tokyo-matching font sizes
 const thStyle = {
   padding: "18px 16px",
   color: "rgba(255,255,255,0.8)",
@@ -42,8 +41,8 @@ export default function LeagueTable({ league, season, teams, onEdit, onDelete, r
   const [showLast5, setShowLast5] = useState(true);
   const [popupOpen, setPopupOpen] = useState(false);
   const [badges, setBadges] = useState({});
+  const [managerMap, setManagerMap] = useState({}); // { teamName: username }
 
-  // Load zone config from Firebase
   useEffect(() => {
     const unsub = onValue(ref(db, `career_${league}_settings/zones`), snap => {
       const d = snap.val();
@@ -55,7 +54,6 @@ export default function LeagueTable({ league, season, teams, onEdit, onDelete, r
     return () => unsub();
   }, [league]);
 
-  // Load badges from career_team_management
   useEffect(() => {
     const unsub = onValue(ref(db, "career_team_management"), snap => {
       const d = snap.val() || {};
@@ -68,9 +66,23 @@ export default function LeagueTable({ league, season, teams, onEdit, onDelete, r
     return () => unsub();
   }, []);
 
+  // Load manager names from career_accounts
+  useEffect(() => {
+    const unsub = onValue(ref(db, "career_accounts"), snap => {
+      const d = snap.val() || {};
+      const map = {};
+      Object.values(d).forEach(acc => {
+        if (acc?.role === "manager" && acc?.team && acc?.username) {
+          map[acc.team] = acc.username;
+        }
+      });
+      setManagerMap(map);
+    });
+    return () => unsub();
+  }, []);
+
   const combined = { ...teamIconsCache, ...badges };
   const sorted = [...teams].sort((a, b) => (b.pts || 0) - (a.pts || 0) || (b.gd || 0) - (a.gd || 0));
-  const total = sorted.length;
 
   function getZoneBarColor(pos) {
     for (const z of zones) {
@@ -123,13 +135,13 @@ export default function LeagueTable({ league, season, teams, onEdit, onDelete, r
           <div style={{ position: "relative" }}>
             <button onClick={() => setPopupOpen(p => !p)} style={{ background: "rgba(255,20,147,0.2)", border: "1px solid rgba(255,20,147,0.5)", color: "#fff", width: 46, height: 46, borderRadius: "50%", fontSize: "1.6rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>⋮</button>
             {popupOpen && (
-              <div onClick={() => setPopupOpen(false)} style={{ position: "absolute", right: 0, top: "110%", zIndex: 50, background: "rgba(0,0,30,0.98)", backdropFilter: "blur(16px)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 16, minWidth: 230, overflow: "hidden" }}>
+              <div onClick={() => setPopupOpen(false)} style={{ position: "absolute", right: 0, top: "110%", zIndex: 50, background: "rgba(0,0,30,0.98)", backdropFilter: "blur(16px)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 16, minWidth: 260, overflow: "hidden" }}>
                 {[
                   ["Show Manager Names", () => setShowManagerNames(p => !p)],
                   ["Toggle Form Arrows", () => setShowFormArrows(p => !p)],
                   ["Toggle Last 5", () => setShowLast5(p => !p)],
                 ].map(([lbl, fn]) => (
-                  <div key={lbl} onClick={fn} style={{ padding: "16px 22px", color: "#fff", cursor: "pointer", fontSize: "1rem", fontWeight: 600, transition: "background 0.2s" }}
+                  <div key={lbl} onClick={fn} style={{ padding: "18px 26px", color: "#fff", cursor: "pointer", fontSize: "2rem", fontWeight: 700, fontFamily: "'Bebas Neue', sans-serif", letterSpacing: 1, transition: "background 0.2s" }}
                     onMouseOver={e => e.currentTarget.style.background = "rgba(255,20,147,0.2)"}
                     onMouseOut={e => e.currentTarget.style.background = "transparent"}>
                     {lbl}
@@ -161,6 +173,7 @@ export default function LeagueTable({ league, season, teams, onEdit, onDelete, r
               const gd = team.gd || 0;
               const barColor = getZoneBarColor(pos);
               const dashed = getDashedLineAfter(pos);
+              const displayName = showManagerNames ? (managerMap[team.name] || team.name) : team.name;
 
               return (
                 <>
@@ -184,9 +197,8 @@ export default function LeagueTable({ league, season, teams, onEdit, onDelete, r
                         {combined[team.name] && (
                           <img src={combined[team.name]} alt="" style={{ width: 52, height: 52, objectFit: "contain" }} />
                         )}
-                        <div>
-                          <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.6rem", color: "#fff", letterSpacing: "0.5px" }}>{team.name}</div>
-                          {showManagerNames && team.manager && <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.85rem", marginTop: 2 }}>{team.manager}</div>}
+                        <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.6rem", color: "#fff", letterSpacing: "0.5px" }}>
+                          {displayName}
                         </div>
                       </div>
                     </td>
@@ -222,7 +234,6 @@ export default function LeagueTable({ league, season, teams, onEdit, onDelete, r
                     )}
                   </tr>
 
-                  {/* Dashed line divider */}
                   {dashed && (
                     <tr key={`dashed-${pos}`}>
                       <td colSpan={99} style={{ padding: 0, border: "none" }}>
@@ -239,7 +250,7 @@ export default function LeagueTable({ league, season, teams, onEdit, onDelete, r
         </table>
       </div>
 
-      {/* Dynamic Legend */}
+      {/* Legend */}
       {(zones.length > 0 || dashedLines.length > 0) && (
         <div style={{ padding: "14px 24px", background: "rgba(255,20,147,0.08)", display: "flex", gap: 28, flexWrap: "wrap", justifyContent: "center", borderTop: "1px solid rgba(255,20,147,0.2)" }}>
           {zones.map((z, i) => (
