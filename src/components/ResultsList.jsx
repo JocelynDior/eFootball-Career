@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { db } from "../firebase";
 import { ref, onValue } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
@@ -10,34 +10,43 @@ const GLASS = {
   border: "1px solid rgba(255,255,255,0.1)",
 };
 
-function getTeamBadge(teamName, cache = {}) {
-  const url = cache[teamName];
-  if (url) {
+const BATCH = 5; // reveal this many results at a time
+
+function TeamBadge({ teamName, iconUrl, size = 100 }) {
+  if (iconUrl) {
     return (
-      <div style={{ width: 100, height: 100, borderRadius: "50%", background: "rgba(255,255,255,0.08)", border: "2px solid rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-        <img src={url} alt={teamName} style={{ width: 84, height: 84, objectFit: "contain" }} />
-      </div>
+      <img
+        src={iconUrl}
+        alt={teamName}
+        style={{ width: size, height: size, objectFit: "contain" }}
+      />
     );
   }
   const initials = (teamName || "?").split(" ").map(w => w[0]).join("").slice(0, 3).toUpperCase();
   return (
-    <div style={{ width: 100, height: 100, borderRadius: "50%", background: "rgba(255,255,255,0.08)", border: "2px solid rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", color: "#fff", letterSpacing: 2 }}>{initials}</span>
+    <div style={{ width: size, height: size, borderRadius: "50%", background: "rgba(255,255,255,0.08)", border: "2px solid rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: size * 0.3 + "rem", color: "#fff", letterSpacing: 2 }}>{initials}</span>
     </div>
   );
 }
 
 export default function ResultsList({ league, season, onEdit, onDelete }) {
   const { isAdmin, teamIconsCache } = useAdmin();
-  const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [allResults, setAllResults] = useState([]);
+  const [visibleCount, setVisibleCount] = useState(BATCH);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [fullyLoaded, setFullyLoaded] = useState(false);
   const [badges, setBadges] = useState({});
+  const timerRef = useRef(null);
 
   useEffect(() => {
     const unsub = onValue(ref(db, `career_${league}/seasons/season_${season}/results`), snap => {
       const d = snap.val();
-      setResults(d ? Object.entries(d).map(([k, v]) => ({ key: k, ...v })) : []);
-      setLoading(false);
+      const list = d ? Object.entries(d).map(([k, v]) => ({ key: k, ...v })) : [];
+      list.sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0) || (b.date || "").localeCompare(a.date || ""));
+      setAllResults(list);
+      setVisibleCount(BATCH);
+      setFullyLoaded(false);
     });
     return () => unsub();
   }, [league, season]);
@@ -54,12 +63,28 @@ export default function ResultsList({ league, season, onEdit, onDelete }) {
     return () => unsub();
   }, []);
 
+  // Progressive reveal: once we have results, reveal one batch after another
+  useEffect(() => {
+    if (allResults.length === 0) { setFullyLoaded(true); return; }
+    if (visibleCount >= allResults.length) { setFullyLoaded(true); setLoadingMore(false); return; }
+
+    setLoadingMore(true);
+    timerRef.current = setTimeout(() => {
+      setVisibleCount(prev => {
+        const next = prev + BATCH;
+        if (next >= allResults.length) setFullyLoaded(true);
+        return next;
+      });
+      setLoadingMore(false);
+    }, 600);
+
+    return () => clearTimeout(timerRef.current);
+  }, [visibleCount, allResults.length]);
+
   const combined = { ...teamIconsCache, ...badges };
-  const sorted = [...results].sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0) || (b.date || "").localeCompare(a.date || ""));
+  const visible = allResults.slice(0, visibleCount);
 
-  if (loading) return <div style={{ textAlign: "center", padding: "60px", color: "rgba(255,255,255,0.4)" }}>Loading…</div>;
-
-  if (!sorted.length) {
+  if (!allResults.length && fullyLoaded) {
     return (
       <div style={{ textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.35)" }}>
         <div style={{ fontSize: "3rem", marginBottom: 12 }}>🏆</div>
@@ -70,7 +95,7 @@ export default function ResultsList({ league, season, onEdit, onDelete }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-      {sorted.map(r => {
+      {visible.map(r => {
         const isNoContest = r.forfeitType === "no_contest";
         const isForfeit = r.forfeitType && r.forfeitType !== "none" && !isNoContest;
         const homeScorers = r.goalScorers?.home || [];
@@ -84,7 +109,7 @@ export default function ResultsList({ league, season, onEdit, onDelete }) {
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 24 }}>
               {/* Home team */}
               <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 14, textAlign: "center" }}>
-                {getTeamBadge(r.homeTeam, combined)}
+                <TeamBadge teamName={r.homeTeam} iconUrl={combined[r.homeTeam]} size={100} />
                 <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", color: "#fff", letterSpacing: 1, lineHeight: 1.1 }}>{r.homeTeam}</span>
                 {homeScorers.length > 0 && (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
@@ -113,7 +138,7 @@ export default function ResultsList({ league, season, onEdit, onDelete }) {
 
               {/* Away team */}
               <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 14, textAlign: "center" }}>
-                {getTeamBadge(r.awayTeam, combined)}
+                <TeamBadge teamName={r.awayTeam} iconUrl={combined[r.awayTeam]} size={100} />
                 <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", color: "#fff", letterSpacing: 1, lineHeight: 1.1 }}>{r.awayTeam}</span>
                 {awayScorers.length > 0 && (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
@@ -145,6 +170,15 @@ export default function ResultsList({ league, season, onEdit, onDelete }) {
           </div>
         );
       })}
+
+      {/* Loading more indicator */}
+      {!fullyLoaded && (
+        <div style={{ textAlign: "center", padding: "24px", color: "rgba(255,255,255,0.4)", fontFamily: "'Inter', sans-serif", fontSize: "0.95rem", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+          <div style={{ width: 18, height: 18, border: "2px solid rgba(255,20,147,0.3)", borderTop: "2px solid #FF1493", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+          Loading more results…
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      )}
     </div>
   );
 }
