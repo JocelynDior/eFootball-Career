@@ -101,7 +101,7 @@ export default function BundesligaPage() {
           <>
             {tab === "main" && tabMode === "table" && <LeagueTable league={LEAGUE} season={season} teams={teams} onEdit={isAdmin ? setEditTeam : undefined} onDelete={isAdmin ? async k => { if (confirm("Delete?")) await remove(ref(db, `${PATHS.table(LEAGUE, season)}/${k}`)); } : undefined} results={results} />}
             {tab === "main" && tabMode === "groupStage" && <GroupStageModal league={LEAGUE} season={season} />}
-            {tab === "fixtures" && <FixturesList league={LEAGUE} season={season} />}
+            {tab === "fixtures" && <FixturesList tournamentName="Bundesliga" />}
             {tab === "results" && <ResultsList league={LEAGUE} season={season} onEdit={isAdmin ? setEditResult : undefined} onDelete={isAdmin ? async k => { if (confirm("Delete?")) await remove(ref(db, `${PATHS.results(LEAGUE, season)}/${k}`)); } : undefined} />}
             {tab === "scorers" && <TopScorers league={LEAGUE} season={season} onAdd={() => { setStatType("scorer"); setEditStat(null); }} onEdit={p => { setStatType("scorer"); setEditStat(p); }} onDelete={async k => await remove(ref(db, `${PATHS.topScorers(LEAGUE, season)}/${k}`))} />}
             {tab === "assists" && <TopAssistants league={LEAGUE} season={season} onAdd={() => { setStatType("assistant"); setEditStat(null); }} onEdit={p => { setStatType("assistant"); setEditStat(p); }} onDelete={async k => await remove(ref(db, `${PATHS.topAssistants(LEAGUE, season)}/${k}`))} />}
