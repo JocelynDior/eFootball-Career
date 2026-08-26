@@ -30,11 +30,11 @@ export default function PremierLeaguePage() {
   const { isAdmin, manager } = useAdmin();
   const [season, setSeason] = useState("1");
   const [seasons, setSeasons] = useState(["1"]);
-  const [tab, setTab] = useState("main"); // "main" | "fixtures" | "results" | "scorers" | "assists"
+  const [tab, setTab] = useState("main");
   const [teams, setTeams] = useState([]);
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [tabMode, setTabMode] = useState("table"); // "table" | "groupStage"
+  const [tabMode, setTabMode] = useState("table");
 
   const [editTeam, setEditTeam] = useState(undefined);
   const [editResult, setEditResult] = useState(undefined);
@@ -45,7 +45,6 @@ export default function PremierLeaguePage() {
   const [managerOpen, setManagerOpen] = useState(false);
   const [submitOpen, setSubmitOpen] = useState(false);
 
-  // Load tab mode from Firebase
   useEffect(() => {
     const unsub = onValue(ref(db, `career_${LEAGUE}_settings`), snap => {
       const d = snap.val() || {};
@@ -77,7 +76,6 @@ export default function PremierLeaguePage() {
     await set(ref(db, `career_${LEAGUE}_settings/seasons`), updated);
   }
 
-  // Dynamic tabs: first tab is Table or Group Stage based on admin setting
   const TABS = [
     { id: "main", label: tabMode === "groupStage" ? "GROUP STAGE" : "TABLE" },
     { id: "fixtures", label: "FIXTURES" },
@@ -87,13 +85,11 @@ export default function PremierLeaguePage() {
   ];
 
   function handleAddPlayerIcon() {
-    // Handled inside StatPlayerModal — open scorer modal with image upload intent
     setStatType("scorer");
     setEditStat(null);
   }
 
   function handleEditTeamIcon() {
-    // Opens AddTeamModal in edit-icon mode — for now opens add team
     setEditTeam(null);
   }
 
@@ -109,9 +105,7 @@ export default function PremierLeaguePage() {
           onAddPlayerIcon: handleAddPlayerIcon,
         }}
       />
-
       <LeagueHeadlineSlideshow league={LEAGUE} />
-
       <div style={{ padding: "28px 20px" }}>
         <SeasonSelector
           currentSeason={season} seasons={seasons}
@@ -119,9 +113,7 @@ export default function PremierLeaguePage() {
           onNext={() => { const i = seasons.indexOf(season); if (i < seasons.length - 1) setSeason(seasons[i + 1]); }}
           onAdd={handleAddSeason} onRename={() => {}} onSetActive={() => {}}
         />
-
         <TabBar tabs={TABS} activeTab={tab} onTabChange={setTab} />
-
         {loading ? <LoadingSpinner /> : (
           <>
             {tab === "main" && tabMode === "table" && (
@@ -138,11 +130,21 @@ export default function PremierLeaguePage() {
             )}
             {tab === "fixtures" && <FixturesList tournamentName="Premier League" />}
             {tab === "results" && (
-              <ResultsList
-                league={LEAGUE} season={season}
-                onEdit={isAdmin ? setEditResult : undefined}
-                onDelete={isAdmin ? async k => { if (confirm("Delete?")) await remove(ref(db, `${PATHS.results(LEAGUE, season)}/${k}`)); } : undefined}
-              />
+              <>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+                  <button
+                    onClick={() => setManagerOpen(true)}
+                    style={{ background: "linear-gradient(135deg, #FF1493, #FF69B4)", border: "none", color: "#fff", padding: "14px 32px", borderRadius: 30, fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: 2, cursor: "pointer", boxShadow: "0 4px 20px rgba(255,20,147,0.4)" }}
+                  >
+                    + ADD RESULT
+                  </button>
+                </div>
+                <ResultsList
+                  league={LEAGUE} season={season}
+                  onEdit={isAdmin ? setEditResult : undefined}
+                  onDelete={isAdmin ? async k => { if (confirm("Delete?")) await remove(ref(db, `${PATHS.results(LEAGUE, season)}/${k}`)); } : undefined}
+                />
+              </>
             )}
             {tab === "scorers" && (
               <TopScorers
@@ -164,7 +166,6 @@ export default function PremierLeaguePage() {
         )}
       </div>
 
-      {/* Modals */}
       <Modal active={editTeam !== undefined} onClose={() => setEditTeam(undefined)}>
         <AddTeamModal league={LEAGUE} season={season} team={editTeam || null} onClose={() => setEditTeam(undefined)} />
       </Modal>
