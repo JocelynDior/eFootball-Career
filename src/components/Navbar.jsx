@@ -11,6 +11,7 @@ import AddPlayerModal from "../modals/AddPlayerModal";
 import ResultsHistoryModal from "../modals/ResultsHistoryModal";
 import PendingFixturesModal from "../modals/PendingFixturesModal";
 import AddTeamModal from "../modals/AddTeamModal";
+import LeagueAdminSettingsModal from "../modals/LeagueAdminSettingsModal";
 
 function getSASTDateString() {
   const formatter = new Intl.DateTimeFormat("en-ZA", { timeZone: "Africa/Johannesburg", weekday: "long", day: "numeric", month: "long", year: "numeric" });
@@ -49,6 +50,7 @@ export default function Navbar({ tokyoMenuItems, leagueMenuProps } = {}) {
   const [resultsHistoryOpen, setResultsHistoryOpen] = useState(false);
   const [pendingResultsOpen, setPendingResultsOpen] = useState(false);
   const [addLeagueTeamOpen, setAddLeagueTeamOpen] = useState(false);
+  const [leagueAdminOpen, setLeagueAdminOpen] = useState(false);
 
   // Video form
   const [videoUrl, setVideoUrl] = useState("");
@@ -332,6 +334,7 @@ export default function Navbar({ tokyoMenuItems, leagueMenuProps } = {}) {
                       { icon: "➕", label: "Add Team", action: () => { setAddLeagueTeamOpen(true); setPlusOpen(false); } },
                       { icon: "🏆", label: "Edit Team Icon", action: () => { leagueMenuProps.onEditTeamIcon?.(); setPlusOpen(false); } },
                       { icon: "🧑", label: "Add Player Icon", action: () => { leagueMenuProps.onAddPlayerIcon?.(); setPlusOpen(false); } },
+                      { icon: "⚙️", label: "League Settings", action: () => { setLeagueAdminOpen(true); setPlusOpen(false); } },
                     ].map(({ icon, label, action }) => (
                       <button key={label} onClick={action} style={{ display: "flex", alignItems: "center", gap: "18px", width: "100%", padding: "22px 24px", background: "transparent", border: "none", color: "#fff", fontFamily: "inherit", fontSize: "1.6rem", fontWeight: 600, cursor: "pointer", borderRadius: "14px", transition: "all 0.15s", textAlign: "left" }}
                         onMouseOver={e => e.currentTarget.style.background = "rgba(255,20,147,0.15)"}
@@ -374,6 +377,9 @@ export default function Navbar({ tokyoMenuItems, leagueMenuProps } = {}) {
           </Modal>
           <Modal active={addLeagueTeamOpen} onClose={() => setAddLeagueTeamOpen(false)}>
             <AddTeamModal league={leagueMenuProps.league} season={leagueMenuProps.season} onClose={() => setAddLeagueTeamOpen(false)} />
+          </Modal>
+          <Modal active={leagueAdminOpen} onClose={() => setLeagueAdminOpen(false)}>
+            <LeagueAdminSettingsModal league={leagueMenuProps.league} season={leagueMenuProps.season} teams={leagueMenuProps.teams} onClose={() => setLeagueAdminOpen(false)} />
           </Modal>
         </>
       )}
