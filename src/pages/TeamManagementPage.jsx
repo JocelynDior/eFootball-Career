@@ -11,6 +11,7 @@ import StadiumModal from "../modals/StadiumModal";
 import TeamModal from "../modals/TeamModal";
 import TeamHistoryModal from "../modals/TeamHistoryModal";
 import FinanceDateFilterModal from "../modals/FinanceDateFilterModal";
+import WikiSearchModal from "../modals/WikiSearchModal";
 
 const TABS = [
   { id: "stadium", label: "STADIUM" },
@@ -26,12 +27,30 @@ const GLASS = {
   border: "1px solid rgba(255,20,147,0.2)",
 };
 
-const INCOME_CATEGORIES = ["Player Sales", "Player Loans", "Stadium Income", "Sponsorship", "Broadcasting", "Shirt Sales"];
-const EXPENSE_CATEGORIES = ["Player Wages", "Staff Wages", "Facility Expenses", "Taxes", "Stadium Upgrade", "Player Purchase"];
+// ─── UPDATED CATEGORIES ────────────────────────────────────────────────────
+const INCOME_CATEGORIES = [
+  "Player Sales",
+  "Player Loaned Out",
+  "Stadium Income",
+  "Sponsorship",
+  "Broadcasting",
+  "Shirt Sales",
+];
+
+const EXPENSE_CATEGORIES = [
+  "Player Wages",
+  "Staff Wages",
+  "Facility Expenses",
+  "Taxes",
+  "Stadium Upgrade",
+  "Player Purchase",
+  "Player Loan In",
+  "Fines",
+  "Recurring Expense",
+];
 
 const ALL_MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
-// ─── UPDATED formatBalance ──────────────────────────────────────────────
 function formatBalance(num) {
   if (num === undefined || num === null) return "€0.00";
   return `€${Number(num).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -44,7 +63,6 @@ function formatAmount(num) {
   return `€${Number(num).toLocaleString()}`;
 }
 
-// ─── SAST helper ──────────────────────────────────────────────────────────
 function getSASTMonthIndex() {
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone: "Africa/Johannesburg",
@@ -53,10 +71,116 @@ function getSASTMonthIndex() {
   return parseInt(formatter.format(new Date())) - 1;
 }
 
-// ─── ADMIN FINANCE MODAL (Add Transaction) ──────────────────────────────
-function AdminFinanceModal({ onClose }) {
+function formatDateTime(ts) {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  return d.toLocaleString("en-GB", {
+    day: "numeric", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+}
+
+function formatDateOnly(ts) {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  return d.toLocaleString("en-GB", {
+    day: "numeric", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  });
+}
+
+// ─── RECURRING EXPENSE CHECK (runs on page load) ──────────────────────────
+async function processRecurringTransactions(team) {
+  if (!team) return;
+  try {
+    const recurringSnap = await get(ref(db, `career_team_management/${team}/finance/recurring`));
+    const recurringData = recurringSnap.val();
+    if (!recurringData) return;
+
+    const now = Date.now();
+    const todayMidnight = new Date();
+    todayMidnight.setHours(0, 0, 0, 0);
+
+    for (const [rid, rec] of Object.entries(recurringData)) {
+      if (rec.status === "completed" || rec.status === "cancelled") continue;
+
+      const startTs = rec.startTs;
+      const dailyAmount = Number(rec.dailyAmount);
+      const totalCap = Number(rec.totalCap);
+
+      // Get all transactions linked to this recurring id
+      const txSnap = await get(ref(db, `career_team_management/${team}/finance/transactions`));
+      const txData = txSnap.val() || {};
+      const linkedTxs = Object.values(txData).filter(t => t.recurringId === rid);
+      const totalDebited = linkedTxs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+
+      if (totalDebited >= totalCap) {
+        // Mark as completed
+        await update(ref(db, `career_team_management/${team}/finance/recurring/${rid}`), { status: "completed" });
+        continue;
+      }
+
+      // Find the last debited day
+      const debitedDates = linkedTxs
+        .filter(t => t.debitDate)
+        .map(t => t.debitDate)
+        .sort();
+
+      const startDate = new Date(startTs);
+      startDate.setHours(0, 0, 0, 0);
+
+      // Build set of already debited date strings (YYYY-MM-DD)
+      const debitedSet = new Set(debitedDates);
+
+      // Walk from startDate to today, applying missed debits
+      const cursor = new Date(startDate);
+      const writes = [];
+
+      while (cursor <= todayMidnight) {
+        const dateStr = cursor.toISOString().slice(0, 10);
+        if (!debitedSet.has(dateStr)) {
+          const remaining = totalCap - totalDebited - writes.reduce((s, w) => s + w.amount, 0);
+          if (remaining <= 0) break;
+          const amount = Math.min(dailyAmount, remaining);
+          writes.push({
+            type: "expense",
+            category: "Recurring Expense",
+            source: rec.description || "Recurring",
+            amount,
+            month: ALL_MONTHS[cursor.getMonth()],
+            monthIndex: cursor.getMonth(),
+            year: cursor.getFullYear(),
+            createdAt: cursor.getTime(),
+            debitDate: dateStr,
+            recurringId: rid,
+            addedByAdmin: true,
+            sentBy: "System (Recurring)",
+            receivedBy: team,
+          });
+        }
+        cursor.setDate(cursor.getDate() + 1);
+      }
+
+      // Push all missed debits
+      for (const tx of writes) {
+        await push(ref(db, `career_team_management/${team}/finance/transactions`), tx);
+      }
+
+      // Check if now completed
+      const newTotal = totalDebited + writes.reduce((s, w) => s + w.amount, 0);
+      if (newTotal >= totalCap) {
+        await update(ref(db, `career_team_management/${team}/finance/recurring/${rid}`), { status: "completed" });
+      }
+    }
+  } catch (e) {
+    console.error("Recurring tx error:", e);
+  }
+}
+
+// ─── ADMIN FINANCE MODAL (Add Transaction) ────────────────────────────────
+function AdminFinanceModal({ onClose, defaultTeam }) {
   const [allTeams, setAllTeams] = useState([]);
-  const [selectedTeam, setSelectedTeam] = useState("");
+  const [selectedTeam, setSelectedTeam] = useState(defaultTeam || "");
   const [txType, setTxType] = useState("income");
   const [category, setCategory] = useState(INCOME_CATEGORIES[0]);
   const [source, setSource] = useState("");
@@ -64,6 +188,17 @@ function AdminFinanceModal({ onClose }) {
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
+  const [showWiki, setShowWiki] = useState(false);
+
+  // Recurring fields
+  const [recurringDescription, setRecurringDescription] = useState("");
+  const [recurringDailyAmount, setRecurringDailyAmount] = useState("");
+  const [recurringTotalCap, setRecurringTotalCap] = useState("");
+
+  const isRecurring = category === "Recurring Expense";
+  const isBroadcasting = category === "Broadcasting";
+  const isShirtSales = category === "Shirt Sales";
+  const needsWiki = isBroadcasting || isShirtSales;
 
   useEffect(() => {
     const unsub = onValue(ref(db, PATHS.accounts), snap => {
@@ -76,13 +211,61 @@ function AdminFinanceModal({ onClose }) {
 
   useEffect(() => {
     setCategory(txType === "income" ? INCOME_CATEGORIES[0] : EXPENSE_CATEGORIES[0]);
+    setAmount("");
+    setSource("");
   }, [txType]);
 
+  // Calculate end date for recurring
+  function getRecurringEndDate() {
+    const daily = Number(recurringDailyAmount);
+    const total = Number(recurringTotalCap);
+    if (!daily || !total || daily <= 0 || total <= 0) return null;
+    const days = Math.ceil(total / daily);
+    const end = new Date();
+    end.setDate(end.getDate() + days);
+    return end.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  }
+
   async function handleSubmit() {
-    if (!selectedTeam || !amount || Number(amount) <= 0) {
-      setError("Please fill in all required fields.");
+    if (!selectedTeam) { setError("Please select a team."); return; }
+
+    if (isRecurring) {
+      if (!recurringDailyAmount || !recurringTotalCap || Number(recurringDailyAmount) <= 0 || Number(recurringTotalCap) <= 0) {
+        setError("Please fill in daily amount and total cap.");
+        return;
+      }
+      setSaving(true);
+      setError("");
+      try {
+        const now = new Date();
+        const daily = Number(recurringDailyAmount);
+        const total = Number(recurringTotalCap);
+        const days = Math.ceil(total / daily);
+        const endDate = new Date();
+        endDate.setDate(endDate.getDate() + days);
+
+        await push(ref(db, `career_team_management/${selectedTeam}/finance/recurring`), {
+          description: recurringDescription.trim() || "Recurring Expense",
+          dailyAmount: daily,
+          totalCap: total,
+          startTs: now.getTime(),
+          startDate: now.toISOString().slice(0, 10),
+          endDate: endDate.toISOString().slice(0, 10),
+          status: "active",
+          createdAt: now.getTime(),
+          addedByAdmin: true,
+        });
+
+        setDone(true);
+        setTimeout(onClose, 1600);
+      } catch (e) {
+        setError("Failed: " + e.message);
+      }
+      setSaving(false);
       return;
     }
+
+    if (!amount || Number(amount) <= 0) { setError("Please enter a valid amount."); return; }
     setSaving(true);
     setError("");
     try {
@@ -102,6 +285,8 @@ function AdminFinanceModal({ onClose }) {
         year,
         createdAt: Date.now(),
         addedByAdmin: true,
+        sentBy: "Admin",
+        receivedBy: selectedTeam,
       });
 
       setDone(true);
@@ -123,8 +308,7 @@ function AdminFinanceModal({ onClose }) {
   const labelStyle = {
     color: "rgba(255,255,255,0.65)", fontSize: "1rem",
     display: "block", marginBottom: "8px",
-    textTransform: "uppercase", letterSpacing: "0.8px",
-    fontWeight: 700,
+    textTransform: "uppercase", letterSpacing: "0.8px", fontWeight: 700,
   };
 
   return (
@@ -136,10 +320,11 @@ function AdminFinanceModal({ onClose }) {
 
       {done ? (
         <div style={{ textAlign: "center", padding: "40px 20px", color: "#00ff88", fontWeight: 700, fontSize: "1.4rem", background: "rgba(0,255,136,0.08)", borderRadius: "16px" }}>
-          ✅ Transaction Applied!
+          ✅ {isRecurring ? "Recurring Transaction Set Up!" : "Transaction Applied!"}
         </div>
       ) : (
         <>
+          {/* Team */}
           <div style={{ marginBottom: "22px" }}>
             <label style={labelStyle}>Select Team</label>
             <select value={selectedTeam} onChange={e => setSelectedTeam(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
@@ -148,6 +333,7 @@ function AdminFinanceModal({ onClose }) {
             </select>
           </div>
 
+          {/* Type */}
           <div style={{ marginBottom: "22px" }}>
             <label style={labelStyle}>Transaction Type</label>
             <div style={{ display: "flex", gap: "12px" }}>
@@ -165,6 +351,7 @@ function AdminFinanceModal({ onClose }) {
             </div>
           </div>
 
+          {/* Category */}
           <div style={{ marginBottom: "22px" }}>
             <label style={labelStyle}>Category</label>
             <select value={category} onChange={e => setCategory(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
@@ -174,36 +361,134 @@ function AdminFinanceModal({ onClose }) {
             </select>
           </div>
 
-          <div style={{ marginBottom: "22px" }}>
-            <label style={labelStyle}>Source <span style={{ color: "rgba(255,255,255,0.3)", fontWeight: 400, textTransform: "none" }}>(optional)</span></label>
-            <input value={source} onChange={e => setSource(e.target.value)} placeholder="e.g. Spotify, Nike, Google..." style={inputStyle} />
-          </div>
-
-          <div style={{ marginBottom: "28px" }}>
-            <label style={labelStyle}>Amount (€)</label>
-            <input value={amount} onChange={e => setAmount(e.target.value)} placeholder="e.g. 5000000" style={inputStyle} type="number" min="0" />
-            {amount && Number(amount) > 0 && (
-              <div style={{ marginTop: "8px", color: txType === "income" ? "#00ff88" : "#ff6b6b", fontSize: "1.1rem", fontWeight: 700 }}>
-                {txType === "income" ? "+" : "−"}{formatAmount(Number(amount))}
+          {/* ── RECURRING EXPENSE FIELDS ── */}
+          {isRecurring && (
+            <div style={{ background: "rgba(255,170,0,0.06)", border: "1px solid rgba(255,170,0,0.25)", borderRadius: "16px", padding: "20px", marginBottom: "22px" }}>
+              <div style={{ color: "#ffaa44", fontWeight: 700, fontSize: "1rem", marginBottom: "16px", textTransform: "uppercase", letterSpacing: "1px" }}>
+                🔁 Recurring Setup
               </div>
-            )}
-          </div>
+              <div style={{ marginBottom: "14px" }}>
+                <label style={labelStyle}>What is it for?</label>
+                <input value={recurringDescription} onChange={e => setRecurringDescription(e.target.value)} placeholder="e.g. Stadium lease, Staff salaries..." style={inputStyle} />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px", marginBottom: "14px" }}>
+                <div>
+                  <label style={labelStyle}>Daily Amount (€)</label>
+                  <input value={recurringDailyAmount} onChange={e => setRecurringDailyAmount(e.target.value)} type="number" min="0" placeholder="e.g. 50000" style={inputStyle} />
+                  {recurringDailyAmount && Number(recurringDailyAmount) > 0 && (
+                    <div style={{ color: "#ff6b6b", fontSize: "0.9rem", marginTop: "4px", fontWeight: 700 }}>
+                      −{formatAmount(Number(recurringDailyAmount))}/day
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label style={labelStyle}>Total Cap (€)</label>
+                  <input value={recurringTotalCap} onChange={e => setRecurringTotalCap(e.target.value)} type="number" min="0" placeholder="e.g. 5000000" style={inputStyle} />
+                  {recurringTotalCap && Number(recurringTotalCap) > 0 && (
+                    <div style={{ color: "#ffaa44", fontSize: "0.9rem", marginTop: "4px", fontWeight: 700 }}>
+                      Total: {formatAmount(Number(recurringTotalCap))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              {/* Auto-calculated dates */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
+                <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: "12px", padding: "14px 16px" }}>
+                  <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "4px" }}>Start Date</div>
+                  <div style={{ color: "#fff", fontWeight: 700, fontSize: "1rem" }}>
+                    {new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                  </div>
+                </div>
+                <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: "12px", padding: "14px 16px" }}>
+                  <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "4px" }}>End Date</div>
+                  <div style={{ color: getRecurringEndDate() ? "#00ff88" : "rgba(255,255,255,0.3)", fontWeight: 700, fontSize: "1rem" }}>
+                    {getRecurringEndDate() || "Set amounts above"}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── BROADCASTING / SHIRT SALES — Wikipedia ── */}
+          {needsWiki && !isRecurring && (
+            <div style={{ marginBottom: "22px" }}>
+              <label style={labelStyle}>{isBroadcasting ? "Broadcasting Revenue" : "Shirt Sales Revenue"}</label>
+              <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                <input
+                  value={amount}
+                  onChange={e => setAmount(e.target.value)}
+                  type="number"
+                  min="0"
+                  placeholder="Auto-filled from Wikipedia or enter manually"
+                  style={{ ...inputStyle, flex: 1 }}
+                />
+                <button
+                  onClick={() => { if (selectedTeam) setShowWiki(true); else setError("Select a team first."); }}
+                  style={{ padding: "18px 20px", background: "rgba(255,20,147,0.15)", border: "1px solid rgba(255,20,147,0.5)", borderRadius: "14px", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem", whiteSpace: "nowrap" }}
+                >
+                  🔍 Wiki Search
+                </button>
+              </div>
+              {amount && Number(amount) > 0 && (
+                <div style={{ marginTop: "8px", color: "#00ff88", fontSize: "1.1rem", fontWeight: 700 }}>
+                  +{formatAmount(Number(amount))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── STANDARD AMOUNT (non-wiki, non-recurring) ── */}
+          {!needsWiki && !isRecurring && (
+            <>
+              <div style={{ marginBottom: "22px" }}>
+                <label style={labelStyle}>Source <span style={{ color: "rgba(255,255,255,0.3)", fontWeight: 400, textTransform: "none" }}>(optional)</span></label>
+                <input value={source} onChange={e => setSource(e.target.value)} placeholder="e.g. Spotify, Nike, Club Name..." style={inputStyle} />
+              </div>
+              <div style={{ marginBottom: "28px" }}>
+                <label style={labelStyle}>Amount (€)</label>
+                <input value={amount} onChange={e => setAmount(e.target.value)} placeholder="e.g. 5000000" style={inputStyle} type="number" min="0" />
+                {amount && Number(amount) > 0 && (
+                  <div style={{ marginTop: "8px", color: txType === "income" ? "#00ff88" : "#ff6b6b", fontSize: "1.1rem", fontWeight: 700 }}>
+                    {txType === "income" ? "+" : "−"}{formatAmount(Number(amount))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* Source for wiki categories */}
+          {needsWiki && (
+            <div style={{ marginBottom: "22px" }}>
+              <label style={labelStyle}>Source <span style={{ color: "rgba(255,255,255,0.3)", fontWeight: 400, textTransform: "none" }}>(optional)</span></label>
+              <input value={source} onChange={e => setSource(e.target.value)} placeholder="e.g. Wikipedia, Official report..." style={inputStyle} />
+            </div>
+          )}
 
           {error && <div style={{ color: "#ff6b6b", fontSize: "1rem", marginBottom: "16px", padding: "14px", background: "rgba(255,0,0,0.1)", borderRadius: "12px" }}>{error}</div>}
 
           <div style={{ display: "flex", gap: "14px" }}>
-            <button onClick={handleSubmit} disabled={saving} style={{ flex: 1, padding: "18px", background: "#ffffff", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.2rem", cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}>
-              {saving ? "Applying..." : "✅ Apply Transaction"}
+            <button onClick={handleSubmit} disabled={saving} style={{ flex: 1, padding: "18px", background: "#ff1493", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.2rem", cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}>
+              {saving ? "Applying..." : isRecurring ? "🔁 Set Up Recurring" : "✅ Apply Transaction"}
             </button>
             <button onClick={onClose} style={{ flex: 1, padding: "18px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "14px", color: "#fff", cursor: "pointer", fontSize: "1.2rem" }}>Cancel</button>
           </div>
         </>
       )}
+
+      {/* Wikipedia Modal */}
+      {showWiki && (
+        <WikiSearchModal
+          mode={isBroadcasting ? "broadcasting" : "shirt_sales"}
+          team={selectedTeam}
+          onConfirm={amt => { setAmount(String(amt)); setShowWiki(false); }}
+          onClose={() => setShowWiki(false)}
+        />
+      )}
     </div>
   );
 }
 
-// ─── ADMIN TEAM SELECTOR (full page) ─────────────────────────────────────
+// ─── ADMIN TEAM SELECTOR ──────────────────────────────────────────────────
 function AdminTeamSelector({ onSelect }) {
   const [teams, setTeams] = useState([]);
   const [selected, setSelected] = useState("");
@@ -233,7 +518,7 @@ function AdminTeamSelector({ onSelect }) {
       <button
         onClick={() => selected && onSelect(selected)}
         disabled={!selected}
-        style={{ width: "100%", padding: "16px", background: selected ? "#ffffff" : "rgba(255,20,147,0.2)", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.1rem", cursor: selected ? "pointer" : "not-allowed" }}
+        style={{ width: "100%", padding: "16px", background: selected ? "#ff1493" : "rgba(255,20,147,0.2)", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.1rem", cursor: selected ? "pointer" : "not-allowed" }}
       >
         View Team Dashboard →
       </button>
@@ -241,7 +526,7 @@ function AdminTeamSelector({ onSelect }) {
   );
 }
 
-// ─── UPGRADE STADIUM POPUP ──────────────────────────────────────────────
+// ─── UPGRADE STADIUM POPUP ─────────────────────────────────────────────────
 function UpgradeStadiumPopup({ team, onClose }) {
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
@@ -293,7 +578,7 @@ function UpgradeStadiumPopup({ team, onClose }) {
             </div>
             {error && <div style={{ color: "#ff6b6b", fontSize: "0.95rem", marginBottom: "14px", padding: "12px", background: "rgba(255,0,0,0.1)", borderRadius: "10px" }}>{error}</div>}
             <div style={{ display: "flex", gap: "12px" }}>
-              <button onClick={handleSend} disabled={sending} style={{ flex: 1, padding: "16px", background: "#ffffff", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.1rem", cursor: sending ? "not-allowed" : "pointer" }}>
+              <button onClick={handleSend} disabled={sending} style={{ flex: 1, padding: "16px", background: "#ff1493", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.1rem", cursor: sending ? "not-allowed" : "pointer" }}>
                 {sending ? "Sending..." : "💸 Send Request"}
               </button>
               <button onClick={onClose} style={{ flex: 1, padding: "16px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "14px", color: "#fff", cursor: "pointer", fontSize: "1.1rem" }}>Cancel</button>
@@ -305,17 +590,21 @@ function UpgradeStadiumPopup({ team, onClose }) {
   );
 }
 
-// ─── STADIUM TAB (doubled fonts/padding) ──────────────────────────────
+// ─── STADIUM TAB ──────────────────────────────────────────────────────────
 function StadiumTab({ team, isAdmin, onEditStadium }) {
   const [data, setData] = useState(null);
   const [slideIdx, setSlideIdx] = useState(0);
   const [showUpgrade, setShowUpgrade] = useState(false);
+  const [underConstruction, setUnderConstruction] = useState(false);
+  const [savingConstruction, setSavingConstruction] = useState(false);
   const timerRef = useRef(null);
 
   useEffect(() => {
     if (!team) return;
     const unsub = onValue(ref(db, `career_team_management/${team}/stadium`), snap => {
-      setData(snap.val());
+      const d = snap.val();
+      setData(d);
+      setUnderConstruction(d?.underConstruction || false);
     });
     return () => unsub();
   }, [team]);
@@ -326,13 +615,25 @@ function StadiumTab({ team, isAdmin, onEditStadium }) {
     return () => clearInterval(timerRef.current);
   }, [data?.images?.length]);
 
+  async function toggleConstruction() {
+    setSavingConstruction(true);
+    try {
+      await update(ref(db, `career_team_management/${team}/stadium`), {
+        underConstruction: !underConstruction,
+      });
+    } catch (e) {
+      console.error(e);
+    }
+    setSavingConstruction(false);
+  }
+
   if (!data) return (
     <div style={{ textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.3)" }}>
       <div style={{ fontSize: "4rem", marginBottom: "16px" }}>🏟️</div>
       <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "4rem", letterSpacing: "3px" }}>No Stadium Data Yet</div>
       <div style={{ fontSize: "2rem", marginTop: "10px" }}>Admin can set up the stadium using the + menu.</div>
       {isAdmin && (
-        <button onClick={onEditStadium} style={{ marginTop: "24px", padding: "16px 32px", background: "#ffffff", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.2rem", cursor: "pointer" }}>
+        <button onClick={onEditStadium} style={{ marginTop: "24px", padding: "16px 32px", background: "#ff1493", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.2rem", cursor: "pointer" }}>
           🏟️ Set Up Stadium
         </button>
       )}
@@ -344,7 +645,21 @@ function StadiumTab({ team, isAdmin, onEditStadium }) {
   return (
     <div style={{ width: "100%" }}>
       {isAdmin && (
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "16px" }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px", marginBottom: "16px", flexWrap: "wrap" }}>
+          {/* Under Construction toggle */}
+          <button
+            onClick={toggleConstruction}
+            disabled={savingConstruction}
+            style={{
+              padding: "12px 24px",
+              background: underConstruction ? "rgba(255,170,0,0.2)" : "rgba(255,255,255,0.06)",
+              border: `1px solid ${underConstruction ? "rgba(255,170,0,0.6)" : "rgba(255,255,255,0.2)"}`,
+              borderRadius: "12px", color: underConstruction ? "#ffaa44" : "#fff",
+              fontWeight: 700, fontSize: "1.1rem", cursor: "pointer",
+            }}
+          >
+            🏗️ {underConstruction ? "Remove Construction" : "Set Under Construction"}
+          </button>
           <button onClick={onEditStadium} style={{ padding: "12px 24px", background: "rgba(255,20,147,0.15)", border: "1px solid rgba(255,20,147,0.5)", borderRadius: "12px", color: "#ffffff", fontWeight: 700, fontSize: "1.1rem", cursor: "pointer" }}>
             ✏️ Edit Stadium
           </button>
@@ -386,6 +701,13 @@ function StadiumTab({ team, isAdmin, onEditStadium }) {
             Capacity: <span style={{ color: "#fff", fontWeight: 700, fontSize: "2rem" }}>{Number(data.capacity).toLocaleString()}</span>
           </div>
         )}
+        {/* ── Under Construction badge ── */}
+        {underConstruction && (
+          <div style={{ marginTop: "10px", display: "inline-flex", alignItems: "center", gap: "8px", background: "rgba(255,170,0,0.12)", border: "1px solid rgba(255,170,0,0.4)", borderRadius: "20px", padding: "8px 20px" }}>
+            <span style={{ fontSize: "1.4rem" }}>🏗️</span>
+            <span style={{ color: "#ffaa44", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", letterSpacing: "2px" }}>STADIUM UNDER CONSTRUCTION</span>
+          </div>
+        )}
       </div>
 
       <div style={{ ...GLASS, borderRadius: "20px", overflow: "hidden", marginBottom: "28px" }}>
@@ -420,7 +742,7 @@ function StadiumTab({ team, isAdmin, onEditStadium }) {
   );
 }
 
-// ─── SQUAD TAB WRAPPER ───────────────────────────────────────────────────
+// ─── SQUAD TAB WRAPPER ────────────────────────────────────────────────────
 function SquadTabWrapper({ team, isAdmin, onEditSquad }) {
   return (
     <div style={{ textAlign: "center", padding: "60px 20px" }}>
@@ -428,7 +750,7 @@ function SquadTabWrapper({ team, isAdmin, onEditSquad }) {
       <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3rem", letterSpacing: "3px", color: "#fff" }}>Squad Management</div>
       <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.2rem", marginTop: "10px" }}>Click "TEAM" tab or visit the Squad page.</div>
       {isAdmin && (
-        <button onClick={onEditSquad} style={{ marginTop: "24px", padding: "16px 32px", background: "#ffffff", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.2rem", cursor: "pointer" }}>
+        <button onClick={onEditSquad} style={{ marginTop: "24px", padding: "16px 32px", background: "#ff1493", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.2rem", cursor: "pointer" }}>
           ✏️ Edit Squad
         </button>
       )}
@@ -436,10 +758,11 @@ function SquadTabWrapper({ team, isAdmin, onEditSquad }) {
   );
 }
 
-// ─── TRANSFERS TAB (doubled fonts/padding) ─────────────────────────────
-function TransfersTab({ team, teamIcons }) {
+// ─── TRANSFERS TAB ─────────────────────────────────────────────────────────
+function TransfersTab({ team, teamIcons, isAdmin }) {
   const [negotiations, setNegotiations] = useState([]);
   const [selectedOffer, setSelectedOffer] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
 
   useEffect(() => {
     if (!team) return;
@@ -452,13 +775,24 @@ function TransfersTab({ team, teamIcons }) {
     return () => unsub();
   }, [team]);
 
+  async function handleDelete(offerId) {
+    if (!window.confirm("Delete this offer permanently?")) return;
+    setDeletingId(offerId);
+    try {
+      await remove(ref(db, `${PATHS.transfers}/negotiations/${offerId}`));
+    } catch (e) {
+      console.error(e);
+    }
+    setDeletingId(null);
+  }
+
   const offersReceived = negotiations.filter(n => n.toClub === team || n.playerClub === team);
   const offersSent = negotiations.filter(n => n.fromClub === team);
 
   const BlockHeader = ({ title, count, color }) => (
-    <div style={{ color, fontFamily: "'Bebas Neue', sans-serif", fontSize: "4rem", letterSpacing: "3px", marginBottom: "20px", display: "flex", alignItems: "center", gap: "12px" }}>
+    <div style={{ color, fontFamily: "'Bebas Neue', sans-serif", fontSize: "3rem", letterSpacing: "3px", marginBottom: "20px", display: "flex", alignItems: "center", gap: "12px" }}>
       {title}
-      <span style={{ background: `${color}22`, border: `1px solid ${color}`, color, borderRadius: "20px", padding: "4px 28px", fontSize: "2.4rem" }}>{count}</span>
+      <span style={{ background: `${color}22`, border: `1px solid ${color}`, color, borderRadius: "20px", padding: "4px 28px", fontSize: "2rem" }}>{count}</span>
     </div>
   );
 
@@ -472,26 +806,45 @@ function TransfersTab({ team, teamIcons }) {
   return (
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "28px" }}>
+        {/* Offers Received */}
         <div style={{ ...GLASS, borderRadius: "20px", padding: "28px" }}>
           <BlockHeader title="📥 OFFERS RECEIVED" count={offersReceived.length} color="#00ff88" />
           {offersReceived.length === 0 ? (
             <EmptyState label="No Offers Received" />
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "16px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               {offersReceived.map(offer => (
-                <NegotiationGridCard key={offer.id} offer={offer} teamIcons={teamIcons} onClick={() => setSelectedOffer(offer)} />
+                <NegotiationRowCard
+                  key={offer.id}
+                  offer={offer}
+                  teamIcons={teamIcons}
+                  onClick={() => setSelectedOffer(offer)}
+                  isAdmin={isAdmin}
+                  onDelete={() => handleDelete(offer.id)}
+                  deleting={deletingId === offer.id}
+                />
               ))}
             </div>
           )}
         </div>
+
+        {/* Offers Sent */}
         <div style={{ ...GLASS, borderRadius: "20px", padding: "28px" }}>
           <BlockHeader title="📤 OFFERS SENT" count={offersSent.length} color="#ffffff" />
           {offersSent.length === 0 ? (
             <EmptyState label="No Offers Sent" />
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "16px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               {offersSent.map(offer => (
-                <NegotiationGridCard key={offer.id} offer={offer} teamIcons={teamIcons} onClick={() => setSelectedOffer(offer)} />
+                <NegotiationRowCard
+                  key={offer.id}
+                  offer={offer}
+                  teamIcons={teamIcons}
+                  onClick={() => setSelectedOffer(offer)}
+                  isAdmin={isAdmin}
+                  onDelete={() => handleDelete(offer.id)}
+                  deleting={deletingId === offer.id}
+                />
               ))}
             </div>
           )}
@@ -503,57 +856,75 @@ function TransfersTab({ team, teamIcons }) {
   );
 }
 
-// ─── NEGOTIATION CARD ──────────────────────────────────────────────────
-function NegotiationGridCard({ offer, teamIcons, onClick }) {
+// ─── NEGOTIATION ROW CARD (1 per row, full width) ─────────────────────────
+function NegotiationRowCard({ offer, teamIcons, onClick, isAdmin, onDelete, deleting }) {
   const statusColors = { pending: "#ffaa44", accepted: "#00ff88", rejected: "#ff6b6b", cancelled: "#aaaaaa" };
   const statusColor = statusColors[offer.status] || "#ffaa44";
   const clubLogo = teamIcons?.[offer.playerClub] || teamIcons?.[offer.fromClub];
+  const typeColor = offer.type === "buy" ? "#ff1493" : offer.type === "loan" ? "#44aaff" : "#ffaa44";
 
   return (
-    <div
+    <div style={{
+      background: "rgba(255,255,255,0.04)",
+      border: "1px solid rgba(255,20,147,0.18)",
+      borderRadius: "16px",
+      overflow: "hidden",
+      display: "flex",
+      alignItems: "center",
+      gap: "16px",
+      padding: "16px 20px",
+      transition: "all 0.2s",
+      cursor: "pointer",
+    }}
+      onMouseOver={e => { e.currentTarget.style.background = "rgba(255,20,147,0.08)"; e.currentTarget.style.borderColor = "rgba(255,20,147,0.5)"; }}
+      onMouseOut={e => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; e.currentTarget.style.borderColor = "rgba(255,20,147,0.18)"; }}
       onClick={onClick}
-      style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,20,147,0.18)", borderRadius: "20px", overflow: "hidden", cursor: "pointer", transition: "all 0.25s", display: "flex", flexDirection: "column" }}
-      onMouseOver={e => { e.currentTarget.style.background = "rgba(255,20,147,0.08)"; e.currentTarget.style.borderColor = "rgba(255,20,147,0.5)"; e.currentTarget.style.transform = "translateY(-4px)"; }}
-      onMouseOut={e => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; e.currentTarget.style.borderColor = "rgba(255,20,147,0.18)"; e.currentTarget.style.transform = "translateY(0)"; }}
     >
-      <div style={{ width: "100%", aspectRatio: "1/1", background: "rgba(0,0,0,0.3)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative" }}>
-        <div style={{ width: "70%", height: "70%" }}>
-          <ShirtSVGSmall clubName={offer.playerClub} playerName={offer.playerName} squadNumber={null} />
+      {/* Club logo / shirt */}
+      <div style={{ width: "56px", height: "56px", flexShrink: 0 }}>
+        {clubLogo
+          ? <img src={clubLogo} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+          : <ShirtSVGSmall clubName={offer.playerClub} playerName={offer.playerName} squadNumber={null} />
+        }
+      </div>
+
+      {/* Info */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ color: "#fff", fontWeight: 800, fontSize: "1.1rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{offer.playerName}</div>
+        <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", marginTop: "2px" }}>
+          {offer.playerClub} · <span style={{ color: "rgba(255,255,255,0.7)" }}>From: {offer.fromClub || offer.fromManagerName}</span>
         </div>
-        <div style={{ position: "absolute", top: "10px", left: "10px", background: `${statusColor}33`, border: `1px solid ${statusColor}`, borderRadius: "8px", padding: "4px 10px", color: statusColor, fontSize: "1.7rem", fontWeight: 700, textTransform: "uppercase" }}>
-          {offer.status}
-        </div>
-        <div style={{ position: "absolute", top: "10px", right: "10px", background: offer.type === "buy" ? "rgba(255,20,147,0.8)" : offer.type === "loan" ? "rgba(0,150,255,0.8)" : "rgba(255,170,0,0.8)", borderRadius: "8px", padding: "4px 10px", color: "#fff", fontSize: "1.7rem", fontWeight: 700, textTransform: "uppercase" }}>
-          {offer.type}
+        <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.2rem", letterSpacing: "1px", marginTop: "4px" }}>
+          {offer.offerAmount || offer.loanAmount || offer.bidAmount || "—"}
         </div>
       </div>
 
-      <div style={{ padding: "16px", flex: 1, display: "flex", flexDirection: "column", gap: "8px" }}>
-        <div style={{ color: "#fff", fontWeight: 800, fontSize: "2.4rem", lineHeight: 1.2 }}>{offer.playerName}</div>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          {clubLogo ? <img src={clubLogo} alt="" style={{ width: "40px", height: "40px", objectFit: "contain" }} /> : <span style={{ fontSize: "2rem" }}>⚽</span>}
-          <span style={{ color: "rgba(255,255,255,0.55)", fontSize: "2rem" }}>{offer.playerClub}</span>
-        </div>
-        <div style={{ color: "#ffffff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.2rem", letterSpacing: "1px" }}>
-          {offer.offerAmount || offer.loanAmount || offer.bidAmount || "—"}
-        </div>
-        <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.8rem" }}>
-          From: <span style={{ color: "rgba(255,255,255,0.7)" }}>{offer.fromClub || offer.fromManagerName}</span>
-        </div>
-        <button
-          onClick={e => { e.stopPropagation(); onClick(); }}
-          style={{ marginTop: "auto", padding: "12px", background: "rgba(255,20,147,0.12)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: "12px", color: "#ffffff", fontWeight: 700, fontSize: "2rem", cursor: "pointer", transition: "all 0.2s" }}
-          onMouseOver={e => { e.currentTarget.style.background = "#ffffff"; e.currentTarget.style.color = "#fff"; }}
-          onMouseOut={e => { e.currentTarget.style.background = "rgba(255,20,147,0.12)"; e.currentTarget.style.color = "#ffffff"; }}
-        >
-          View Offer →
-        </button>
+      {/* Badges */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-end" }}>
+        <span style={{ background: `${typeColor}22`, color: typeColor, border: `1px solid ${typeColor}`, borderRadius: "8px", padding: "3px 10px", fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase" }}>
+          {offer.type}
+        </span>
+        <span style={{ background: `${statusColor}22`, color: statusColor, border: `1px solid ${statusColor}`, borderRadius: "8px", padding: "3px 10px", fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase" }}>
+          {offer.status}
+        </span>
       </div>
+
+      {/* Admin delete */}
+      {isAdmin && (
+        <button
+          onClick={e => { e.stopPropagation(); onDelete(); }}
+          disabled={deleting}
+          style={{ marginLeft: "8px", width: "36px", height: "36px", background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.4)", borderRadius: "10px", color: "#ff6b6b", cursor: "pointer", fontSize: "1rem", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+          title="Delete offer"
+        >
+          {deleting ? "..." : "🗑️"}
+        </button>
+      )}
     </div>
   );
 }
 
-// ─── NEGOTIATION DETAIL POPUP ──────────────────────────────────────────
+// ─── NEGOTIATION DETAIL POPUP ─────────────────────────────────────────────
 function NegotiationDetailPopup({ offer, onClose }) {
   if (!offer) return null;
   const statusColors = { pending: "#ffaa44", accepted: "#00ff88", rejected: "#ff6b6b" };
@@ -562,11 +933,11 @@ function NegotiationDetailPopup({ offer, onClose }) {
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }} onClick={onClose}>
       <div style={{ ...GLASS, borderRadius: "24px", padding: "36px", maxWidth: "520px", width: "100%", position: "relative" }} onClick={e => e.stopPropagation()}>
         <button onClick={onClose} style={{ position: "absolute", top: "16px", right: "16px", background: "rgba(255,255,255,0.1)", border: "none", color: "#fff", borderRadius: "50%", width: "36px", height: "36px", cursor: "pointer", fontSize: "1.1rem" }}>✕</button>
-        <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "4.8rem", letterSpacing: "2px", marginBottom: "6px" }}>{offer.playerName}</div>
-        <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "2.2rem", marginBottom: "20px" }}>{offer.playerClub}</div>
+        <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3rem", letterSpacing: "2px", marginBottom: "6px" }}>{offer.playerName}</div>
+        <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.2rem", marginBottom: "20px" }}>{offer.playerClub}</div>
         <div style={{ display: "flex", gap: "10px", marginBottom: "20px", flexWrap: "wrap" }}>
-          <span style={{ background: offer.type === "buy" ? "rgba(255,20,147,0.2)" : offer.type === "loan" ? "rgba(0,150,255,0.2)" : "rgba(255,170,0,0.2)", color: offer.type === "buy" ? "#ffffff" : offer.type === "loan" ? "#44aaff" : "#ffaa44", padding: "6px 16px", borderRadius: "20px", fontSize: "2rem", fontWeight: 700, textTransform: "uppercase" }}>{offer.type}</span>
-          <span style={{ background: `${statusColor}22`, color: statusColor, padding: "6px 16px", borderRadius: "20px", fontSize: "2rem", fontWeight: 700, textTransform: "uppercase" }}>{offer.status}</span>
+          <span style={{ background: offer.type === "buy" ? "rgba(255,20,147,0.2)" : offer.type === "loan" ? "rgba(0,150,255,0.2)" : "rgba(255,170,0,0.2)", color: offer.type === "buy" ? "#ffffff" : offer.type === "loan" ? "#44aaff" : "#ffaa44", padding: "6px 16px", borderRadius: "20px", fontSize: "1rem", fontWeight: 700, textTransform: "uppercase" }}>{offer.type}</span>
+          <span style={{ background: `${statusColor}22`, color: statusColor, padding: "6px 16px", borderRadius: "20px", fontSize: "1rem", fontWeight: 700, textTransform: "uppercase" }}>{offer.status}</span>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
           {[
@@ -577,11 +948,11 @@ function NegotiationDetailPopup({ offer, onClose }) {
             offer.contractLength && ["Contract", offer.contractLength],
             offer.loanTerm && ["Loan Term", offer.loanTerm],
             offer.wage && ["Wage", offer.wage],
-            ["Date", offer.createdAt ? new Date(offer.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—"],
+            ["Sent", offer.createdAt ? formatDateTime(offer.createdAt) : "—"],
           ].filter(Boolean).map(([label, value]) => (
             <div key={label} style={{ background: "rgba(255,255,255,0.05)", borderRadius: "12px", padding: "14px 16px" }}>
-              <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.8rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "6px" }}>{label}</div>
-              <div style={{ color: "#fff", fontWeight: 700, fontSize: "2.2rem" }}>{value || "—"}</div>
+              <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "6px" }}>{label}</div>
+              <div style={{ color: "#fff", fontWeight: 700, fontSize: "1rem" }}>{value || "—"}</div>
             </div>
           ))}
         </div>
@@ -590,7 +961,7 @@ function NegotiationDetailPopup({ offer, onClose }) {
   );
 }
 
-// ─── SHIRT SVG ─────────────────────────────────────────────────────────
+// ─── SHIRT SVG ─────────────────────────────────────────────────────────────
 function ShirtSVGSmall({ clubName, playerName, squadNumber }) {
   const colors = { primary: "#ffffff", secondary: "#000033", text: "#fff" };
   const num = squadNumber || "?";
@@ -614,12 +985,12 @@ function ShirtSVGSmall({ clubName, playerName, squadNumber }) {
   );
 }
 
-// ─── FINANCE TAB ─────────────────────────────────────────────────────────
+// ─── FINANCE TAB ──────────────────────────────────────────────────────────
 function FinanceTab({ team, isAdmin }) {
   const [transactions, setTransactions] = useState([]);
+  const [recurringList, setRecurringList] = useState([]);
   const [selectedTx, setSelectedTx] = useState(null);
   const [showFilterModal, setShowFilterModal] = useState(false);
-  // Default filter: last 30 days
   const [dateFilter, setDateFilter] = useState({ days: 30, from: null, to: null });
   const currentMonthIndex = getSASTMonthIndex();
   const scrollRef = useRef(null);
@@ -637,12 +1008,24 @@ function FinanceTab({ team, isAdmin }) {
     return () => unsub();
   }, [team]);
 
-  // ── Compute filtered transactions for stats blocks ──────────────────
+  useEffect(() => {
+    if (!team || !isAdmin) return;
+    const unsub = onValue(ref(db, `career_team_management/${team}/finance/recurring`), snap => {
+      const data = snap.val();
+      if (data) {
+        setRecurringList(Object.entries(data).map(([id, r]) => ({ id, ...r })));
+      } else {
+        setRecurringList([]);
+      }
+    });
+    return () => unsub();
+  }, [team, isAdmin]);
+
   function getFilteredTxs() {
-    if (dateFilter.days === null && !dateFilter.from) return transactions; // All Time
+    if (dateFilter.days === null && !dateFilter.from) return transactions;
     const now = Date.now();
     return transactions.filter(tx => {
-      if (!tx.createdAt) return true; // no timestamp → include
+      if (!tx.createdAt) return true;
       if (dateFilter.days !== null) {
         return tx.createdAt >= now - dateFilter.days * 24 * 60 * 60 * 1000;
       }
@@ -652,12 +1035,8 @@ function FinanceTab({ team, isAdmin }) {
 
   const filteredTxs = getFilteredTxs();
 
-  // ── Filter label for display ────────────────────────────────────────
   function getFilterLabel() {
-    if (dateFilter.days !== null) {
-      if (dateFilter.days === null) return "All Time";
-      return `Last ${dateFilter.days} Days`;
-    }
+    if (dateFilter.days !== null) return `Last ${dateFilter.days} Days`;
     if (!dateFilter.from) return "All Time";
     const fmt = d => d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
     return `${fmt(dateFilter.from)} – ${fmt(dateFilter.to)}`;
@@ -693,7 +1072,6 @@ function FinanceTab({ team, isAdmin }) {
     scrollRef.current.scrollLeft = Math.max(0, scrollTo);
   }, [currentMonthIndex]);
 
-  // ── Totals based on filtered transactions ───────────────────────────
   const incomeTotals = {};
   const expenseTotals = {};
   INCOME_CATEGORIES.forEach(c => {
@@ -708,12 +1086,20 @@ function FinanceTab({ team, isAdmin }) {
   const netPL = totalIncome - totalExpense;
   const isProfit = netPL >= 0;
 
+  async function handleDeleteRecurring(rid) {
+    if (!window.confirm("Stop and delete this recurring transaction?")) return;
+    try {
+      await remove(ref(db, `career_team_management/${team}/finance/recurring/${rid}`));
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
   return (
     <div>
-      {/* ── Chart block (always all-time) ───────────────────────────── */}
+      {/* ── Chart ── */}
       <div style={{ ...GLASS, borderRadius: "20px", padding: "64px", marginBottom: "40px" }}>
         <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.6rem", letterSpacing: "3px", marginBottom: "40px" }}>📈 FINANCIAL OVERVIEW</div>
-
         <div ref={scrollRef} style={{ width: "100%", overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: "16px" }}>
           <div style={{ minWidth: `${12 * 120 + 11 * 8 + 80}px`, position: "relative", height: `${barAreaH + 80}px` }}>
             {[0, 25, 50, 75, 100].map(pct => {
@@ -737,15 +1123,15 @@ function FinanceTab({ team, isAdmin }) {
                 return (
                   <div key={month} style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: "0 0 120px" }}>
                     <div style={{ display: "flex", alignItems: "flex-end", gap: "10px", height: `${barAreaH}px` }}>
-                      <div style={{ flex: 1, height: `${Math.max(incH, 0)}px`, minWidth: "36px", background: isFuture ? "rgba(255,255,255,0.04)" : "linear-gradient(to top, #ffffff, #ff69b4)", borderRadius: "8px 8px 0 0", border: isFuture ? "1px dashed rgba(255,255,255,0.1)" : isActive ? "3px solid #fff" : "none", boxShadow: isActive ? "0 0 20px rgba(255,20,147,0.8)" : "none", position: "relative", transition: "height 0.5s" }}>
-                        {incH > 20 && <div style={{ position: "absolute", top: "-30px", left: "50%", transform: "translateX(-50%)", color: "#ffffff", fontSize: "1.2rem", fontWeight: 700, whiteSpace: "nowrap" }}>{formatAmount(d.income)}</div>}
+                      <div style={{ flex: 1, height: `${Math.max(incH, 0)}px`, minWidth: "36px", background: isFuture ? "rgba(255,255,255,0.04)" : "linear-gradient(to top, #ff1493, #ff69b4)", borderRadius: "8px 8px 0 0", border: isFuture ? "1px dashed rgba(255,255,255,0.1)" : isActive ? "3px solid #fff" : "none", boxShadow: isActive ? "0 0 20px rgba(255,20,147,0.8)" : "none", position: "relative", transition: "height 0.5s" }}>
+                        {incH > 20 && <div style={{ position: "absolute", top: "-30px", left: "50%", transform: "translateX(-50%)", color: "#ff1493", fontSize: "1.2rem", fontWeight: 700, whiteSpace: "nowrap" }}>{formatAmount(d.income)}</div>}
                       </div>
                       <div style={{ flex: 1, height: `${Math.max(expH, 0)}px`, minWidth: "36px", background: isFuture ? "rgba(255,255,255,0.04)" : "linear-gradient(to top, #000033, #001a66)", borderRadius: "8px 8px 0 0", border: isFuture ? "1px dashed rgba(255,255,255,0.1)" : isActive ? "3px solid #fff" : "1px solid rgba(0,100,255,0.4)", boxShadow: isActive ? "0 0 20px rgba(0,100,255,0.8)" : "none", position: "relative", transition: "height 0.5s" }}>
                         {expH > 20 && <div style={{ position: "absolute", top: "-30px", left: "50%", transform: "translateX(-50%)", color: "#4488ff", fontSize: "1.2rem", fontWeight: 700, whiteSpace: "nowrap" }}>{formatAmount(d.expense)}</div>}
                       </div>
                     </div>
                     <div style={{ color: isFuture ? "rgba(255,255,255,0.2)" : isActive ? "#fff" : "rgba(255,255,255,0.5)", fontSize: isActive ? "2rem" : "1.6rem", fontWeight: isActive ? 900 : 700, marginTop: "12px" }}>
-                      {month}{isActive && <span style={{ fontSize: "1.2rem", marginLeft: "6px", color: "#ffffff" }}>⬅️</span>}
+                      {month}{isActive && <span style={{ fontSize: "1.2rem", marginLeft: "6px", color: "#ff1493" }}>⬅️</span>}
                     </div>
                     {isFuture && <div style={{ color: "rgba(255,255,255,0.15)", fontSize: "1rem", marginTop: "2px" }}>upcoming</div>}
                   </div>
@@ -754,10 +1140,9 @@ function FinanceTab({ team, isAdmin }) {
             </div>
           </div>
         </div>
-
         <div style={{ display: "flex", gap: "36px", justifyContent: "center", marginTop: "32px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <div style={{ width: "28px", height: "28px", background: "#ffffff", borderRadius: "6px" }} />
+            <div style={{ width: "28px", height: "28px", background: "#ff1493", borderRadius: "6px" }} />
             <span style={{ color: "rgba(255,255,255,0.7)", fontSize: "1.6rem", fontWeight: 600 }}>Income</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
@@ -767,31 +1152,13 @@ function FinanceTab({ team, isAdmin }) {
         </div>
       </div>
 
-      {/* ── Net Profit / Loss banner ─────────────────────────────────── */}
-      <div style={{
-        ...GLASS,
-        borderRadius: "20px",
-        padding: "36px 48px",
-        marginBottom: "20px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        border: `1px solid ${isProfit ? "rgba(0,255,136,0.3)" : "rgba(255,107,107,0.3)"}`,
-        background: isProfit ? "rgba(0,255,136,0.05)" : "rgba(255,107,107,0.05)",
-        flexWrap: "wrap",
-        gap: "16px",
-      }}>
+      {/* ── Net P/L ── */}
+      <div style={{ ...GLASS, borderRadius: "20px", padding: "36px 48px", marginBottom: "20px", display: "flex", alignItems: "center", justifyContent: "space-between", border: `1px solid ${isProfit ? "rgba(0,255,136,0.3)" : "rgba(255,107,107,0.3)"}`, background: isProfit ? "rgba(0,255,136,0.05)" : "rgba(255,107,107,0.05)", flexWrap: "wrap", gap: "16px" }}>
         <div>
           <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.2rem", textTransform: "uppercase", letterSpacing: "2px", fontWeight: 700, marginBottom: "6px" }}>
             Net {isProfit ? "Profit" : "Loss"} · {getFilterLabel()}
           </div>
-          <div style={{
-            fontFamily: "'Bebas Neue', sans-serif",
-            fontSize: "clamp(2.4rem, 6vw, 4rem)",
-            letterSpacing: "3px",
-            color: isProfit ? "#00ff88" : "#ff6b6b",
-            textShadow: isProfit ? "0 0 20px rgba(0,255,136,0.4)" : "0 0 20px rgba(255,107,107,0.4)",
-          }}>
+          <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "clamp(2.4rem, 6vw, 4rem)", letterSpacing: "3px", color: isProfit ? "#00ff88" : "#ff6b6b", textShadow: isProfit ? "0 0 20px rgba(0,255,136,0.4)" : "0 0 20px rgba(255,107,107,0.4)" }}>
             {isProfit ? "+" : "−"}{formatAmount(Math.abs(netPL))}
           </div>
         </div>
@@ -807,34 +1174,19 @@ function FinanceTab({ team, isAdmin }) {
         </div>
       </div>
 
-      {/* ── Date Filter button ───────────────────────────────────────── */}
+      {/* ── Date Filter ── */}
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "28px" }}>
-        <button
-          onClick={() => setShowFilterModal(true)}
-          style={{
-            display: "flex", alignItems: "center", gap: "10px",
-            padding: "14px 24px",
-            background: "rgba(255,20,147,0.1)",
-            border: "1px solid rgba(255,20,147,0.4)",
-            borderRadius: "14px",
-            color: "#ffffff",
-            fontWeight: 700,
-            fontSize: "1.1rem",
-            cursor: "pointer",
-            transition: "all 0.2s",
-          }}
+        <button onClick={() => setShowFilterModal(true)} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "14px 24px", background: "rgba(255,20,147,0.1)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: "14px", color: "#ffffff", fontWeight: 700, fontSize: "1.1rem", cursor: "pointer", transition: "all 0.2s" }}
           onMouseOver={e => { e.currentTarget.style.background = "rgba(255,20,147,0.2)"; }}
-          onMouseOut={e => { e.currentTarget.style.background = "rgba(255,20,147,0.1)"; }}
-        >
+          onMouseOut={e => { e.currentTarget.style.background = "rgba(255,20,147,0.1)"; }}>
           📅 {getFilterLabel()} ▾
         </button>
       </div>
 
-      {/* ── Income & Expense blocks ──────────────────────────────────── */}
+      {/* ── Income & Expense blocks ── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "28px", marginBottom: "40px" }}>
-        {/* Income */}
         <div style={{ ...GLASS, borderRadius: "20px", padding: "48px" }}>
-          <div style={{ color: "#ffffff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "2px", marginBottom: "28px" }}>💰 INCOME</div>
+          <div style={{ color: "#ff1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "2px", marginBottom: "28px" }}>💰 INCOME</div>
           <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.2rem", letterSpacing: "1px", marginBottom: "24px" }}>Total: {formatAmount(totalIncome)}</div>
           {INCOME_CATEGORIES.map(label => (
             <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
@@ -846,7 +1198,6 @@ function FinanceTab({ team, isAdmin }) {
           ))}
         </div>
 
-        {/* Expenses — no click action for managers */}
         <div style={{ ...GLASS, borderRadius: "20px", padding: "48px" }}>
           <div style={{ color: "#4488ff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "2px", marginBottom: "28px" }}>📤 EXPENSES</div>
           <div style={{ color: "#ff6b6b", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.2rem", letterSpacing: "1px", marginBottom: "24px" }}>Total: {formatAmount(totalExpense)}</div>
@@ -861,7 +1212,51 @@ function FinanceTab({ team, isAdmin }) {
         </div>
       </div>
 
-      {/* ── Transaction History ──────────────────────────────────────── */}
+      {/* ── Active Recurring Transactions (Admin) ── */}
+      {isAdmin && recurringList.length > 0 && (
+        <div style={{ ...GLASS, borderRadius: "20px", padding: "48px", marginBottom: "40px" }}>
+          <div style={{ color: "#ffaa44", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "3px", marginBottom: "28px" }}>🔁 RECURRING TRANSACTIONS</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            {recurringList.map(rec => {
+              const linkedTxs = transactions.filter(t => t.recurringId === rec.id);
+              const totalDebited = linkedTxs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+              const progress = Math.min((totalDebited / rec.totalCap) * 100, 100);
+              return (
+                <div key={rec.id} style={{ background: "rgba(255,170,0,0.06)", border: "1px solid rgba(255,170,0,0.2)", borderRadius: "16px", padding: "20px 24px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "12px" }}>
+                    <div>
+                      <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.1rem" }}>{rec.description}</div>
+                      <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.85rem", marginTop: "4px" }}>
+                        {formatAmount(rec.dailyAmount)}/day · Total cap: {formatAmount(rec.totalCap)}
+                      </div>
+                      <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "0.8rem", marginTop: "2px" }}>
+                        {rec.startDate} → {rec.endDate}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <span style={{ background: rec.status === "completed" ? "rgba(0,255,136,0.15)" : "rgba(255,170,0,0.15)", color: rec.status === "completed" ? "#00ff88" : "#ffaa44", border: `1px solid ${rec.status === "completed" ? "rgba(0,255,136,0.4)" : "rgba(255,170,0,0.4)"}`, borderRadius: "8px", padding: "4px 12px", fontSize: "0.8rem", fontWeight: 700, textTransform: "uppercase" }}>
+                        {rec.status}
+                      </span>
+                      <button onClick={() => handleDeleteRecurring(rec.id)} style={{ width: "32px", height: "32px", background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.4)", borderRadius: "8px", color: "#ff6b6b", cursor: "pointer", fontSize: "0.9rem" }}>
+                        🗑️
+                      </button>
+                    </div>
+                  </div>
+                  {/* Progress bar */}
+                  <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: "8px", height: "8px", overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${progress}%`, background: rec.status === "completed" ? "#00ff88" : "linear-gradient(to right, #ffaa44, #ff6b6b)", borderRadius: "8px", transition: "width 0.5s" }} />
+                  </div>
+                  <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", marginTop: "6px" }}>
+                    {formatAmount(totalDebited)} debited of {formatAmount(rec.totalCap)} ({progress.toFixed(1)}%)
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Transaction History ── */}
       <div style={{ ...GLASS, borderRadius: "20px", padding: "48px" }}>
         <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "3px", marginBottom: "28px" }}>📋 TRANSACTION HISTORY</div>
         {transactions.length === 0 ? (
@@ -877,29 +1272,24 @@ function FinanceTab({ team, isAdmin }) {
                 <div
                   key={tx.id}
                   onClick={() => isAdmin ? setSelectedTx(tx) : undefined}
-                  style={{
-                    display: "flex", justifyContent: "space-between", alignItems: "center",
-                    padding: "20px 24px",
-                    background: isIncome ? "rgba(0,255,136,0.05)" : "rgba(255,100,100,0.05)",
-                    border: `1px solid ${isIncome ? "rgba(0,255,136,0.15)" : "rgba(255,100,100,0.15)"}`,
-                    borderRadius: "14px",
-                    cursor: isAdmin ? "pointer" : "default",
-                    transition: "all 0.2s",
-                  }}
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 24px", background: isIncome ? "rgba(0,255,136,0.05)" : "rgba(255,100,100,0.05)", border: `1px solid ${isIncome ? "rgba(0,255,136,0.15)" : "rgba(255,100,100,0.15)"}`, borderRadius: "14px", cursor: isAdmin ? "pointer" : "default", transition: "all 0.2s" }}
                   onMouseOver={e => { if (isAdmin) e.currentTarget.style.background = isIncome ? "rgba(0,255,136,0.1)" : "rgba(255,100,100,0.1)"; }}
                   onMouseOut={e => { if (isAdmin) e.currentTarget.style.background = isIncome ? "rgba(0,255,136,0.05)" : "rgba(255,100,100,0.05)"; }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-                    <div style={{ width: "96px", height: "96px", background: isIncome ? "rgba(0,255,136,0.15)" : "rgba(255,100,100,0.15)", borderRadius: "16px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "3.2rem" }}>
-                      {isIncome ? "💰" : "📤"}
+                    <div style={{ width: "56px", height: "56px", background: isIncome ? "rgba(0,255,136,0.15)" : "rgba(255,100,100,0.15)", borderRadius: "14px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.8rem", flexShrink: 0 }}>
+                      {tx.recurringId ? "🔁" : isIncome ? "💰" : "📤"}
                     </div>
                     <div>
-                      <div style={{ color: "#fff", fontWeight: 700, fontSize: "2.6rem" }}>{tx.category}</div>
-                      {tx.source && <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "2rem", marginTop: "4px" }}>{tx.source}</div>}
-                      <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "1.9rem", marginTop: "4px" }}>{tx.month} {tx.year}</div>
+                      <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.1rem" }}>{tx.category}</div>
+                      {tx.source && <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.9rem", marginTop: "2px" }}>{tx.source}</div>}
+                      {/* Date + time on preview */}
+                      <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "0.85rem", marginTop: "3px" }}>
+                        {tx.createdAt ? formatDateOnly(tx.createdAt) : `${tx.month} ${tx.year}`}
+                      </div>
                     </div>
                   </div>
-                  <div style={{ color: isIncome ? "#00ff88" : "#ff6b6b", fontFamily: "'Bebas Neue', sans-serif", fontSize: "4rem", letterSpacing: "1px", fontWeight: 700 }}>
+                  <div style={{ color: isIncome ? "#00ff88" : "#ff6b6b", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", letterSpacing: "1px", fontWeight: 700 }}>
                     {isIncome ? "+" : "−"}{formatAmount(tx.amount)}
                   </div>
                 </div>
@@ -909,7 +1299,7 @@ function FinanceTab({ team, isAdmin }) {
         )}
       </div>
 
-      {/* ── Admin-only edit popup ────────────────────────────────────── */}
+      {/* ── Admin edit popup ── */}
       {isAdmin && selectedTx && (
         <TransactionEditPopup
           tx={selectedTx}
@@ -919,7 +1309,7 @@ function FinanceTab({ team, isAdmin }) {
         />
       )}
 
-      {/* ── Date Filter Modal ────────────────────────────────────────── */}
+      {/* ── Date Filter Modal ── */}
       {showFilterModal && (
         <FinanceDateFilterModal
           current={dateFilter}
@@ -931,7 +1321,7 @@ function FinanceTab({ team, isAdmin }) {
   );
 }
 
-// ─── TRANSACTION EDIT/DELETE POPUP ──────────────────────────────────────
+// ─── TRANSACTION EDIT/DELETE POPUP ────────────────────────────────────────
 function TransactionEditPopup({ tx, team, isAdmin, onClose }) {
   const [type, setType] = useState(tx.type);
   const [category, setCategory] = useState(tx.category);
@@ -941,20 +1331,13 @@ function TransactionEditPopup({ tx, team, isAdmin, onClose }) {
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
 
-  const incomeCategories = INCOME_CATEGORIES;
-  const expenseCategories = EXPENSE_CATEGORIES;
-
   async function handleSave() {
-    if (!amount || Number(amount) <= 0) {
-      setError("Please enter a valid amount.");
-      return;
-    }
+    if (!amount || Number(amount) <= 0) { setError("Please enter a valid amount."); return; }
     setSaving(true);
     setError("");
     try {
       await update(ref(db, `career_team_management/${team}/finance/transactions/${tx.id}`), {
-        type,
-        category,
+        type, category,
         source: source.trim() || null,
         amount: Number(amount),
       });
@@ -977,43 +1360,41 @@ function TransactionEditPopup({ tx, team, isAdmin, onClose }) {
     setDeleting(false);
   }
 
-  const inputStyle = {
-    width: "100%", padding: "16px 20px",
-    background: "rgba(255,255,255,0.06)",
-    border: "1px solid rgba(255,20,147,0.35)",
-    borderRadius: "12px", color: "#fff",
-    fontFamily: "inherit", fontSize: "1.1rem",
-    outline: "none", boxSizing: "border-box",
-  };
-  const labelStyle = {
-    color: "rgba(255,255,255,0.65)", fontSize: "0.9rem",
-    display: "block", marginBottom: "6px",
-    textTransform: "uppercase", letterSpacing: "0.8px", fontWeight: 700,
-  };
+  const inputStyle = { width: "100%", padding: "16px 20px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.35)", borderRadius: "12px", color: "#fff", fontFamily: "inherit", fontSize: "1.1rem", outline: "none", boxSizing: "border-box" };
+  const labelStyle = { color: "rgba(255,255,255,0.65)", fontSize: "0.9rem", display: "block", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.8px", fontWeight: 700 };
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }} onClick={onClose}>
-      <div style={{ ...GLASS, borderRadius: "24px", padding: "36px", maxWidth: "500px", width: "100%", position: "relative" }} onClick={e => e.stopPropagation()}>
+      <div style={{ ...GLASS, borderRadius: "24px", padding: "36px", maxWidth: "540px", width: "100%", position: "relative" }} onClick={e => e.stopPropagation()}>
         <button onClick={onClose} style={{ position: "absolute", top: "16px", right: "16px", background: "rgba(255,255,255,0.1)", border: "none", color: "#fff", borderRadius: "50%", width: "36px", height: "36px", cursor: "pointer", fontSize: "1.1rem" }}>✕</button>
 
-        <div style={{ color: "#ffffff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "3px", marginBottom: "8px" }}>
+        <div style={{ color: "#ffffff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "3px", marginBottom: "6px" }}>
           {type === "income" ? "💰 Edit Income" : "📤 Edit Expense"}
         </div>
-        <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "1rem", marginBottom: "24px" }}>
+        <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "0.9rem", marginBottom: "8px" }}>
           {tx.month} {tx.year} · {tx.category}
+        </div>
+
+        {/* Full date/time + sent by / received by */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "20px" }}>
+          {[
+            ["Sent At", tx.createdAt ? formatDateTime(tx.createdAt) : "—"],
+            ["Sent By", tx.sentBy || (tx.addedByAdmin ? "Admin" : tx.source || "—")],
+            ["Received By", tx.receivedBy || team],
+            ["Source", tx.source || "—"],
+          ].map(([label, value]) => (
+            <div key={label} style={{ background: "rgba(255,255,255,0.04)", borderRadius: "10px", padding: "12px 14px" }}>
+              <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "4px" }}>{label}</div>
+              <div style={{ color: "#fff", fontWeight: 600, fontSize: "0.9rem" }}>{value}</div>
+            </div>
+          ))}
         </div>
 
         <div style={{ marginBottom: "16px" }}>
           <label style={labelStyle}>Type</label>
           <div style={{ display: "flex", gap: "10px" }}>
             {["income", "expense"].map(t => (
-              <button key={t} onClick={() => setType(t)} style={{
-                flex: 1, padding: "12px", borderRadius: "10px", cursor: "pointer",
-                fontFamily: "inherit", fontWeight: 700, fontSize: "1rem",
-                background: type === t ? (t === "income" ? "#00cc66" : "#ff4444") : "rgba(255,255,255,0.06)",
-                border: `1px solid ${type === t ? (t === "income" ? "#00cc66" : "#ff4444") : "rgba(255,255,255,0.15)"}`,
-                color: "#fff", transition: "all 0.2s", textTransform: "uppercase",
-              }}>
+              <button key={t} onClick={() => setType(t)} style={{ flex: 1, padding: "12px", borderRadius: "10px", cursor: "pointer", fontFamily: "inherit", fontWeight: 700, fontSize: "1rem", background: type === t ? (t === "income" ? "#00cc66" : "#ff4444") : "rgba(255,255,255,0.06)", border: `1px solid ${type === t ? (t === "income" ? "#00cc66" : "#ff4444") : "rgba(255,255,255,0.15)"}`, color: "#fff", transition: "all 0.2s", textTransform: "uppercase" }}>
                 {t === "income" ? "💰 Income" : "📤 Expense"}
               </button>
             ))}
@@ -1023,7 +1404,7 @@ function TransactionEditPopup({ tx, team, isAdmin, onClose }) {
         <div style={{ marginBottom: "16px" }}>
           <label style={labelStyle}>Category</label>
           <select value={category} onChange={e => setCategory(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
-            {(type === "income" ? incomeCategories : expenseCategories).map(c => (
+            {(type === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES).map(c => (
               <option key={c} value={c}>{c}</option>
             ))}
           </select>
@@ -1042,7 +1423,7 @@ function TransactionEditPopup({ tx, team, isAdmin, onClose }) {
         {error && <div style={{ color: "#ff6b6b", fontSize: "0.95rem", marginBottom: "14px", padding: "12px", background: "rgba(255,0,0,0.1)", borderRadius: "10px" }}>{error}</div>}
 
         <div style={{ display: "flex", gap: "10px" }}>
-          <button onClick={handleSave} disabled={saving} style={{ flex: 2, padding: "14px", background: "#ffffff", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, fontSize: "1.1rem", cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}>
+          <button onClick={handleSave} disabled={saving} style={{ flex: 2, padding: "14px", background: "#ff1493", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, fontSize: "1.1rem", cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}>
             {saving ? "Saving..." : "💾 Save"}
           </button>
           {isAdmin && (
@@ -1057,7 +1438,7 @@ function TransactionEditPopup({ tx, team, isAdmin, onClose }) {
   );
 }
 
-// ─── MAIN PAGE ──────────────────────────────────────────────────────────────
+// ─── MAIN PAGE ─────────────────────────────────────────────────────────────
 export default function TeamManagementPage() {
   const navigate = useNavigate();
   const { isAdmin, manager, teamIconsCache, managerLoading } = useAdmin();
@@ -1072,10 +1453,18 @@ export default function TeamManagementPage() {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showFinanceModal, setShowFinanceModal] = useState(false);
   const [allTeams, setAllTeams] = useState([]);
+  const recurringProcessed = useRef(false);
 
   const team = manager?.team || adminTeam;
 
-  // ─── Load all teams for admin dropdown ────────────────────────────────
+  // ── Process recurring transactions on load ──────────────────────────
+  useEffect(() => {
+    if (!team || recurringProcessed.current) return;
+    recurringProcessed.current = true;
+    processRecurringTransactions(team);
+  }, [team]);
+
+  // ── Load all teams for admin dropdown ──────────────────────────────
   useEffect(() => {
     if (!isAdmin) return;
     const unsub = onValue(ref(db, PATHS.accounts), snap => {
@@ -1086,7 +1475,7 @@ export default function TeamManagementPage() {
     return () => unsub();
   }, [isAdmin]);
 
-  // ─── Load team icons ──────────────────────────────────────────────────
+  // ── Load team icons ────────────────────────────────────────────────
   useEffect(() => {
     const unsub = onValue(ref(db, PATHS.teamIcons), snap => {
       if (snap.val()) setTeamIcons(snap.val());
@@ -1094,7 +1483,7 @@ export default function TeamManagementPage() {
     return () => unsub();
   }, []);
 
-  // ─── Load balance ─────────────────────────────────────────────────────
+  // ── Load balance ──────────────────────────────────────────────────
   useEffect(() => {
     if (!team) return;
     const unsub = onValue(ref(db, `career_team_management/${team}/finance/transactions`), snap => {
@@ -1110,7 +1499,7 @@ export default function TeamManagementPage() {
     return () => unsub();
   }, [team]);
 
-  // ─── Set team icon ────────────────────────────────────────────────────
+  // ── Set team icon ─────────────────────────────────────────────────
   useEffect(() => {
     if (!team) return;
     const mergedIcons = { ...teamIconsCache, ...teamIcons };
@@ -1120,7 +1509,6 @@ export default function TeamManagementPage() {
 
   const mergedIcons = { ...teamIconsCache, ...teamIcons };
 
-  // ─── Admin menu items for navbar plus icon ──────────────────────────
   const adminNavbarMenu = isAdmin ? [
     { icon: "🏟️", label: "Edit Stadium", action: () => { setShowStadiumModal(true); } },
     { icon: "👥", label: "Edit Team", action: () => { setShowSquadModal(true); } },
@@ -1128,7 +1516,6 @@ export default function TeamManagementPage() {
     { icon: "💰", label: "Team Finances", action: () => { setShowFinanceModal(true); } },
   ] : undefined;
 
-  // ─── Loading state ────────────────────────────────────────────────────
   if (managerLoading) {
     return (
       <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
@@ -1141,7 +1528,6 @@ export default function TeamManagementPage() {
     );
   }
 
-  // ─── Not logged in ────────────────────────────────────────────────────
   if (!isAdmin && !manager) {
     return (
       <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
@@ -1158,7 +1544,6 @@ export default function TeamManagementPage() {
     );
   }
 
-  // ─── Admin with no team selected → show selector ─────────────────────
   if (isAdmin && !team) {
     return (
       <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
@@ -1171,7 +1556,6 @@ export default function TeamManagementPage() {
     );
   }
 
-  // ─── Main dashboard ──────────────────────────────────────────────────
   return (
     <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
       <BackgroundVideo />
@@ -1179,33 +1563,28 @@ export default function TeamManagementPage() {
 
       <div style={{ padding: "32px 20px 80px" }}>
 
-        {/* ─── ADMIN TOOLBAR ───────────────────────────────────────────── */}
+        {/* ── ADMIN TOOLBAR ── */}
         {isAdmin && (
           <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "24px", flexWrap: "wrap" }}>
-            {/* "← Teams" button to go back to selector */}
             <button
-              onClick={() => { setAdminTeam(null); setTab("stadium"); }}
+              onClick={() => { setAdminTeam(null); setTab("stadium"); recurringProcessed.current = false; }}
               style={{ padding: "12px 22px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "12px", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem" }}
             >
               ← Teams
             </button>
-
-            {/* Team dropdown – switch to any team instantly */}
             <div style={{ position: "relative", flex: 1, minWidth: "200px" }}>
               <select
                 value={team}
-                onChange={e => { setAdminTeam(e.target.value); setTab("stadium"); }}
+                onChange={e => { setAdminTeam(e.target.value); setTab("stadium"); recurringProcessed.current = false; }}
                 style={{ width: "100%", padding: "12px 20px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.35)", borderRadius: "12px", color: "#fff", fontFamily: "inherit", fontSize: "1.1rem", outline: "none", cursor: "pointer" }}
               >
                 {allTeams.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
-
-            {/* Manage button (opens dropdown) */}
             <div style={{ position: "relative" }}>
               <button
                 onClick={() => setAdminMenuOpen(v => !v)}
-                style={{ padding: "12px 22px", background: "#ffffff", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem" }}
+                style={{ padding: "12px 22px", background: "#ff1493", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem" }}
               >
                 ➕ Manage
               </button>
@@ -1229,7 +1608,7 @@ export default function TeamManagementPage() {
           </div>
         )}
 
-        {/* ─── TEAM HEADER ─────────────────────────────────────────────── */}
+        {/* ── TEAM HEADER ── */}
         <div style={{ textAlign: "center", marginBottom: "36px" }}>
           <div style={{ width: "120px", height: "120px", margin: "0 auto 16px", display: "flex", alignItems: "center", justifyContent: "center" }}>
             {teamIcon ? (
@@ -1248,16 +1627,14 @@ export default function TeamManagementPage() {
           )}
           <div style={{ marginTop: "12px" }}>
             <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.2rem", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "4px" }}>Balance</div>
+            {/* ── HOT PINK BALANCE ── */}
             <div style={{
               fontFamily: "'Bebas Neue', sans-serif",
               fontSize: "clamp(3rem, 8vw, 5.5rem)",
               letterSpacing: "4px",
-              background: "linear-gradient(135deg, #ffffff, #ff69b4)",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-              backgroundClip: "text",
+              color: "#ff1493",
+              textShadow: "0 0 30px rgba(255,20,147,0.5)",
               lineHeight: 1,
-              filter: "drop-shadow(0 0 20px rgba(255,20,147,0.4))",
               wordBreak: "break-all",
             }}>
               {formatBalance(balance)}
@@ -1267,7 +1644,7 @@ export default function TeamManagementPage() {
 
         <div style={{ height: "1px", background: "linear-gradient(to right, transparent, rgba(255,20,147,0.4), transparent)", marginBottom: "28px" }} />
 
-        {/* ─── TABS ────────────────────────────────────────────────────── */}
+        {/* ── TABS ── */}
         <div style={{ marginBottom: "24px" }}>
           <TabBar
             tabs={TABS}
@@ -1284,7 +1661,7 @@ export default function TeamManagementPage() {
 
         <div style={{ width: "100%" }}>
           {tab === "stadium" && <StadiumTab team={team} isAdmin={isAdmin} onEditStadium={() => setShowStadiumModal(true)} />}
-          {tab === "transfers" && <TransfersTab team={team} teamIcons={mergedIcons} />}
+          {tab === "transfers" && <TransfersTab team={team} teamIcons={mergedIcons} isAdmin={isAdmin} />}
           {tab === "finance" && <FinanceTab team={team} isAdmin={isAdmin} />}
           {tab === "squad" && <SquadTabWrapper team={team} isAdmin={isAdmin} onEditSquad={() => setShowSquadModal(true)} />}
         </div>
@@ -1300,7 +1677,7 @@ export default function TeamManagementPage() {
         <TeamHistoryModal team={team} onClose={() => setShowHistoryModal(false)} />
       </Modal>
       <Modal active={showFinanceModal} onClose={() => setShowFinanceModal(false)} wide>
-        <AdminFinanceModal onClose={() => setShowFinanceModal(false)} />
+        <AdminFinanceModal onClose={() => setShowFinanceModal(false)} defaultTeam={team} />
       </Modal>
 
       <style>{`select option { background: #000033; color: #fff; } input::placeholder { color: rgba(255,255,255,0.3); }`}</style>
