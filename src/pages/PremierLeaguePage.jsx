@@ -76,6 +76,15 @@ export default function PremierLeaguePage() {
     await set(ref(db, `career_${LEAGUE}_settings/seasons`), updated);
   }
 
+  async function handleDeleteResult(key) {
+    if (!confirm("Delete this result? This will NOT reverse the table stats.")) return;
+    try {
+      await remove(ref(db, `${PATHS.results(LEAGUE, season)}/${key}`));
+    } catch (e) {
+      alert("Error deleting result: " + e.message);
+    }
+  }
+
   const TABS = [
     { id: "main", label: tabMode === "groupStage" ? "GROUP STAGE" : "TABLE" },
     { id: "fixtures", label: "FIXTURES" },
@@ -83,15 +92,6 @@ export default function PremierLeaguePage() {
     { id: "scorers", label: "TOP SCORERS" },
     { id: "assists", label: "TOP ASSISTS" },
   ];
-
-  function handleAddPlayerIcon() {
-    setStatType("scorer");
-    setEditStat(null);
-  }
-
-  function handleEditTeamIcon() {
-    setEditTeam(null);
-  }
 
   return (
     <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif" }}>
@@ -101,8 +101,8 @@ export default function PremierLeaguePage() {
           league: LEAGUE,
           season,
           teams,
-          onEditTeamIcon: handleEditTeamIcon,
-          onAddPlayerIcon: handleAddPlayerIcon,
+          onEditTeamIcon: () => setEditTeam(null),
+          onAddPlayerIcon: () => { setStatType("scorer"); setEditStat(null); },
         }}
       />
       <LeagueHeadlineSlideshow league={LEAGUE} />
@@ -141,8 +141,8 @@ export default function PremierLeaguePage() {
                 </div>
                 <ResultsList
                   league={LEAGUE} season={season}
-                  onEdit={isAdmin ? setEditResult : undefined}
-                  onDelete={isAdmin ? async k => { if (confirm("Delete?")) await remove(ref(db, `${PATHS.results(LEAGUE, season)}/${k}`)); } : undefined}
+                  onEdit={isAdmin ? r => setEditResult(r) : undefined}
+                  onDelete={isAdmin ? handleDeleteResult : undefined}
                 />
               </>
             )}
