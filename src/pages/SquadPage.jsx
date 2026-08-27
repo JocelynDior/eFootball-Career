@@ -5,6 +5,7 @@ import { db, PATHS } from "../firebase";
 import { ref, set, onValue, remove, push, update, get } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
 import { uploadToImgBB } from "../utils/imgUpload";
+import { askGroq } from "../utils/groq";
 import Navbar from "../components/Navbar";
 import BackgroundVideo from "../components/BackgroundVideo";
 import TabBar from "../components/TabBar";
@@ -51,9 +52,22 @@ const labelStyle = {
 
 // ── Groq Team Total Season Wage Search ───────────────────────────────────────
 async function searchTeamWageWithGroq(teamName) {
-  // TODO: Replace with actual Groq API call.
-  // For demonstration, return a dummy string
-  return "€152,000,000/season";
+  const system = `You are a professional football finance data analyst. When given a football club name, return ONLY a valid JSON object with their total season wage bill. No preamble, no markdown, no explanation, no <think> tags. You MUST always provide a best estimate even if uncertain.
+
+Return exactly this JSON structure:
+{
+  "totalSeasonWages": "€152,000,000/season"
+}`;
+
+  const raw = await askGroq(system, `Football club: ${teamName}`);
+  const clean = raw
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/```json|```/g, "")
+    .trim();
+  const match = clean.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error("No JSON found in response");
+  const data = JSON.parse(match[0]);
+  return data.totalSeasonWages;
 }
 
 // ── Player Popup ──────────────────────────────────────────────────────────────
@@ -191,7 +205,7 @@ function PlayerSlot({ index, role, player, label, allPlayers, teamPath, team, is
   const [open, setOpen] = useState(false);
   const isLoanedOut = player?.loanStatus === "out";
   const isLoanedIn = player?.loanStatus === "in";
-  const canOpen = true; // both admin and manager can open/ edit
+  const canOpen = true;
 
   let loanLabel = null;
   if (isLoanedOut) loanLabel = <span style={{ color: "#ffaa44", fontWeight: 700, fontSize: "1.6rem", marginLeft: "10px" }}>🔁 On Loan to {player.loanClub || "..."}</span>;
@@ -257,7 +271,7 @@ function SquadPhotoBlock({ team, isAdmin, squadInfo, onInfoUpdated, players, man
 
   const infoPath = `career_team_management/${team}/squad_info`;
   const squadImage = squadInfo?.image || null;
-  const totalWages = squadInfo?.seasonWages || null; // now season wages
+  const totalWages = squadInfo?.seasonWages || null;
   const currentManager = managers?.find(m => m.team === team);
 
   async function handleImageUpload(e) {
@@ -315,7 +329,7 @@ function SquadPhotoBlock({ team, isAdmin, squadInfo, onInfoUpdated, players, man
 
   return (
     <div style={{ marginBottom: "28px" }}>
-      {/* Image upload section – now available to both admin and manager */}
+      {/* Image upload section – available to both admin and manager */}
       <div style={{ background: "#000", borderRadius: "16px 16px 0 0", overflow: "hidden", position: "relative" }}>
         {squadImage ? (
           <div style={{ position: "relative", width: "100%", aspectRatio: "16/7" }}>
