@@ -1,8 +1,33 @@
 import { useState } from "react";
 import { db, PATHS } from "../firebase";
-import { ref, push, set } from "firebase/database";
-import { applyResultToTable } from "../utils/tableLogic";
+import { ref, push, set, get } from "firebase/database";
+import { applyResultToTable, reverseResultFromTable } from "../utils/tableLogic";
 import { getSASTToday } from "../utils/sastTime";
+
+async function updateTopStat(league, season, pathKey, playerName, count, imageUrl, team) {
+  const listRef = ref(db, `career_${league}/seasons/season_${season}/${pathKey}`);
+  const snap = await get(listRef);
+  const existing = snap.val() || {};
+  let foundKey = null;
+  let foundEntry = null;
+  for (const [k, v] of Object.entries(existing)) {
+    if ((v.name || "").toLowerCase() === playerName.toLowerCase()) {
+      foundKey = k; foundEntry = v; break;
+    }
+  }
+  if (foundKey) {
+    await set(ref(db, `career_${league}/seasons/season_${season}/${pathKey}/${foundKey}`), {
+      ...foundEntry,
+      count: (foundEntry.count || 0) + count,
+      imageUrl: imageUrl || foundEntry.imageUrl || "",
+      team: team || foundEntry.team || "",
+    });
+  } else {
+    await push(ref(db, `career_${league}/seasons/season_${season}/${pathKey}`), {
+      name: playerName, count, imageUrl: imageUrl || "", team: team || "",
+    });
+  }
+}
 
 export default function AddResultModal({ league, season, teams, result = null, onClose }) {
   const isEdit = !!result;
@@ -49,20 +74,42 @@ export default function AddResultModal({ league, season, teams, result = null, o
         date,
         matchType: forfeitType === "none" ? "normal" : "forfeit",
         goalScorers: { home: scorersHome, away: scorersAway },
+        assists: result?.assists || { home: [], away: [] },
         status: "approved",
         approvedAt: Date.now(),
         submittedBy: "admin",
         submittedAt: result?.submittedAt || Date.now(),
+        matchImageUrl: result?.matchImageUrl || "",
       };
 
       if (isEdit) {
-        // Update existing record in place — uses the key from the result object
+        setStatus("Reversing old table stats...");
+        // Reverse old result from table
+        await reverseResultFromTable(
+          league, season,
+          result.homeTeam, result.awayTeam,
+          result.homeScore, result.awayScore,
+          result.forfeitType || "none"
+        );
+        // Apply new result to table
+        setStatus("Applying new table stats...");
+        await applyResultToTable(league, season, homeTeam, awayTeam, +homeScore, +awayScore, forfeitType);
+        // Update result card in place
         await set(ref(db, `${PATHS.results(league, season)}/${result.key}`), data);
       } else {
-        // New result — push to Firebase and apply to table
+        // New result — push and apply to table
         await push(ref(db, PATHS.results(league, season)), data);
         await applyResultToTable(league, season, homeTeam, awayTeam, +homeScore, +awayScore, forfeitType);
+        // Update top scorers/assists
+        setStatus("Updating stats...");
+        for (const s of scorersHome) {
+          await updateTopStat(league, season, "top_scorers", s.player, s.goals || 1, s.imageUrl || "", homeTeam);
+        }
+        for (const s of scorersAway) {
+          await updateTopStat(league, season, "top_scorers", s.player, s.goals || 1, s.imageUrl || "", awayTeam);
+        }
       }
+
       onClose();
     } catch (e) { setStatus("Error: " + e.message); }
     setSaving(false);
@@ -157,11 +204,11 @@ export default function AddResultModal({ league, season, teams, result = null, o
 
       {isEdit && (
         <div style={{ background: "rgba(255,165,0,0.1)", border: "1px solid rgba(255,165,0,0.3)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, color: "rgba(255,200,100,0.9)", fontSize: "0.82rem" }}>
-          ⚠️ Editing a result does not update the league table. Only the result card is changed.
+          ⚠️ Editing will reverse the old result from the table and apply the new one.
         </div>
       )}
 
-      {status && <div style={{ color: "#ff6b6b", fontSize: "0.85rem", marginBottom: "12px" }}>{status}</div>}
+      {status && <div style={{ color: status.startsWith("Error") ? "#ff6b6b" : "#22c55e", fontSize: "0.85rem", marginBottom: "12px" }}>{status}</div>}
 
       <div style={{ display: "flex", gap: "12px" }}>
         <button onClick={handleSave} disabled={saving} style={{ flex: 1, padding: "14px", background: "#FF1493", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}>
