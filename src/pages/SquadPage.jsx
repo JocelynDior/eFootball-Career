@@ -8,7 +8,7 @@ import { uploadToImgBB } from "../utils/imgUpload";
 import Navbar from "../components/Navbar";
 import BackgroundVideo from "../components/BackgroundVideo";
 import TabBar from "../components/TabBar";
-import { fetchPlayerStats } from "../utils/groq";
+// Removed fetchPlayerStats import – no longer needed
 
 const POSITIONS = ["GK","LB","CB","RB","LWB","RWB","CDM","CM","CAM","LM","RM","LW","RW","CF","ST"];
 const STARTING_SLOTS = ["GK","RB","CB","CB","LB","CDM","CM","CM","RW","ST","LW"];
@@ -50,43 +50,27 @@ const labelStyle = {
   fontWeight: 700,
 };
 
-// ── Groq Wage Search ──────────────────────────────────────────────────────────
-async function searchWageWithGroq(playerName, position) {
-  const stats = await fetchPlayerStats(playerName);
-  if (!stats?.weeklyWage) throw new Error("Wage not found. Enter manually.");
-  return stats.weeklyWage;
+// ── Groq Team Total Wage Search ──────────────────────────────────────────────
+// Note: This function should be implemented to call the Groq API with a prompt
+// like "What is {teamName}'s total weekly wage bill in real life? (euros per week)"
+// For now it's a placeholder returning a dummy string.
+async function searchTeamWageWithGroq(teamName) {
+  // TODO: Replace with actual Groq API call (similar to fetchPlayerStats but for team total)
+  // For demonstration, return a dummy string
+  return "€4,200,000/wk";
 }
 
 // ── Player Popup ──────────────────────────────────────────────────────────────
 function PlayerSlotPopup({ slotIndex, role, existingPlayer, allPlayers, teamPath, team, isAdmin, onClose }) {
   const [name, setName] = useState(existingPlayer?.name || "");
   const [position, setPosition] = useState(existingPlayer?.position || "");
-  const [wage, setWage] = useState(existingPlayer?.wage || "");
   const [roleSelection, setRoleSelection] = useState(role);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
-  const [wageSearching, setWageSearching] = useState(false);
-  const [wageSearchError, setWageSearchError] = useState("");
-  const [wageFound, setWageFound] = useState(false);
 
   const isLoanedOut = existingPlayer?.loanStatus === "out";
   const isLoanedIn = existingPlayer?.loanStatus === "in";
-
-  async function handleWikiWageSearch() {
-    if (!name.trim()) { setWageSearchError("Enter player name first."); return; }
-    setWageSearching(true);
-    setWageSearchError("");
-    setWageFound(false);
-    try {
-      const result = await searchWageWithGroq(name.trim(), position);
-      setWage(result);
-      setWageFound(true);
-    } catch (e) {
-      setWageSearchError(e.message || "Not found. Enter manually.");
-    }
-    setWageSearching(false);
-  }
 
   async function handleSave() {
     if (isLoanedOut) { onClose(); return; }
@@ -121,7 +105,6 @@ function PlayerSlotPopup({ slotIndex, role, existingPlayer, allPlayers, teamPath
         id: playerId,
         name: name.trim(),
         position,
-        wage: isAdmin ? (wage || "") : (existingPlayer?.wage || ""),
         role: finalRole,
         slotIndex: finalSlotIndex,
       };
@@ -137,7 +120,7 @@ function PlayerSlotPopup({ slotIndex, role, existingPlayer, allPlayers, teamPath
   }
 
   async function handleDelete() {
-    if (!existingPlayer?.id || isLoanedOut) return;
+    if (!existingPlayer?.id || isLoanedOut || !isAdmin) return;
     if (!window.confirm("Remove this player?")) return;
     setDeleting(true);
     try { await remove(ref(db, `${teamPath}/${existingPlayer.id}`)); onClose(); }
@@ -145,27 +128,7 @@ function PlayerSlotPopup({ slotIndex, role, existingPlayer, allPlayers, teamPath
     setDeleting(false);
   }
 
-  // Manager view-only
-  if (!isAdmin && existingPlayer) {
-    return ReactDOM.createPortal(
-      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px", fontFamily: "'Inter', sans-serif" }} onClick={onClose}>
-        <div style={{ background: "#0a0015", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "24px", padding: "48px", maxWidth: "600px", width: "100%", position: "relative" }} onClick={e => e.stopPropagation()}>
-          <button onClick={onClose} style={{ position: "absolute", top: "14px", right: "14px", background: "rgba(255,255,255,0.1)", border: "none", color: "#fff", borderRadius: "50%", width: "54px", height: "54px", cursor: "pointer", fontSize: "1rem" }}>✕</button>
-          <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.2rem", letterSpacing: "2px", marginBottom: "6px" }}>{existingPlayer.name}</div>
-          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.6rem", marginBottom: "24px" }}>{existingPlayer.position}</div>
-          {isLoanedIn && <div style={{ background: "rgba(255,170,0,0.12)", border: "1px solid #ffaa44", borderRadius: "10px", padding: "12px 18px", marginBottom: "16px", color: "#ffaa44", fontSize: "1.8rem", fontWeight: 700 }}>🔁 On Loan from {existingPlayer.loanFrom || "another club"}</div>}
-          {isLoanedOut && <div style={{ background: "rgba(255,170,0,0.12)", border: "1px solid #ffaa44", borderRadius: "10px", padding: "12px 18px", marginBottom: "16px", color: "#ffaa44", fontSize: "1.8rem", fontWeight: 700 }}>🔁 On Loan to {existingPlayer.loanClub || "another club"}</div>}
-          <div style={{ padding: "20px 24px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "14px" }}>
-            <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "1.4rem", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "6px" }}>Weekly Wage</div>
-            <div style={{ color: existingPlayer.wage ? "#fff" : "rgba(255,255,255,0.25)", fontSize: "2.6rem", fontWeight: 800 }}>{existingPlayer.wage || "Not set"}</div>
-          </div>
-          <button onClick={onClose} style={{ marginTop: "24px", width: "100%", padding: "16px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "12px", color: "#fff", fontSize: "1.9rem", cursor: "pointer" }}>Close</button>
-        </div>
-      </div>,
-      document.body
-    );
-  }
-
+  // No read-only popup – manager and admin both get the same editable popup
   return ReactDOM.createPortal(
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px", fontFamily: "'Inter', sans-serif" }} onClick={onClose}>
       <div style={{ background: "#0a0015", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "24px", padding: "64px", maxWidth: "960px", width: "100%", position: "relative", maxHeight: "90vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
@@ -194,41 +157,9 @@ function PlayerSlotPopup({ slotIndex, role, existingPlayer, allPlayers, teamPath
           </select>
         </div>
 
-        {/* Admin-only wage section with Wikipedia search */}
-        {isAdmin && !isLoanedOut && (
-          <div style={{ marginBottom: "24px" }}>
-            <label style={labelStyle}>Weekly Wage</label>
-            <div style={{ display: "flex", gap: "10px", alignItems: "stretch", flexWrap: "wrap" }}>
-              <input
-                value={wage}
-                onChange={e => { setWage(e.target.value); setWageFound(false); setWageSearchError(""); }}
-                placeholder="Type manually or use Wiki Search →"
-                style={{ ...inputStyle, flex: 1, minWidth: "200px", borderColor: wageFound ? "rgba(0,255,136,0.5)" : "rgba(255,255,255,0.15)" }}
-              />
-              <button
-                onClick={handleWikiWageSearch}
-                disabled={wageSearching}
-                style={{ padding: "0 28px", background: wageFound ? "rgba(0,255,136,0.15)" : "rgba(255,255,255,0.08)", border: `1px solid ${wageFound ? "rgba(0,255,136,0.4)" : "rgba(255,255,255,0.2)"}`, borderRadius: "12px", color: wageFound ? "#00ff88" : "#fff", fontWeight: 700, fontSize: "1.7rem", cursor: wageSearching ? "not-allowed" : "pointer", whiteSpace: "nowrap", transition: "all 0.2s", flexShrink: 0 }}
-              >
-                {wageSearching ? "🔍 Searching..." : wageFound ? "✅ Found" : "🤖 Search Wage"}
-              </button>
-            </div>
-            {wageSearchError && (
-              <div style={{ marginTop: "10px", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-                <span style={{ color: "#ff6b6b", fontSize: "1.6rem" }}>⚠️ {wageSearchError}</span>
-                <button onClick={handleWikiWageSearch} disabled={wageSearching} style={{ padding: "8px 18px", background: "rgba(255,50,50,0.12)", border: "1px solid rgba(255,50,50,0.3)", borderRadius: "10px", color: "#ff6b6b", fontWeight: 700, fontSize: "1.5rem", cursor: "pointer" }}>
-                  🔄 Retry
-                </button>
-                <span style={{ color: "rgba(255,255,255,0.35)", fontSize: "1.4rem" }}>or type manually above</span>
-              </div>
-            )}
-            {wageFound && <div style={{ color: "#00ff88", fontSize: "1.5rem", marginTop: "8px" }}>✅ Wage found on Wikipedia — edit above if needed</div>}
-          </div>
-        )}
-
-        {isLoanedIn && isAdmin && (
+        {isLoanedIn && (
           <div style={{ marginBottom: "20px" }}>
-            <label style={labelStyle}>Assign Role</label>
+            <label style={labelStyle}>Assign Squad Role</label>
             <select value={roleSelection} onChange={e => setRoleSelection(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
               <option value="reserve">Reserve</option>
               <option value="bench">Bench</option>
@@ -265,7 +196,7 @@ function PlayerSlot({ index, role, player, label, allPlayers, teamPath, team, is
   const [open, setOpen] = useState(false);
   const isLoanedOut = player?.loanStatus === "out";
   const isLoanedIn = player?.loanStatus === "in";
-  const canOpen = isAdmin || !!player;
+  const canOpen = true; // both admin and manager can open/ edit
 
   let loanLabel = null;
   if (isLoanedOut) loanLabel = <span style={{ color: "#ffaa44", fontWeight: 700, fontSize: "1.6rem", marginLeft: "10px" }}>🔁 On Loan to {player.loanClub || "..."}</span>;
@@ -295,17 +226,16 @@ function PlayerSlot({ index, role, player, label, allPlayers, teamPath, team, is
                 {loanLabel}
               </div>
               <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.5rem", marginTop: "2px" }}>
-                {player.position}{player.wage ? ` · ${player.wage}/wk` : ""}
+                {player.position}
               </div>
             </>
           ) : (
-            <div style={{ color: "rgba(255,255,255,0.2)", fontSize: "1.7rem" }}>{isAdmin ? `Add ${label}` : "Empty"}</div>
+            <div style={{ color: "rgba(255,255,255,0.2)", fontSize: "1.7rem" }}>Add {label}</div>
           )}
         </div>
-        {player && isAdmin && !isLoanedOut && <span style={{ color: "rgba(255,255,255,0.35)", fontSize: "1.5rem", flexShrink: 0 }}>✏️</span>}
+        {player && !isLoanedOut && <span style={{ color: "rgba(255,255,255,0.35)", fontSize: "1.5rem", flexShrink: 0 }}>✏️</span>}
         {player && isLoanedOut && <span style={{ color: "#ffaa44", fontSize: "1.5rem", flexShrink: 0 }}>🔒</span>}
-        {!player && isAdmin && <span style={{ color: "rgba(255,255,255,0.15)", fontSize: "2.2rem", flexShrink: 0 }}>+</span>}
-        {player && !isAdmin && <span style={{ color: "rgba(255,255,255,0.25)", fontSize: "1.4rem", flexShrink: 0 }}>👁️</span>}
+        {!player && <span style={{ color: "rgba(255,255,255,0.15)", fontSize: "2.2rem", flexShrink: 0 }}>+</span>}
       </div>
       {open && (
         <PlayerSlotPopup
@@ -327,6 +257,7 @@ function SquadPhotoBlock({ team, isAdmin, squadInfo, onInfoUpdated, players, man
   const [savingWage, setSavingWage] = useState(false);
   const [autoCalcLoading, setAutoCalcLoading] = useState(false);
   const [autoCalcStatus, setAutoCalcStatus] = useState("");
+  const [confirmWage, setConfirmWage] = useState(null); // holds calculated wage before confirmation
   const fileRef = useRef();
 
   const infoPath = `career_team_management/${team}/squad_info`;
@@ -359,61 +290,33 @@ function SquadPhotoBlock({ team, isAdmin, squadInfo, onInfoUpdated, players, man
   }
 
   async function handleAutoCalculate() {
-    const squadPlayers = players.filter(p => p.name && (p.role === "starting" || p.role === "bench" || p.role === "reserve"));
-    if (squadPlayers.length === 0) { setAutoCalcStatus("No players in squad to calculate."); return; }
-
+    if (!team) return;
     setAutoCalcLoading(true);
-    setAutoCalcStatus(`Searching wages for ${squadPlayers.length} players...`);
-
-    const dbUpdates = {};
-    const basePath = `career_team_management/${team}/squad`;
-    let totalPencePerWeek = 0;
-    let foundCount = 0;
-
-    for (let i = 0; i < squadPlayers.length; i++) {
-      const p = squadPlayers[i];
-      setAutoCalcStatus(`Searching ${i + 1}/${squadPlayers.length}: ${p.name}...`);
-      try {
-        const wageStr = await searchWageWithGroq(p.name, p.position);
-        dbUpdates[`${basePath}/${p.id}`] = { ...p, wage: wageStr };
-
-        // Parse numeric value for summing
-        const cleaned = wageStr.replace(/,/g, "");
-        const numMatch = cleaned.match(/[\d]+(?:\.\d+)?/);
-        if (numMatch) {
-          const num = parseFloat(numMatch[0]);
-          const lower = wageStr.toLowerCase();
-          if (lower.includes("million") || /\d+m\b/.test(lower)) totalPencePerWeek += num * 1000000;
-          else if (/\d+k\b/.test(lower)) totalPencePerWeek += num * 1000;
-          else totalPencePerWeek += num;
-          foundCount++;
-        }
-      } catch {
-        // Skip players not found — leave wage unchanged
-      }
-      await new Promise(r => setTimeout(r, 400));
+    setAutoCalcStatus("Searching for team's total weekly wage bill...");
+    try {
+      const result = await searchTeamWageWithGroq(team);
+      // Store result for admin confirmation
+      setConfirmWage(result);
+      setAutoCalcStatus(`Found: ${result} – please confirm below.`);
+    } catch (e) {
+      setAutoCalcStatus("Failed to fetch wage bill. Please enter manually.");
     }
-
-    if (Object.keys(dbUpdates).length > 0) {
-      await update(ref(db), dbUpdates);
-    }
-
-    let totalDisplay = "";
-    if (totalPencePerWeek > 0) {
-      const sym = "€";
-      if (totalPencePerWeek >= 1_000_000) totalDisplay = `${sym}${(totalPencePerWeek / 1_000_000).toFixed(2)}M/wk`;
-      else if (totalPencePerWeek >= 1_000) totalDisplay = `${sym}${(totalPencePerWeek / 1_000).toFixed(0)}K/wk`;
-      else totalDisplay = `${sym}${totalPencePerWeek.toLocaleString()}/wk`;
-      await update(ref(db, infoPath), { seasonWages: totalDisplay });
-      onInfoUpdated();
-    }
-
-    setAutoCalcStatus(
-      `✅ Done! Found wages for ${foundCount}/${squadPlayers.length} players.` +
-      (totalDisplay ? ` Total: ${totalDisplay}` : "")
-    );
     setAutoCalcLoading(false);
-    setTimeout(() => setAutoCalcStatus(""), 8000);
+  }
+
+  async function handleConfirmAutoWage() {
+    if (!confirmWage) return;
+    setSavingWage(true);
+    try {
+      await update(ref(db, infoPath), { seasonWages: confirmWage });
+      onInfoUpdated();
+      setConfirmWage(null);
+      setAutoCalcStatus("✅ Total weekly wages updated.");
+      setTimeout(() => setAutoCalcStatus(""), 5000);
+    } catch (err) {
+      setAutoCalcStatus("Failed to save wage.");
+    }
+    setSavingWage(false);
   }
 
   return (
@@ -475,6 +378,15 @@ function SquadPhotoBlock({ team, isAdmin, squadInfo, onInfoUpdated, players, man
             </button>
             {autoCalcStatus && (
               <div style={{ marginTop: "12px", color: autoCalcStatus.startsWith("✅") ? "#00ff88" : "rgba(255,255,255,0.55)", fontSize: "1.6rem" }}>{autoCalcStatus}</div>
+            )}
+            {confirmWage && !autoCalcLoading && (
+              <div style={{ marginTop: "12px", display: "flex", alignItems: "center", justifyContent: "center", gap: "12px", flexWrap: "wrap" }}>
+                <span style={{ color: "#fff", fontSize: "2rem", fontWeight: 700 }}>{confirmWage}</span>
+                <button onClick={handleConfirmAutoWage} disabled={savingWage} style={{ padding: "10px 20px", background: "rgba(0,255,136,0.15)", border: "1px solid rgba(0,255,136,0.4)", borderRadius: "10px", color: "#00ff88", fontWeight: 700, fontSize: "1.6rem", cursor: "pointer" }}>
+                  {savingWage ? "Saving..." : "Confirm & Save"}
+                </button>
+                <button onClick={() => setConfirmWage(null)} style={{ padding: "10px 20px", background: "transparent", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "10px", color: "rgba(255,255,255,0.5)", fontSize: "1.6rem", cursor: "pointer" }}>Cancel</button>
+              </div>
             )}
           </div>
         )}
@@ -692,7 +604,7 @@ export default function SquadPage() {
     const newIndex = maxSlot + 1;
     const newId = `reserve_${newIndex}_${Date.now()}`;
     try {
-      await set(ref(db, `${teamPath}/${newId}`), { id: newId, name: "", position: "", wage: "", role: "reserve", slotIndex: newIndex });
+      await set(ref(db, `${teamPath}/${newId}`), { id: newId, name: "", position: "", role: "reserve", slotIndex: newIndex });
     } catch (e) { console.error("Failed to add reserve slot:", e); }
   }
 
@@ -736,9 +648,9 @@ export default function SquadPage() {
         }
         if (!mappedPos) { skipped.push(p.name); continue; }
         let idx = findSlotIndex(mappedPos, STARTING_SLOTS, assignedStarting.map((_, i) => i).filter(i => assignedStarting[i]));
-        if (idx !== -1) { assignedStarting[idx] = { id: `default_starting_${idx}_${Date.now()}`, name: p.name || "Unknown", position: mappedPos, wage: "", role: "starting", slotIndex: idx }; continue; }
+        if (idx !== -1) { assignedStarting[idx] = { id: `default_starting_${idx}_${Date.now()}`, name: p.name || "Unknown", position: mappedPos, role: "starting", slotIndex: idx }; continue; }
         idx = findSlotIndex(mappedPos, BENCH_SLOTS, assignedBench.map((_, i) => i).filter(i => assignedBench[i]));
-        if (idx !== -1) { assignedBench[idx] = { id: `default_bench_${idx}_${Date.now()}`, name: p.name || "Unknown", position: mappedPos, wage: "", role: "bench", slotIndex: idx }; continue; }
+        if (idx !== -1) { assignedBench[idx] = { id: `default_bench_${idx}_${Date.now()}`, name: p.name || "Unknown", position: mappedPos, role: "bench", slotIndex: idx }; continue; }
         skipped.push(p.name);
       }
 
@@ -918,21 +830,19 @@ export default function SquadPage() {
             <div style={{ ...GLASS, borderRadius: "20px", padding: "28px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "18px" }}>
                 <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.6rem", letterSpacing: "3px" }}>Reserves</div>
-                {isAdmin && (
-                  <button
-                    onClick={handleAddReserve}
-                    style={{ padding: "12px 24px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "12px", color: "#fff", fontWeight: 700, fontSize: "1.8rem", cursor: "pointer", transition: "all 0.2s" }}
-                    onMouseOver={e => { e.currentTarget.style.background = "rgba(255,255,255,0.14)"; }}
-                    onMouseOut={e => { e.currentTarget.style.background = "rgba(255,255,255,0.08)"; }}
-                  >
-                    ➕ Add Player
-                  </button>
-                )}
+                <button
+                  onClick={handleAddReserve}
+                  style={{ padding: "12px 24px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "12px", color: "#fff", fontWeight: 700, fontSize: "1.8rem", cursor: "pointer", transition: "all 0.2s" }}
+                  onMouseOver={e => { e.currentTarget.style.background = "rgba(255,255,255,0.14)"; }}
+                  onMouseOut={e => { e.currentTarget.style.background = "rgba(255,255,255,0.08)"; }}
+                >
+                  ➕ Add Player
+                </button>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 {reservePlayers.length === 0 ? (
                   <div style={{ textAlign: "center", padding: "40px", color: "rgba(255,255,255,0.2)", fontSize: "1.8rem" }}>
-                    {isAdmin ? 'No reserves added yet. Click "Add Player" to start.' : "No reserves in squad."}
+                    No reserves added yet. Click "Add Player" to start.
                   </div>
                 ) : (
                   reservePlayers.map(p => (
