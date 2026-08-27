@@ -22,11 +22,8 @@ function TeamBadge({ teamName, iconUrl, size = 100 }) {
       />
     );
   }
-  const initials = (teamName || "?").split(" ").map(w => w[0]).join("").slice(0, 3).toUpperCase();
   return (
-    <div style={{ width: size, height: size, borderRadius: "50%", background: "rgba(255,255,255,0.08)", border: "2px solid rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: size * 0.3 + "rem", color: "#fff", letterSpacing: 2 }}>{initials}</span>
-    </div>
+    <div style={{ width: size, height: size, borderRadius: "50%", background: "rgba(255,255,255,0.08)", border: "2px solid rgba(255,255,255,0.15)" }} />
   );
 }
 
