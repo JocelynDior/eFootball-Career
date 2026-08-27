@@ -13,6 +13,15 @@ import BottomNavBar from "../components/BottomNavBar";
 import LoadingSpinner from "../components/LoadingSpinner";
 import { uploadToImgBB } from "../utils/imgUpload";
 
+const HEADLINE_CACHE_KEY = "careerHeadlineImages";
+
+function saveHeadlineCache(headlines) {
+  try {
+    const urls = headlines.map(h => h.imageUrl).filter(Boolean);
+    localStorage.setItem(HEADLINE_CACHE_KEY, JSON.stringify(urls));
+  } catch {}
+}
+
 export default function FeedPage() {
   const { isAdmin } = useAdmin();
   const { loadingVideoUrl, settingsLoaded } = useMusic();
@@ -26,8 +35,6 @@ export default function FeedPage() {
   const [countdowns, setCountdowns] = useState([]);
 
   // ── Loading gates ──────────────────────────────────────────────────────────
-  // Only wait for: settings (to know if there's a video) + countdowns (tiny).
-  // Headlines, league icons, and posts load in the background after page shows.
   const [countdownsReady, setCountdownsReady] = useState(false);
   const [dataReady, setDataReady] = useState(false);
   const [fadeOut, setFadeOut] = useState(false);
@@ -49,11 +56,12 @@ export default function FeedPage() {
       if (snap.val()) setVideoInput(snap.val());
     });
 
-    // Headlines — fetch data only, no image preloading gate
+    // Headlines — fetch, update state, and persist URLs to localStorage for preloading
     const unsub2 = onValue(ref(db, `${PATHS.globalSettings}/headlines`), snap => {
       const d = snap.val();
       const list = d ? Object.entries(d).map(([k, v]) => ({ id: k, ...v })) : [];
       setHeadlines(list);
+      saveHeadlineCache(list);
     });
 
     const unsub3 = onValue(ref(db, `${PATHS.globalSettings}/countdowns`), snap => {
