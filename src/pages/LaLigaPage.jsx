@@ -76,6 +76,15 @@ export default function LaLigaPage() {
     await set(ref(db, `career_${LEAGUE}_settings/seasons`), updated);
   }
 
+  async function handleDeleteResult(key) {
+    if (!confirm("Delete this result? This will NOT reverse the table stats.")) return;
+    try {
+      await remove(ref(db, `${PATHS.results(LEAGUE, season)}/${key}`));
+    } catch (e) {
+      alert("Error deleting result: " + e.message);
+    }
+  }
+
   const TABS = [
     { id: "main", label: tabMode === "groupStage" ? "GROUP STAGE" : "TABLE" },
     { id: "fixtures", label: "FIXTURES" },
@@ -99,7 +108,14 @@ export default function LaLigaPage() {
         <TabBar tabs={TABS} activeTab={tab} onTabChange={setTab} />
         {loading ? <LoadingSpinner /> : (
           <>
-            {tab === "main" && tabMode === "table" && <LeagueTable league={LEAGUE} season={season} teams={teams} onEdit={isAdmin ? setEditTeam : undefined} onDelete={isAdmin ? async k => { if (confirm("Delete?")) await remove(ref(db, `${PATHS.table(LEAGUE, season)}/${k}`)); } : undefined} results={results} />}
+            {tab === "main" && tabMode === "table" && (
+              <LeagueTable
+                league={LEAGUE} season={season} teams={teams}
+                onEdit={isAdmin ? setEditTeam : undefined}
+                onDelete={isAdmin ? async k => { if (confirm("Delete?")) await remove(ref(db, `${PATHS.table(LEAGUE, season)}/${k}`)); } : undefined}
+                results={results}
+              />
+            )}
             {tab === "main" && tabMode === "groupStage" && <GroupStageModal league={LEAGUE} season={season} />}
             {tab === "fixtures" && <FixturesList tournamentName="La Liga" />}
             {tab === "results" && (
@@ -112,21 +128,54 @@ export default function LaLigaPage() {
                     + ADD RESULT
                   </button>
                 </div>
-                <ResultsList league={LEAGUE} season={season} onEdit={isAdmin ? setEditResult : undefined} onDelete={isAdmin ? async k => { if (confirm("Delete?")) await remove(ref(db, `${PATHS.results(LEAGUE, season)}/${k}`)); } : undefined} />
+                <ResultsList
+                  league={LEAGUE} season={season}
+                  onEdit={isAdmin ? r => setEditResult(r) : undefined}
+                  onDelete={isAdmin ? handleDeleteResult : undefined}
+                />
               </>
             )}
-            {tab === "scorers" && <TopScorers league={LEAGUE} season={season} onAdd={() => { setStatType("scorer"); setEditStat(null); }} onEdit={p => { setStatType("scorer"); setEditStat(p); }} onDelete={async k => await remove(ref(db, `${PATHS.topScorers(LEAGUE, season)}/${k}`))} />}
-            {tab === "assists" && <TopAssistants league={LEAGUE} season={season} onAdd={() => { setStatType("assistant"); setEditStat(null); }} onEdit={p => { setStatType("assistant"); setEditStat(p); }} onDelete={async k => await remove(ref(db, `${PATHS.topAssistants(LEAGUE, season)}/${k}`))} />}
+            {tab === "scorers" && (
+              <TopScorers
+                league={LEAGUE} season={season}
+                onAdd={() => { setStatType("scorer"); setEditStat(null); }}
+                onEdit={p => { setStatType("scorer"); setEditStat(p); }}
+                onDelete={async k => await remove(ref(db, `${PATHS.topScorers(LEAGUE, season)}/${k}`))}
+              />
+            )}
+            {tab === "assists" && (
+              <TopAssistants
+                league={LEAGUE} season={season}
+                onAdd={() => { setStatType("assistant"); setEditStat(null); }}
+                onEdit={p => { setStatType("assistant"); setEditStat(p); }}
+                onDelete={async k => await remove(ref(db, `${PATHS.topAssistants(LEAGUE, season)}/${k}`))}
+              />
+            )}
           </>
         )}
       </div>
-      <Modal active={editTeam !== undefined} onClose={() => setEditTeam(undefined)}><AddTeamModal league={LEAGUE} season={season} team={editTeam || null} onClose={() => setEditTeam(undefined)} /></Modal>
-      <Modal active={editResult !== undefined} onClose={() => setEditResult(undefined)}><AddResultModal league={LEAGUE} season={season} teams={teams} result={editResult} onClose={() => setEditResult(undefined)} /></Modal>
-      <Modal active={editStat !== undefined} onClose={() => setEditStat(undefined)}><StatPlayerModal league={LEAGUE} season={season} type={statType} teams={teams} player={editStat} onClose={() => setEditStat(undefined)} /></Modal>
-      <Modal active={adminOpen} onClose={() => setAdminOpen(false)}><LeagueAdminSettingsModal league={LEAGUE} season={season} teams={teams} onClose={() => setAdminOpen(false)} /></Modal>
-      <Modal active={rulesOpen} onClose={() => setRulesOpen(false)}><LeagueRulesModal league={LEAGUE} leagueName={LEAGUE_NAME} onClose={() => setRulesOpen(false)} /></Modal>
-      <Modal active={managerOpen} onClose={() => setManagerOpen(false)}><ManagerKeyModal onVerified={() => { setManagerOpen(false); setSubmitOpen(true); }} onClose={() => setManagerOpen(false)} /></Modal>
-      <Modal active={submitOpen} onClose={() => setSubmitOpen(false)}><SubmitResultModal league={LEAGUE} season={season} teams={teams} onClose={() => setSubmitOpen(false)} /></Modal>
+
+      <Modal active={editTeam !== undefined} onClose={() => setEditTeam(undefined)}>
+        <AddTeamModal league={LEAGUE} season={season} team={editTeam || null} onClose={() => setEditTeam(undefined)} />
+      </Modal>
+      <Modal active={editResult !== undefined} onClose={() => setEditResult(undefined)}>
+        <AddResultModal league={LEAGUE} season={season} teams={teams} result={editResult} onClose={() => setEditResult(undefined)} />
+      </Modal>
+      <Modal active={editStat !== undefined} onClose={() => setEditStat(undefined)}>
+        <StatPlayerModal league={LEAGUE} season={season} type={statType} teams={teams} player={editStat} onClose={() => setEditStat(undefined)} />
+      </Modal>
+      <Modal active={adminOpen} onClose={() => setAdminOpen(false)}>
+        <LeagueAdminSettingsModal league={LEAGUE} season={season} teams={teams} onClose={() => setAdminOpen(false)} />
+      </Modal>
+      <Modal active={rulesOpen} onClose={() => setRulesOpen(false)}>
+        <LeagueRulesModal league={LEAGUE} leagueName={LEAGUE_NAME} onClose={() => setRulesOpen(false)} />
+      </Modal>
+      <Modal active={managerOpen} onClose={() => setManagerOpen(false)}>
+        <ManagerKeyModal onVerified={() => { setManagerOpen(false); setSubmitOpen(true); }} onClose={() => setManagerOpen(false)} />
+      </Modal>
+      <Modal active={submitOpen} onClose={() => setSubmitOpen(false)}>
+        <SubmitResultModal league={LEAGUE} season={season} teams={teams} onClose={() => setSubmitOpen(false)} />
+      </Modal>
     </div>
   );
 }
