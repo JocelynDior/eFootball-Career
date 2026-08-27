@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { db } from "../firebase";
-import { ref, onValue } from "firebase/database";
+import { ref, onValue, remove } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
 
 const GLASS = {
@@ -40,7 +40,7 @@ function TeamBadge({ teamName, iconUrl, size = 80 }) {
 }
 
 export default function FixturesList({ tournamentName }) {
-  const { teamIconsCache } = useAdmin();
+  const { isAdmin, teamIconsCache } = useAdmin();
   const [allFixtures, setAllFixtures] = useState([]);
   const [teamFilter, setTeamFilter] = useState("all");
   const [badges, setBadges] = useState({});
@@ -56,15 +56,24 @@ export default function FixturesList({ tournamentName }) {
     const unsub = onValue(ref(db, "career_calendarEvents"), snap => {
       const data = snap.val() || {};
       const fixtures = [];
-      for (const [dateStr, dateData] of Object.entries(data)) {
+      for (const [dateKey, dateData] of Object.entries(data)) {
         if (!dateData?.tournaments) continue;
-        for (const tourn of Object.values(dateData.tournaments)) {
+        for (const [tournKey, tourn] of Object.entries(dateData.tournaments)) {
           if (!tourn?.name) continue;
           const normalized = tourn.name.trim().toLowerCase().replace(/\s+/g, " ");
           if (normalized !== normalizedTarget) continue;
-          for (const fix of Object.values(tourn.fixtures || {})) {
+          for (const [fixKey, fix] of Object.entries(tourn.fixtures || {})) {
             if (fix?.home && fix?.away) {
-              fixtures.push({ date: dateStr, home: fix.home, away: fix.away, tournament: tourn.name });
+              fixtures.push({
+                date: dateKey,
+                home: fix.home,
+                away: fix.away,
+                tournament: tourn.name,
+                // Store all keys needed for delete
+                dateKey,
+                tournKey,
+                fixKey,
+              });
             }
           }
         }
@@ -119,6 +128,15 @@ export default function FixturesList({ tournamentName }) {
     setVisibleCount(BATCH);
     setFullyLoaded(false);
   }, [teamFilter]);
+
+  async function handleDeleteFixture(fix) {
+    if (!confirm(`Delete fixture: ${fix.home} vs ${fix.away}?`)) return;
+    try {
+      await remove(ref(db, `career_calendarEvents/${fix.dateKey}/tournaments/${fix.tournKey}/fixtures/${fix.fixKey}`));
+    } catch (e) {
+      alert("Error deleting fixture: " + e.message);
+    }
+  }
 
   const visibleFixtures = filtered.slice(0, visibleCount);
 
@@ -176,7 +194,7 @@ export default function FixturesList({ tournamentName }) {
               </div>
 
               {fixes.map((fix, fi) => (
-                <div key={fi} style={{ ...GLASS, borderRadius: 20, padding: "28px 32px", marginBottom: 14 }}>
+                <div key={`${fix.dateKey}-${fix.tournKey}-${fix.fixKey}`} style={{ ...GLASS, borderRadius: 20, padding: "28px 32px", marginBottom: 14, position: "relative" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20 }}>
                     {/* Home */}
                     <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 12, textAlign: "center" }}>
@@ -195,6 +213,18 @@ export default function FixturesList({ tournamentName }) {
                       <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", color: "#fff", letterSpacing: 1, lineHeight: 1.1 }}>{fix.away}</span>
                     </div>
                   </div>
+
+                  {/* Admin delete button */}
+                  {isAdmin && (
+                    <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+                      <button
+                        onClick={() => handleDeleteFixture(fix)}
+                        style={{ background: "rgba(220,50,50,0.15)", border: "1px solid rgba(220,50,50,0.3)", color: "#ff6b6b", padding: "8px 20px", borderRadius: 20, cursor: "pointer", fontSize: "0.85rem", fontWeight: 700, fontFamily: "inherit" }}
+                      >
+                        🗑️ Delete
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
