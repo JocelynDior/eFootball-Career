@@ -59,10 +59,19 @@ export default function CreatePostModal({ post = null, onClose }) {
       let avatarUrl = post?.userAvatar || `https://ui-avatars.com/api/?name=${username[0]}&background=FF1493&color=fff`;
       if (avatarFile) avatarUrl = await uploadToImgBB(avatarFile);
 
-      const data = { username, caption, verified, media: mediaItems, userAvatar: avatarUrl, likes: post?.likes || 0, comments: post?.comments || {}, timestamp: post?.timestamp || Date.now() };
+      // Never include comments or likes in the payload — they are managed
+      // independently and must not be overwritten by the post editor.
+      const data = {
+        username,
+        caption,
+        verified,
+        media: mediaItems,
+        userAvatar: avatarUrl,
+        timestamp: post?.timestamp || Date.now(),
+      };
 
       if (isEdit) await update(ref(db, `${PATHS.posts}/${post.id}`), data);
-      else await push(ref(db, PATHS.posts), data);
+      else await push(ref(db, PATHS.posts), { ...data, likes: 0 });
 
       onClose();
     } catch (e) { setStatus("Error: " + e.message); }
