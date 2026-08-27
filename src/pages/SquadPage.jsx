@@ -5,7 +5,6 @@ import { db, PATHS } from "../firebase";
 import { ref, set, onValue, remove, push, update, get } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
 import { uploadToImgBB } from "../utils/imgUpload";
-import { askGroq } from "../utils/groq";
 import Navbar from "../components/Navbar";
 import BackgroundVideo from "../components/BackgroundVideo";
 import TabBar from "../components/TabBar";
@@ -49,26 +48,6 @@ const labelStyle = {
   letterSpacing: "0.8px",
   fontWeight: 700,
 };
-
-// ── Groq Team Total Season Wage Search ───────────────────────────────────────
-async function searchTeamWageWithGroq(teamName) {
-  const system = `You are a professional football finance data analyst. When given a football club name, return ONLY a valid JSON object with their total season wage bill. No preamble, no markdown, no explanation, no <think> tags. You MUST always provide a best estimate even if uncertain.
-
-Return exactly this JSON structure:
-{
-  "totalSeasonWages": "€152,000,000/season"
-}`;
-
-  const raw = await askGroq(system, `Football club: ${teamName}`);
-  const clean = raw
-    .replace(/<think>[\s\S]*?<\/think>/gi, "")
-    .replace(/```json|```/g, "")
-    .trim();
-  const match = clean.match(/\{[\s\S]*\}/);
-  if (!match) throw new Error("No JSON found in response");
-  const data = JSON.parse(match[0]);
-  return data.totalSeasonWages;
-}
 
 // ── Player Popup ──────────────────────────────────────────────────────────────
 function PlayerSlotPopup({ slotIndex, role, existingPlayer, allPlayers, teamPath, team, isAdmin, onClose }) {
@@ -264,9 +243,6 @@ function SquadPhotoBlock({ team, isAdmin, squadInfo, onInfoUpdated, players, man
   const [editingWage, setEditingWage] = useState(false);
   const [wageInput, setWageInput] = useState("");
   const [savingWage, setSavingWage] = useState(false);
-  const [autoCalcLoading, setAutoCalcLoading] = useState(false);
-  const [autoCalcStatus, setAutoCalcStatus] = useState("");
-  const [confirmWage, setConfirmWage] = useState(null);
   const fileRef = useRef();
 
   const infoPath = `career_team_management/${team}/squad_info`;
@@ -295,35 +271,6 @@ function SquadPhotoBlock({ team, isAdmin, squadInfo, onInfoUpdated, players, man
       onInfoUpdated();
       setEditingWage(false);
     } catch (err) {}
-    setSavingWage(false);
-  }
-
-  async function handleAutoCalculate() {
-    if (!team) return;
-    setAutoCalcLoading(true);
-    setAutoCalcStatus("Searching for team's total season wage bill...");
-    try {
-      const result = await searchTeamWageWithGroq(team);
-      setConfirmWage(result);
-      setAutoCalcStatus(`Found: ${result} – please confirm below.`);
-    } catch (e) {
-      setAutoCalcStatus("Failed to fetch wage bill. Please enter manually.");
-    }
-    setAutoCalcLoading(false);
-  }
-
-  async function handleConfirmAutoWage() {
-    if (!confirmWage) return;
-    setSavingWage(true);
-    try {
-      await update(ref(db, infoPath), { seasonWages: confirmWage });
-      onInfoUpdated();
-      setConfirmWage(null);
-      setAutoCalcStatus("✅ Total season wages updated.");
-      setTimeout(() => setAutoCalcStatus(""), 5000);
-    } catch (err) {
-      setAutoCalcStatus("Failed to save wage.");
-    }
     setSavingWage(false);
   }
 
@@ -372,30 +319,6 @@ function SquadPhotoBlock({ team, isAdmin, squadInfo, onInfoUpdated, players, man
           )
         ) : (
           <div style={{ color: totalWages ? "#fff" : "rgba(255,255,255,0.2)", fontSize: "3.5rem", fontWeight: 800 }}>{totalWages || "—"}</div>
-        )}
-
-        {isAdmin && !editingWage && (
-          <div style={{ marginTop: "16px" }}>
-            <button
-              onClick={handleAutoCalculate}
-              disabled={autoCalcLoading}
-              style={{ padding: "12px 32px", background: autoCalcLoading ? "rgba(255,255,255,0.04)" : "rgba(255,20,147,0.12)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: "12px", color: autoCalcLoading ? "rgba(255,255,255,0.4)" : "#FF1493", fontWeight: 700, fontSize: "1.7rem", cursor: autoCalcLoading ? "not-allowed" : "pointer", transition: "all 0.2s" }}
-            >
-              {autoCalcLoading ? "⏳ Calculating..." : "⚡ Auto Calculate"}
-            </button>
-            {autoCalcStatus && (
-              <div style={{ marginTop: "12px", color: autoCalcStatus.startsWith("✅") ? "#00ff88" : "rgba(255,255,255,0.55)", fontSize: "1.6rem" }}>{autoCalcStatus}</div>
-            )}
-            {confirmWage && !autoCalcLoading && (
-              <div style={{ marginTop: "12px", display: "flex", alignItems: "center", justifyContent: "center", gap: "12px", flexWrap: "wrap" }}>
-                <span style={{ color: "#fff", fontSize: "2rem", fontWeight: 700 }}>{confirmWage}</span>
-                <button onClick={handleConfirmAutoWage} disabled={savingWage} style={{ padding: "10px 20px", background: "rgba(0,255,136,0.15)", border: "1px solid rgba(0,255,136,0.4)", borderRadius: "10px", color: "#00ff88", fontWeight: 700, fontSize: "1.6rem", cursor: "pointer" }}>
-                  {savingWage ? "Saving..." : "Confirm & Save"}
-                </button>
-                <button onClick={() => setConfirmWage(null)} style={{ padding: "10px 20px", background: "transparent", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "10px", color: "rgba(255,255,255,0.5)", fontSize: "1.6rem", cursor: "pointer" }}>Cancel</button>
-              </div>
-            )}
-          </div>
         )}
 
         {/* Current Manager */}
