@@ -11,6 +11,7 @@ export default function AddResultModal({ league, season, teams, result = null, o
   const [homeScore, setHomeScore] = useState(result?.homeScore ?? 0);
   const [awayScore, setAwayScore] = useState(result?.awayScore ?? 0);
   const [forfeitType, setForfeitType] = useState(result?.forfeitType || "none");
+  const [matchday, setMatchday] = useState(result?.md || "");
   const [date, setDate] = useState(result?.date || getSASTToday());
   const [scorersHome, setScorersHome] = useState(result?.goalScorers?.home || []);
   const [scorersAway, setScorersAway] = useState(result?.goalScorers?.away || []);
@@ -30,18 +31,35 @@ export default function AddResultModal({ league, season, teams, result = null, o
     setScorerName(""); setScorerGoals(1);
   }
 
+  function removeScorer(side, index) {
+    if (side === "home") setScorersHome(prev => prev.filter((_, i) => i !== index));
+    else setScorersAway(prev => prev.filter((_, i) => i !== index));
+  }
+
   async function handleSave() {
     if (!homeTeam || !awayTeam) { setStatus("Select both teams."); return; }
+    if (homeTeam === awayTeam) { setStatus("Home and away teams must be different."); return; }
     setSaving(true);
     try {
       const data = {
-        homeTeam, awayTeam, homeScore: +homeScore, awayScore: +awayScore,
-        forfeitType, date, matchType: forfeitType === "none" ? "normal" : "forfeit",
+        homeTeam, awayTeam,
+        homeScore: +homeScore, awayScore: +awayScore,
+        forfeitType,
+        md: matchday ? +matchday : null,
+        date,
+        matchType: forfeitType === "none" ? "normal" : "forfeit",
         goalScorers: { home: scorersHome, away: scorersAway },
-        status: "approved", approvedAt: Date.now(), submittedBy: "admin"
+        status: "approved",
+        approvedAt: Date.now(),
+        submittedBy: "admin",
+        submittedAt: result?.submittedAt || Date.now(),
       };
-      if (isEdit) await set(ref(db, `${PATHS.results(league, season)}/${result.key}`), data);
-      else {
+
+      if (isEdit) {
+        // Update existing record in place — uses the key from the result object
+        await set(ref(db, `${PATHS.results(league, season)}/${result.key}`), data);
+      } else {
+        // New result — push to Firebase and apply to table
         await push(ref(db, PATHS.results(league, season)), data);
         await applyResultToTable(league, season, homeTeam, awayTeam, +homeScore, +awayScore, forfeitType);
       }
@@ -50,12 +68,26 @@ export default function AddResultModal({ league, season, teams, result = null, o
     setSaving(false);
   }
 
-  const inputStyle = { width: "100%", padding: "10px 14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: "10px", color: "#fff", fontFamily: "inherit", fontSize: "0.9rem", outline: "none", boxSizing: "border-box", marginBottom: "14px" };
-  const labelStyle = { color: "rgba(255,255,255,0.6)", fontSize: "0.75rem", display: "block", marginBottom: "4px", textTransform: "uppercase", letterSpacing: "0.5px" };
+  const inputStyle = {
+    width: "100%", padding: "10px 14px",
+    background: "rgba(255,255,255,0.06)",
+    border: "1px solid rgba(255,20,147,0.4)",
+    borderRadius: "10px", color: "#fff",
+    fontFamily: "inherit", fontSize: "0.9rem",
+    outline: "none", boxSizing: "border-box", marginBottom: "14px",
+  };
+  const labelStyle = {
+    color: "rgba(255,255,255,0.6)", fontSize: "0.75rem",
+    display: "block", marginBottom: "4px",
+    textTransform: "uppercase", letterSpacing: "0.5px",
+  };
 
   return (
     <div>
-      <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: "20px" }}>{isEdit ? "✏️ Edit Result" : "⚽ Add Result"}</h3>
+      <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: "20px" }}>
+        {isEdit ? "✏️ Edit Result" : "⚽ Add Result"}
+      </h3>
+
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "4px" }}>
         <div>
           <label style={labelStyle}>Home Team</label>
@@ -80,12 +112,17 @@ export default function AddResultModal({ league, season, teams, result = null, o
           <input type="number" value={awayScore} onChange={e => setAwayScore(e.target.value)} style={inputStyle} />
         </div>
       </div>
+
+      <label style={labelStyle}>Matchday</label>
+      <input type="number" min={1} value={matchday} onChange={e => setMatchday(e.target.value)} placeholder="e.g. 5" style={inputStyle} />
+
       <label style={labelStyle}>Forfeit Type</label>
       <select value={forfeitType} onChange={e => setForfeitType(e.target.value)} style={inputStyle}>
         <option value="none">Normal Result</option>
         <option value="no_contest">No Contest (F-F)</option>
         <option value="forfeit_win">Forfeit Win</option>
       </select>
+
       <label style={labelStyle}>Date</label>
       <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} />
 
@@ -102,16 +139,37 @@ export default function AddResultModal({ league, season, teams, result = null, o
         </div>
         {(scorersHome.length > 0 || scorersAway.length > 0) && (
           <div style={{ marginTop: "10px", display: "flex", flexWrap: "wrap", gap: "6px" }}>
-            {scorersHome.map((s, i) => <span key={i} style={{ background: "rgba(255,20,147,0.2)", border: "1px solid rgba(255,20,147,0.4)", padding: "4px 12px", borderRadius: "20px", color: "#fff", fontSize: "0.8rem" }}>H: {s.player} ({s.goals})</span>)}
-            {scorersAway.map((s, i) => <span key={i} style={{ background: "rgba(65,105,225,0.2)", border: "1px solid rgba(65,105,225,0.4)", padding: "4px 12px", borderRadius: "20px", color: "#fff", fontSize: "0.8rem" }}>A: {s.player} ({s.goals})</span>)}
+            {scorersHome.map((s, i) => (
+              <span key={i} style={{ background: "rgba(255,20,147,0.2)", border: "1px solid rgba(255,20,147,0.4)", padding: "4px 12px", borderRadius: "20px", color: "#fff", fontSize: "0.8rem", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                H: {s.player} ({s.goals})
+                <button onClick={() => removeScorer("home", i)} style={{ background: "#cc3333", color: "#fff", border: "none", borderRadius: "50%", width: 16, height: 16, cursor: "pointer", fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>✖</button>
+              </span>
+            ))}
+            {scorersAway.map((s, i) => (
+              <span key={i} style={{ background: "rgba(65,105,225,0.2)", border: "1px solid rgba(65,105,225,0.4)", padding: "4px 12px", borderRadius: "20px", color: "#fff", fontSize: "0.8rem", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                A: {s.player} ({s.goals})
+                <button onClick={() => removeScorer("away", i)} style={{ background: "#cc3333", color: "#fff", border: "none", borderRadius: "50%", width: 16, height: 16, cursor: "pointer", fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>✖</button>
+              </span>
+            ))}
           </div>
         )}
       </div>
 
+      {isEdit && (
+        <div style={{ background: "rgba(255,165,0,0.1)", border: "1px solid rgba(255,165,0,0.3)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, color: "rgba(255,200,100,0.9)", fontSize: "0.82rem" }}>
+          ⚠️ Editing a result does not update the league table. Only the result card is changed.
+        </div>
+      )}
+
       {status && <div style={{ color: "#ff6b6b", fontSize: "0.85rem", marginBottom: "12px" }}>{status}</div>}
+
       <div style={{ display: "flex", gap: "12px" }}>
-        <button onClick={handleSave} disabled={saving} style={{ flex: 1, padding: "14px", background: "#FF1493", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}>{saving ? "Saving..." : "Save"}</button>
-        <button onClick={onClose} style={{ flex: 1, padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "12px", color: "#fff", cursor: "pointer" }}>Cancel</button>
+        <button onClick={handleSave} disabled={saving} style={{ flex: 1, padding: "14px", background: "#FF1493", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}>
+          {saving ? "Saving..." : "Save"}
+        </button>
+        <button onClick={onClose} style={{ flex: 1, padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "12px", color: "#fff", cursor: "pointer" }}>
+          Cancel
+        </button>
       </div>
     </div>
   );
