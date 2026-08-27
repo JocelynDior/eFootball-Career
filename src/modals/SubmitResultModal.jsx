@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { db, PATHS } from "../firebase";
 import { ref, push } from "firebase/database";
+import { applyResultToTable } from "../utils/tableLogic";
 import { getSASTToday } from "../utils/sastTime";
 import { useAdmin } from "../context/AdminContext";
 import { uploadToImgBB } from "../utils/imgUpload";
@@ -32,7 +33,7 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
   const [assists, setAssists] = useState([]);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("");
-  const [confirming, setConfirming] = useState(false); // confirmation screen
+  const [confirming, setConfirming] = useState(false);
 
   const [scorerName, setScorerName] = useState("");
   const [scorerGoals, setScorerGoals] = useState(1);
@@ -103,11 +104,16 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
         return { player: a.player, assists: a.assists, imageUrl };
       }));
 
-      await push(ref(db, PATHS.pendingResults(league, season)), {
+      const homeScore = +myScore;
+      const awayScore = +oppScore;
+
+      setStatus("Saving result...");
+
+      await push(ref(db, PATHS.results(league, season)), {
         homeTeam: myTeam,
         awayTeam: opponent,
-        homeScore: +myScore,
-        awayScore: +oppScore,
+        homeScore,
+        awayScore,
         forfeitType: "none",
         matchType: "normal",
         md: +matchday,
@@ -116,11 +122,13 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
         assists: { home: assistsData, away: [] },
         submittedBy: manager?.uid || myTeam,
         submittedAt: Date.now(),
-        status: "pending",
+        status: "approved",
       });
 
-      setStatus("✅ Result submitted! Awaiting admin approval.");
-      setTimeout(onClose, 2000);
+      await applyResultToTable(league, season, myTeam, opponent, homeScore, awayScore, "none");
+
+      setStatus("✅ Result submitted successfully!");
+      setTimeout(onClose, 1500);
     } catch (e) {
       setStatus("Error: " + e.message);
       setConfirming(false);
@@ -144,7 +152,6 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
       <div>
         <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: 20, textAlign: "center" }}>⚠️ Confirm Submission</h3>
 
-        {/* Result summary */}
         <div style={{ background: "rgba(255,20,147,0.08)", border: "1px solid rgba(255,20,147,0.25)", borderRadius: 16, padding: "20px 24px", marginBottom: 20, textAlign: "center" }}>
           <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", color: "#fff", marginBottom: 8, letterSpacing: 1 }}>
             {myTeam} <span style={{ color: "#FF1493" }}>{myScore} — {oppScore}</span> {opponent}
@@ -163,7 +170,7 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
         </div>
 
         <div style={{ background: "rgba(255,165,0,0.1)", border: "1px solid rgba(255,165,0,0.3)", borderRadius: 12, padding: "12px 16px", marginBottom: 24, color: "rgba(255,200,100,0.9)", fontSize: "0.85rem", textAlign: "center", lineHeight: 1.6 }}>
-          Are you sure you want to submit? This action can't be undone.
+          Are you sure? False results will result in a 6 point deduction and a forfeit loss.
         </div>
 
         {status && (
@@ -196,7 +203,7 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
       <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: 16 }}>⚽ Submit Result</h3>
 
       <div style={{ background: "rgba(255,165,0,0.1)", border: "1px solid rgba(255,165,0,0.35)", borderRadius: 12, padding: "12px 16px", marginBottom: 20, color: "rgba(255,200,100,0.9)", fontSize: "0.82rem", lineHeight: 1.5 }}>
-        ⚠️ Please ensure your results are correct, false results will be a 6 point deduction and the match will be declared a forfeit loss, admin will review results.
+        ⚠️ Please ensure your results are correct. False results will be a 6 point deduction and the match will be declared a forfeit loss.
       </div>
 
       <div style={{ background: "rgba(255,20,147,0.1)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, padding: "12px 16px", marginBottom: 16, color: "#FF1493", fontWeight: 700 }}>
