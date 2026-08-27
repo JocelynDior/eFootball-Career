@@ -39,10 +39,38 @@ import RequestLoanModal from "./modals/RequestLoanModal";
 import AuctionBidModal from "./modals/AuctionBidModal";
 import PlayerPopupModal from "./modals/PlayerPopupModal";
 
-const INACTIVITY_LIMIT = 30 * 60 * 1000; // 30 minutes
+const INACTIVITY_LIMIT = 10 * 60 * 1000; // 10 minutes
+const INACTIVE_FLAG_KEY = "careerInactiveAt";
+
+// ── Image preloader: warms browser cache from localStorage on app start ──────
+function preloadCachedImages() {
+  // League icons
+  try {
+    const icons = JSON.parse(localStorage.getItem("careerLeagueImages") || "{}");
+    Object.values(icons).forEach(url => { if (url) { const img = new Image(); img.src = url; } });
+  } catch {}
+
+  // Headline images
+  try {
+    const headlines = JSON.parse(localStorage.getItem("careerHeadlineImages") || "[]");
+    headlines.forEach(url => { if (url) { const img = new Image(); img.src = url; } });
+  } catch {}
+}
+
+// Run once immediately when the module loads
+preloadCachedImages();
 
 function InactivityWatcher() {
   const navigate = useNavigate();
+
+  useEffect(() => {
+    // Check if user was previously flagged as inactive — redirect them home
+    const inactiveAt = localStorage.getItem(INACTIVE_FLAG_KEY);
+    if (inactiveAt) {
+      localStorage.removeItem(INACTIVE_FLAG_KEY);
+      navigate("/");
+    }
+  }, [navigate]);
 
   useEffect(() => {
     let timer;
@@ -50,8 +78,8 @@ function InactivityWatcher() {
     const reset = () => {
       clearTimeout(timer);
       timer = setTimeout(() => {
-        navigate("/");
-        window.location.reload();
+        // Save the timestamp so next visit picks it up and redirects home
+        localStorage.setItem(INACTIVE_FLAG_KEY, Date.now().toString());
       }, INACTIVITY_LIMIT);
     };
 
@@ -63,7 +91,7 @@ function InactivityWatcher() {
       clearTimeout(timer);
       events.forEach((e) => window.removeEventListener(e, reset));
     };
-  }, [navigate]);
+  }, []);
 
   return null;
 }
