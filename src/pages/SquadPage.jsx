@@ -8,7 +8,6 @@ import { uploadToImgBB } from "../utils/imgUpload";
 import Navbar from "../components/Navbar";
 import BackgroundVideo from "../components/BackgroundVideo";
 import TabBar from "../components/TabBar";
-// Removed fetchPlayerStats import – no longer needed
 
 const POSITIONS = ["GK","LB","CB","RB","LWB","RWB","CDM","CM","CAM","LM","RM","LW","RW","CF","ST"];
 const STARTING_SLOTS = ["GK","RB","CB","CB","LB","CDM","CM","CM","RW","ST","LW"];
@@ -50,14 +49,11 @@ const labelStyle = {
   fontWeight: 700,
 };
 
-// ── Groq Team Total Wage Search ──────────────────────────────────────────────
-// Note: This function should be implemented to call the Groq API with a prompt
-// like "What is {teamName}'s total weekly wage bill in real life? (euros per week)"
-// For now it's a placeholder returning a dummy string.
+// ── Groq Team Total Season Wage Search ───────────────────────────────────────
 async function searchTeamWageWithGroq(teamName) {
-  // TODO: Replace with actual Groq API call (similar to fetchPlayerStats but for team total)
+  // TODO: Replace with actual Groq API call.
   // For demonstration, return a dummy string
-  return "€4,200,000/wk";
+  return "€152,000,000/season";
 }
 
 // ── Player Popup ──────────────────────────────────────────────────────────────
@@ -128,7 +124,6 @@ function PlayerSlotPopup({ slotIndex, role, existingPlayer, allPlayers, teamPath
     setDeleting(false);
   }
 
-  // No read-only popup – manager and admin both get the same editable popup
   return ReactDOM.createPortal(
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px", fontFamily: "'Inter', sans-serif" }} onClick={onClose}>
       <div style={{ background: "#0a0015", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "24px", padding: "64px", maxWidth: "960px", width: "100%", position: "relative", maxHeight: "90vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
@@ -257,12 +252,12 @@ function SquadPhotoBlock({ team, isAdmin, squadInfo, onInfoUpdated, players, man
   const [savingWage, setSavingWage] = useState(false);
   const [autoCalcLoading, setAutoCalcLoading] = useState(false);
   const [autoCalcStatus, setAutoCalcStatus] = useState("");
-  const [confirmWage, setConfirmWage] = useState(null); // holds calculated wage before confirmation
+  const [confirmWage, setConfirmWage] = useState(null);
   const fileRef = useRef();
 
   const infoPath = `career_team_management/${team}/squad_info`;
   const squadImage = squadInfo?.image || null;
-  const totalWages = squadInfo?.seasonWages || null;
+  const totalWages = squadInfo?.seasonWages || null; // now season wages
   const currentManager = managers?.find(m => m.team === team);
 
   async function handleImageUpload(e) {
@@ -292,10 +287,9 @@ function SquadPhotoBlock({ team, isAdmin, squadInfo, onInfoUpdated, players, man
   async function handleAutoCalculate() {
     if (!team) return;
     setAutoCalcLoading(true);
-    setAutoCalcStatus("Searching for team's total weekly wage bill...");
+    setAutoCalcStatus("Searching for team's total season wage bill...");
     try {
       const result = await searchTeamWageWithGroq(team);
-      // Store result for admin confirmation
       setConfirmWage(result);
       setAutoCalcStatus(`Found: ${result} – please confirm below.`);
     } catch (e) {
@@ -311,7 +305,7 @@ function SquadPhotoBlock({ team, isAdmin, squadInfo, onInfoUpdated, players, man
       await update(ref(db, infoPath), { seasonWages: confirmWage });
       onInfoUpdated();
       setConfirmWage(null);
-      setAutoCalcStatus("✅ Total weekly wages updated.");
+      setAutoCalcStatus("✅ Total season wages updated.");
       setTimeout(() => setAutoCalcStatus(""), 5000);
     } catch (err) {
       setAutoCalcStatus("Failed to save wage.");
@@ -321,39 +315,38 @@ function SquadPhotoBlock({ team, isAdmin, squadInfo, onInfoUpdated, players, man
 
   return (
     <div style={{ marginBottom: "28px" }}>
-      {isAdmin && (
-        <div style={{ background: "#000", borderRadius: "16px 16px 0 0", overflow: "hidden", position: "relative" }}>
-          {squadImage ? (
-            <div style={{ position: "relative", width: "100%", aspectRatio: "16/7" }}>
-              <img src={squadImage} alt="Squad" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-              <div style={{ position: "absolute", top: 0, left: 0, width: "80px", height: "100%", background: "linear-gradient(to right, rgba(0,0,20,0.8), transparent)", pointerEvents: "none" }} />
-              <div style={{ position: "absolute", top: 0, right: 0, width: "80px", height: "100%", background: "linear-gradient(to left, rgba(0,0,20,0.8), transparent)", pointerEvents: "none" }} />
-              <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "60%", background: "linear-gradient(to top, rgba(0,0,20,0.7), transparent)", pointerEvents: "none" }} />
-              <button onClick={() => fileRef.current?.click()} style={{ position: "absolute", bottom: "16px", right: "16px", padding: "10px 20px", background: "rgba(0,0,0,0.7)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: "10px", color: "#fff", fontSize: "1.6rem", cursor: "pointer", fontWeight: 600 }}>
-                {uploading ? "Uploading..." : "📷 Change Photo"}
-              </button>
-            </div>
-          ) : (
-            <div onClick={() => fileRef.current?.click()} style={{ width: "100%", aspectRatio: "16/7", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", border: "2px dashed rgba(255,255,255,0.12)", borderRadius: "16px 16px 0 0", gap: "12px" }}>
-              <div style={{ fontSize: "5rem" }}>📷</div>
-              <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "2rem", fontWeight: 600 }}>{uploading ? "Uploading..." : "Upload Squad Photo"}</div>
-            </div>
-          )}
-          <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleImageUpload} />
-        </div>
-      )}
+      {/* Image upload section – now available to both admin and manager */}
+      <div style={{ background: "#000", borderRadius: "16px 16px 0 0", overflow: "hidden", position: "relative" }}>
+        {squadImage ? (
+          <div style={{ position: "relative", width: "100%", aspectRatio: "16/7" }}>
+            <img src={squadImage} alt="Squad" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+            <div style={{ position: "absolute", top: 0, left: 0, width: "80px", height: "100%", background: "linear-gradient(to right, rgba(0,0,20,0.8), transparent)", pointerEvents: "none" }} />
+            <div style={{ position: "absolute", top: 0, right: 0, width: "80px", height: "100%", background: "linear-gradient(to left, rgba(0,0,20,0.8), transparent)", pointerEvents: "none" }} />
+            <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "60%", background: "linear-gradient(to top, rgba(0,0,20,0.7), transparent)", pointerEvents: "none" }} />
+            <button onClick={() => fileRef.current?.click()} style={{ position: "absolute", bottom: "16px", right: "16px", padding: "10px 20px", background: "rgba(0,0,0,0.7)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: "10px", color: "#fff", fontSize: "1.6rem", cursor: "pointer", fontWeight: 600 }}>
+              {uploading ? "Uploading..." : "📷 Change Photo"}
+            </button>
+          </div>
+        ) : (
+          <div onClick={() => fileRef.current?.click()} style={{ width: "100%", aspectRatio: "16/7", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", border: "2px dashed rgba(255,255,255,0.12)", borderRadius: "16px 16px 0 0", gap: "12px" }}>
+            <div style={{ fontSize: "5rem" }}>📷</div>
+            <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "2rem", fontWeight: 600 }}>{uploading ? "Uploading..." : "Upload Squad Photo"}</div>
+          </div>
+        )}
+        <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleImageUpload} />
+      </div>
       {uploadError && <div style={{ color: "#ff6b6b", fontSize: "1.6rem", padding: "10px 16px", background: "rgba(255,0,0,0.1)", borderRadius: "10px" }}>{uploadError}</div>}
 
       {/* Wages + Manager card */}
-      <div style={{ textAlign: "center", padding: "40px 20px 28px", background: "#000", borderRadius: isAdmin ? "0 0 16px 16px" : "16px" }}>
+      <div style={{ textAlign: "center", padding: "40px 20px 28px", background: "#000", borderRadius: "0 0 16px 16px" }}>
         <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "4.5rem", letterSpacing: "4px", color: "#fff", marginBottom: "14px" }}>
-          Total Weekly Wages
+          Total Season Wages
         </div>
 
         {isAdmin ? (
           editingWage ? (
             <div style={{ display: "flex", alignItems: "center", gap: "12px", justifyContent: "center", flexWrap: "wrap" }}>
-              <input value={wageInput} onChange={e => setWageInput(e.target.value)} placeholder="e.g. €4,200,000/wk" style={{ padding: "14px 24px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "12px", color: "#fff", fontSize: "2.2rem", outline: "none", minWidth: "280px", textAlign: "center" }} />
+              <input value={wageInput} onChange={e => setWageInput(e.target.value)} placeholder="e.g. €152,000,000/season" style={{ padding: "14px 24px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "12px", color: "#fff", fontSize: "2.2rem", outline: "none", minWidth: "280px", textAlign: "center" }} />
               <button onClick={handleSaveWage} disabled={savingWage} style={{ padding: "14px 28px", background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "12px", color: "#fff", fontWeight: 700, fontSize: "2rem", cursor: "pointer" }}>{savingWage ? "Saving..." : "Save"}</button>
               <button onClick={() => setEditingWage(false)} style={{ padding: "14px 28px", background: "transparent", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "12px", color: "rgba(255,255,255,0.5)", fontSize: "2rem", cursor: "pointer" }}>Cancel</button>
             </div>
