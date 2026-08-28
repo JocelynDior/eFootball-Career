@@ -18,9 +18,47 @@ function TeamBadge({ teamName, iconUrl, size = 100 }) {
   }
   return (
     <div style={{ width: size, height: size, borderRadius: "50%", background: "rgba(255,255,255,0.08)", border: "2px solid rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.5rem", color: "#fff" }}>
+      <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", color: "#fff" }}>
         {(teamName || "?").split(" ").map(w => w[0]).join("").slice(0, 3).toUpperCase()}
       </span>
+    </div>
+  );
+}
+
+function ScoreDisplay({ r }) {
+  const isNoContest = r.forfeitType === "no_contest";
+  const isForfeit = r.forfeitType && r.forfeitType !== "none" && !isNoContest;
+
+  if (isNoContest) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+        <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", color: "#ffaaaa", letterSpacing: 4, background: "rgba(0,0,0,0.6)", padding: "14px 32px", borderRadius: 60, border: "2px solid rgba(255,170,170,0.5)" }}>
+          F — F
+        </div>
+        <span style={{ color: "rgba(255,170,170,0.7)", fontSize: "0.78rem", fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }}>No Contest</span>
+      </div>
+    );
+  }
+
+  if (isForfeit) {
+    // Determine which team won the forfeit
+    const homeWon = (r.homeScore || 0) > (r.awayScore || 0);
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+        <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.2rem", color: "#fff", letterSpacing: 4, background: "rgba(0,0,0,0.3)", padding: "14px 36px", borderRadius: 60, border: "2px solid rgba(255,165,0,0.4)" }}>
+          {r.homeScore ?? 3} — {r.awayScore ?? 0}
+        </div>
+        <span style={{ color: "#FFB347", fontSize: "0.78rem", fontWeight: 700, letterSpacing: 1, background: "rgba(255,165,0,0.12)", border: "1px solid rgba(255,165,0,0.3)", padding: "3px 14px", borderRadius: 20 }}>
+          {homeWon ? r.homeTeam : r.awayTeam} win (F)
+        </span>
+      </div>
+    );
+  }
+
+  // Normal result
+  return (
+    <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.8rem", color: "#fff", letterSpacing: 6, background: "rgba(0,0,0,0.3)", padding: "14px 40px", borderRadius: 60, border: "2px solid rgba(255,255,255,0.25)" }}>
+      {r.homeScore} — {r.awayScore}
     </div>
   );
 }
@@ -88,45 +126,40 @@ export default function ResultsList({ league, season, onEdit, onDelete }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       {visible.map(r => {
-        const isNoContest = r.forfeitType === "no_contest";
-        const isForfeit = r.forfeitType && r.forfeitType !== "none" && !isNoContest;
         const homeScorers = r.goalScorers?.home || [];
         const awayScorers = r.goalScorers?.away || [];
+        const isNoContest = r.forfeitType === "no_contest";
+        const isForfeit = r.forfeitType && r.forfeitType !== "none" && !isNoContest;
 
         return (
           <div key={r.key} style={{ borderRadius: 32, overflow: "hidden", transition: "all 0.2s", ...GLASS }}
             onMouseOver={e => e.currentTarget.style.background = "rgba(255,255,255,0.1)"}
             onMouseOut={e => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}
           >
-            {/* Match image - shown at top of card if present */}
+            {/* Match image banner */}
             {r.matchImageUrl && (
               <div style={{ position: "relative", width: "100%", height: 200, overflow: "hidden" }}>
-                <img
-                  src={r.matchImageUrl}
-                  alt="Match"
-                  style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-                />
-                <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, transparent 40%, rgba(0,0,0,0.7) 100%)" }} />
-                {r.md && (
-                  <div style={{ position: "absolute", bottom: 12, left: 20, fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.1rem", color: "rgba(255,255,255,0.8)", letterSpacing: 2 }}>
-                    MATCHDAY {r.md}
-                  </div>
+                <img src={r.matchImageUrl} alt="Match" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, transparent 40%, rgba(0,0,0,0.75) 100%)" }} />
+                {r.md && <div style={{ position: "absolute", bottom: 12, left: 20, fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.1rem", color: "rgba(255,255,255,0.85)", letterSpacing: 2 }}>MATCHDAY {r.md}</div>}
+                {r.date && <div style={{ position: "absolute", bottom: 12, right: 20, fontSize: "0.8rem", color: "rgba(255,255,255,0.6)" }}>📅 {r.date}</div>}
+                {/* Forfeit/No contest badge on image */}
+                {isNoContest && (
+                  <div style={{ position: "absolute", top: 12, right: 12, background: "rgba(255,100,100,0.85)", color: "#fff", fontWeight: 800, fontSize: "0.75rem", padding: "4px 12px", borderRadius: 20, letterSpacing: 1 }}>NO CONTEST</div>
                 )}
-                {r.date && (
-                  <div style={{ position: "absolute", bottom: 12, right: 20, fontSize: "0.8rem", color: "rgba(255,255,255,0.6)" }}>
-                    📅 {r.date}
-                  </div>
+                {isForfeit && (
+                  <div style={{ position: "absolute", top: 12, right: 12, background: "rgba(255,165,0,0.85)", color: "#fff", fontWeight: 800, fontSize: "0.75rem", padding: "4px 12px", borderRadius: 20, letterSpacing: 1 }}>FORFEIT</div>
                 )}
               </div>
             )}
 
             <div style={{ padding: "36px 40px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 24 }}>
-                {/* Home team */}
+                {/* Home */}
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 14, textAlign: "center" }}>
                   <TeamBadge teamName={r.homeTeam} iconUrl={combined[r.homeTeam]} size={100} />
                   <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", color: "#fff", letterSpacing: 1, lineHeight: 1.1 }}>{r.homeTeam}</span>
-                  {homeScorers.length > 0 && (
+                  {!isNoContest && homeScorers.length > 0 && (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
                       {homeScorers.map((s, i) => (
                         <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(0,0,0,0.5)", border: "1px solid rgba(255,255,255,0.15)", padding: "4px 14px", borderRadius: 40, fontSize: "0.85rem", color: "#ddd" }}>
@@ -139,23 +172,16 @@ export default function ResultsList({ league, season, onEdit, onDelete }) {
                 </div>
 
                 {/* Score */}
-                <div style={{ flexShrink: 0, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, minWidth: 160 }}>
-                  {isNoContest ? (
-                    <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", color: "#ffaaaa", letterSpacing: 4, background: "rgba(0,0,0,0.6)", padding: "14px 32px", borderRadius: 60, border: "2px solid #ffaaaa" }}>F — F</div>
-                  ) : (
-                    <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.8rem", color: "#fff", letterSpacing: 6, background: "rgba(0,0,0,0.3)", padding: "14px 40px", borderRadius: 60, border: "2px solid rgba(255,255,255,0.25)" }}>
-                      {r.homeScore} — {r.awayScore}
-                    </div>
-                  )}
-                  {isForfeit && <span style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.8rem" }}>Forfeit</span>}
+                <div style={{ flexShrink: 0, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, minWidth: 180 }}>
+                  <ScoreDisplay r={r} />
                   {r.aggregate && <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.9rem" }}>Agg: {r.aggregate}</span>}
                 </div>
 
-                {/* Away team */}
+                {/* Away */}
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 14, textAlign: "center" }}>
                   <TeamBadge teamName={r.awayTeam} iconUrl={combined[r.awayTeam]} size={100} />
                   <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", color: "#fff", letterSpacing: 1, lineHeight: 1.1 }}>{r.awayTeam}</span>
-                  {awayScorers.length > 0 && (
+                  {!isNoContest && awayScorers.length > 0 && (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
                       {awayScorers.map((s, i) => (
                         <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(0,0,0,0.5)", border: "1px solid rgba(255,255,255,0.15)", padding: "4px 14px", borderRadius: 40, fontSize: "0.85rem", color: "#ddd" }}>
@@ -168,12 +194,13 @@ export default function ResultsList({ league, season, onEdit, onDelete }) {
                 </div>
               </div>
 
-              {/* Meta - only show if no match image (otherwise shown on image) */}
+              {/* Meta — only if no image (otherwise shown on image) */}
               {!r.matchImageUrl && (
                 <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 24, justifyContent: "center" }}>
                   {r.date && <span style={{ fontSize: "0.95rem", color: "rgba(255,255,255,0.55)", background: "rgba(0,0,0,0.25)", padding: "8px 20px", borderRadius: 40, border: "1px solid rgba(255,255,255,0.08)" }}>📅 {r.date}</span>}
                   {r.md && <span style={{ fontSize: "0.95rem", color: "rgba(255,255,255,0.55)", background: "rgba(0,0,0,0.25)", padding: "8px 20px", borderRadius: 40, border: "1px solid rgba(255,255,255,0.08)" }}>MD {r.md}</span>}
-                  {r.matchType && <span style={{ fontSize: "0.95rem", color: "rgba(255,255,255,0.55)", background: "rgba(0,0,0,0.25)", padding: "8px 20px", borderRadius: 40, border: "1px solid rgba(255,255,255,0.08)" }}>{r.matchType}</span>}
+                  {isNoContest && <span style={{ fontSize: "0.95rem", color: "#ffaaaa", background: "rgba(255,100,100,0.1)", padding: "8px 20px", borderRadius: 40, border: "1px solid rgba(255,100,100,0.25)" }}>No Contest</span>}
+                  {isForfeit && <span style={{ fontSize: "0.95rem", color: "#FFB347", background: "rgba(255,165,0,0.1)", padding: "8px 20px", borderRadius: 40, border: "1px solid rgba(255,165,0,0.25)" }}>Forfeit</span>}
                 </div>
               )}
 
