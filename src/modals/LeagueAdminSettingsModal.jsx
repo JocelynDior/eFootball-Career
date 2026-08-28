@@ -6,6 +6,7 @@ import ManagerKeysModal from "./ManagerKeysModal";
 import ManagerHistoryModal from "./ManagerHistoryModal";
 import RequestsHistoryModal from "./RequestsHistoryModal";
 import { uploadToImgBB } from "../utils/imgUpload";
+import TeamIconUploadModal from "./TeamIconUploadModal";
 
 const inputStyle = {
   width: "100%", padding: "10px 14px",
@@ -264,6 +265,7 @@ export default function LeagueAdminSettingsModal({ league, season, teams, onClos
   if (view === "keys") return <Modal active onClose={() => setView("main")}><ManagerKeysModal onClose={() => setView("main")} /></Modal>;
   if (view === "history") return <Modal active onClose={() => setView("main")}><ManagerHistoryModal league={league} season={season} onClose={() => setView("main")} /></Modal>;
   if (view === "requests") return <Modal active onClose={() => setView("main")}><RequestsHistoryModal league={league} season={season} onClose={() => setView("main")} /></Modal>;
+  if (view === "teamIcon") return <TeamIconUploadModal onClose={() => setView("main")} />;
 
   if (view === "zones") {
     return (
@@ -352,6 +354,7 @@ export default function LeagueAdminSettingsModal({ league, season, teams, onClos
       {[
         ["🎞️", "Manage Slideshow", "slideshow"],
         ["🎨", "Zone Config", "zones"],
+        ["🏷️", "Add Team Icon", "teamIcon"],
         ["📜", "Submission History", "requests"],
         ["🔑", "Manager Keys", "keys"],
         ["📋", "Manager History", "history"],
