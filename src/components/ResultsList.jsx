@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { db } from "../firebase";
 import { ref, onValue } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
+import Modal from "./Modal";
+import MatchDetailsModal from "../modals/MatchDetailsModal";
 
 const GLASS = {
   background: "rgba(255,255,255,0.06)",
@@ -16,11 +18,10 @@ function TeamBadge({ teamName, iconUrl, size = 100 }) {
   if (iconUrl) {
     return <img src={iconUrl} alt={teamName} style={{ width: size, height: size, objectFit: "contain" }} />;
   }
+  const initials = (teamName || "?").split(" ").map(w => w[0]).join("").slice(0, 3).toUpperCase();
   return (
     <div style={{ width: size, height: size, borderRadius: "50%", background: "rgba(255,255,255,0.08)", border: "2px solid rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", color: "#fff" }}>
-        {(teamName || "?").split(" ").map(w => w[0]).join("").slice(0, 3).toUpperCase()}
-      </span>
+      <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", color: "#fff" }}>{initials}</span>
     </div>
   );
 }
@@ -32,16 +33,13 @@ function ScoreDisplay({ r }) {
   if (isNoContest) {
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-        <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", color: "#ffaaaa", letterSpacing: 4, background: "rgba(0,0,0,0.6)", padding: "14px 32px", borderRadius: 60, border: "2px solid rgba(255,170,170,0.5)" }}>
-          F — F
-        </div>
+        <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", color: "#ffaaaa", letterSpacing: 4, background: "rgba(0,0,0,0.6)", padding: "14px 32px", borderRadius: 60, border: "2px solid rgba(255,170,170,0.5)" }}>F — F</div>
         <span style={{ color: "rgba(255,170,170,0.7)", fontSize: "0.78rem", fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }}>No Contest</span>
       </div>
     );
   }
 
   if (isForfeit) {
-    // Determine which team won the forfeit
     const homeWon = (r.homeScore || 0) > (r.awayScore || 0);
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
@@ -55,10 +53,19 @@ function ScoreDisplay({ r }) {
     );
   }
 
-  // Normal result
   return (
     <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.8rem", color: "#fff", letterSpacing: 6, background: "rgba(0,0,0,0.3)", padding: "14px 40px", borderRadius: 60, border: "2px solid rgba(255,255,255,0.25)" }}>
       {r.homeScore} — {r.awayScore}
+    </div>
+  );
+}
+
+function Spinner() {
+  return (
+    <div style={{ textAlign: "center", padding: "80px 20px", display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+      <div style={{ width: 48, height: 48, border: "4px solid rgba(255,20,147,0.2)", borderTop: "4px solid #FF1493", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+      <span style={{ color: "rgba(255,255,255,0.4)", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.2rem", letterSpacing: 2 }}>Loading Results...</span>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
@@ -69,10 +76,13 @@ export default function ResultsList({ league, season, onEdit, onDelete }) {
   const [visibleCount, setVisibleCount] = useState(BATCH);
   const [loadingMore, setLoadingMore] = useState(false);
   const [fullyLoaded, setFullyLoaded] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [badges, setBadges] = useState({});
+  const [selectedResult, setSelectedResult] = useState(null);
   const timerRef = useRef(null);
 
   useEffect(() => {
+    setInitialLoading(true);
     const unsub = onValue(ref(db, `career_${league}/seasons/season_${season}/results`), snap => {
       const d = snap.val();
       const list = d ? Object.entries(d).map(([k, v]) => ({ key: k, ...v })) : [];
@@ -80,6 +90,7 @@ export default function ResultsList({ league, season, onEdit, onDelete }) {
       setAllResults(list);
       setVisibleCount(BATCH);
       setFullyLoaded(false);
+      setInitialLoading(false);
     });
     return () => unsub();
   }, [league, season]);
@@ -114,6 +125,8 @@ export default function ResultsList({ league, season, onEdit, onDelete }) {
   const combined = { ...teamIconsCache, ...badges };
   const visible = allResults.slice(0, visibleCount);
 
+  if (initialLoading) return <Spinner />;
+
   if (!allResults.length && fullyLoaded) {
     return (
       <div style={{ textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.35)" }}>
@@ -126,16 +139,22 @@ export default function ResultsList({ league, season, onEdit, onDelete }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       {visible.map(r => {
-        const homeScorers = r.goalScorers?.home || [];
-        const awayScorers = r.goalScorers?.away || [];
         const isNoContest = r.forfeitType === "no_contest";
         const isForfeit = r.forfeitType && r.forfeitType !== "none" && !isNoContest;
+        const homeScorers = r.goalScorers?.home || [];
+        const awayScorers = r.goalScorers?.away || [];
 
         return (
-          <div key={r.key} style={{ borderRadius: 32, overflow: "hidden", transition: "all 0.2s", ...GLASS }}
+          <div
+            key={r.key}
+            onClick={() => setSelectedResult(r)}
+            style={{ borderRadius: 32, overflow: "hidden", transition: "all 0.2s", cursor: "pointer", position: "relative", ...GLASS }}
             onMouseOver={e => e.currentTarget.style.background = "rgba(255,255,255,0.1)"}
-            onMouseOut={e => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}
+            onMouseOut={e => e.currentTarget.style.background = GLASS.background}
           >
+            {/* Tap hint */}
+            <div style={{ position: "absolute", top: 12, right: 16, color: "rgba(255,255,255,0.2)", fontSize: "0.7rem", letterSpacing: 1, zIndex: 2 }}>TAP FOR DETAILS</div>
+
             {/* Match image banner */}
             {r.matchImageUrl && (
               <div style={{ position: "relative", width: "100%", height: 200, overflow: "hidden" }}>
@@ -143,13 +162,8 @@ export default function ResultsList({ league, season, onEdit, onDelete }) {
                 <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, transparent 40%, rgba(0,0,0,0.75) 100%)" }} />
                 {r.md && <div style={{ position: "absolute", bottom: 12, left: 20, fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.1rem", color: "rgba(255,255,255,0.85)", letterSpacing: 2 }}>MATCHDAY {r.md}</div>}
                 {r.date && <div style={{ position: "absolute", bottom: 12, right: 20, fontSize: "0.8rem", color: "rgba(255,255,255,0.6)" }}>📅 {r.date}</div>}
-                {/* Forfeit/No contest badge on image */}
-                {isNoContest && (
-                  <div style={{ position: "absolute", top: 12, right: 12, background: "rgba(255,100,100,0.85)", color: "#fff", fontWeight: 800, fontSize: "0.75rem", padding: "4px 12px", borderRadius: 20, letterSpacing: 1 }}>NO CONTEST</div>
-                )}
-                {isForfeit && (
-                  <div style={{ position: "absolute", top: 12, right: 12, background: "rgba(255,165,0,0.85)", color: "#fff", fontWeight: 800, fontSize: "0.75rem", padding: "4px 12px", borderRadius: 20, letterSpacing: 1 }}>FORFEIT</div>
-                )}
+                {isNoContest && <div style={{ position: "absolute", top: 12, left: 12, background: "rgba(255,100,100,0.85)", color: "#fff", fontWeight: 800, fontSize: "0.75rem", padding: "4px 12px", borderRadius: 20, letterSpacing: 1 }}>NO CONTEST</div>}
+                {isForfeit && <div style={{ position: "absolute", top: 12, left: 12, background: "rgba(255,165,0,0.85)", color: "#fff", fontWeight: 800, fontSize: "0.75rem", padding: "4px 12px", borderRadius: 20, letterSpacing: 1 }}>FORFEIT</div>}
               </div>
             )}
 
@@ -194,7 +208,7 @@ export default function ResultsList({ league, season, onEdit, onDelete }) {
                 </div>
               </div>
 
-              {/* Meta — only if no image (otherwise shown on image) */}
+              {/* Meta — only if no image */}
               {!r.matchImageUrl && (
                 <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 24, justifyContent: "center" }}>
                   {r.date && <span style={{ fontSize: "0.95rem", color: "rgba(255,255,255,0.55)", background: "rgba(0,0,0,0.25)", padding: "8px 20px", borderRadius: 40, border: "1px solid rgba(255,255,255,0.08)" }}>📅 {r.date}</span>}
@@ -204,11 +218,21 @@ export default function ResultsList({ league, season, onEdit, onDelete }) {
                 </div>
               )}
 
-              {/* Admin actions */}
+              {/* Admin actions — stop propagation so click doesn't open modal */}
               {isAdmin && (
                 <div style={{ display: "flex", gap: 12, justifyContent: "flex-end", marginTop: 20 }}>
-                  {onEdit && <button onClick={() => onEdit(r)} style={{ background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.25)", color: "#fff", padding: "10px 24px", borderRadius: 24, cursor: "pointer", fontSize: "0.9rem", fontWeight: 700, fontFamily: "inherit" }}>✏️ Edit</button>}
-                  {onDelete && <button onClick={() => onDelete(r.key)} style={{ background: "rgba(220,50,50,0.15)", border: "1px solid rgba(220,50,50,0.3)", color: "#ff6b6b", padding: "10px 24px", borderRadius: 24, cursor: "pointer", fontSize: "0.9rem", fontWeight: 700, fontFamily: "inherit" }}>🗑️ Delete</button>}
+                  {onEdit && (
+                    <button
+                      onClick={e => { e.stopPropagation(); onEdit(r); }}
+                      style={{ background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.25)", color: "#fff", padding: "10px 24px", borderRadius: 24, cursor: "pointer", fontSize: "0.9rem", fontWeight: 700, fontFamily: "inherit" }}
+                    >✏️ Edit</button>
+                  )}
+                  {onDelete && (
+                    <button
+                      onClick={e => { e.stopPropagation(); onDelete(r.key); }}
+                      style={{ background: "rgba(220,50,50,0.15)", border: "1px solid rgba(220,50,50,0.3)", color: "#ff6b6b", padding: "10px 24px", borderRadius: 24, cursor: "pointer", fontSize: "0.9rem", fontWeight: 700, fontFamily: "inherit" }}
+                    >🗑️ Delete</button>
+                  )}
                 </div>
               )}
             </div>
@@ -223,6 +247,13 @@ export default function ResultsList({ league, season, onEdit, onDelete }) {
           <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
       )}
+
+      {/* Match details popup */}
+      <Modal active={!!selectedResult} onClose={() => setSelectedResult(null)}>
+        {selectedResult && (
+          <MatchDetailsModal fixture={selectedResult} onClose={() => setSelectedResult(null)} />
+        )}
+      </Modal>
     </div>
   );
 }
