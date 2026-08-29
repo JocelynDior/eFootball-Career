@@ -197,6 +197,133 @@ function CaptionEditor({ initial, onSave }) {
   );
 }
 
+// ─── Team Linker ──────────────────────────────────────────────────────────────
+function TeamLinker({ league, teams, onBack }) {
+  const [fixtureTeams, setFixtureTeams] = useState([]);
+  const [links, setLinks] = useState({}); // { tableTeamName: fixturesTeamName }
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState("");
+
+  const basePath = `career_${league}_settings/teamLinks`;
+
+  // Load current links
+  useEffect(() => {
+    const unsub = onValue(ref(db, basePath), snap => {
+      setLinks(snap.val() || {});
+    });
+    return () => unsub();
+  }, [basePath]);
+
+  // Load all fixture team names for this league from calendar
+  useEffect(() => {
+    const leagueNameMap = {
+      premier_league: "premier league",
+      serie_a: "serie a",
+      la_liga: "la liga",
+    };
+    const targetName = leagueNameMap[league] || league.replace(/_/g, " ");
+
+    const unsub = onValue(ref(db, "career_calendarEvents"), snap => {
+      const data = snap.val() || {};
+      const names = new Set();
+      for (const dateData of Object.values(data)) {
+        for (const tourn of Object.values(dateData?.tournaments || {})) {
+          if ((tourn?.name || "").toLowerCase().includes(targetName)) {
+            for (const fix of Object.values(tourn?.fixtures || {})) {
+              if (fix?.home) names.add(fix.home);
+              if (fix?.away) names.add(fix.away);
+            }
+          }
+        }
+      }
+      setFixtureTeams([...names].sort());
+    });
+    return () => unsub();
+  }, [league]);
+
+  function handleLink(tableTeam, fixturesTeam) {
+    setLinks(prev => {
+      const updated = { ...prev };
+      if (!fixturesTeam) {
+        delete updated[tableTeam];
+      } else {
+        updated[tableTeam] = fixturesTeam;
+      }
+      return updated;
+    });
+  }
+
+  async function saveLinks() {
+    setSaving(true);
+    setStatus("");
+    try {
+      await set(ref(db, basePath), links);
+      setStatus("✅ Links saved!");
+    } catch (e) {
+      setStatus("❌ Error: " + e.message);
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div>
+      <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: 8 }}>🔗 Team Linking</h3>
+      <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", marginBottom: 20 }}>
+        Link table team names to fixture team names so they share icons and display correctly across all pages.<br />
+        e.g. "Man City" (table) → "Manchester City" (fixtures)
+      </p>
+
+      {teams && teams.length > 0 ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
+          {teams.map(team => (
+            <div key={team.key || team.name} style={{ background: "rgba(255,20,147,0.06)", border: "1px solid rgba(255,20,147,0.2)", borderRadius: 12, padding: "12px 16px" }}>
+              <div style={{ color: "#fff", fontWeight: 700, fontSize: "0.95rem", marginBottom: 8 }}>
+                📋 {team.name}
+              </div>
+              <select
+                value={links[team.name] || ""}
+                onChange={e => handleLink(team.name, e.target.value)}
+                style={{ ...inputStyle, marginBottom: 0 }}
+              >
+                <option value="">— No link (use same name) —</option>
+                {fixtureTeams.map(ft => (
+                  <option key={ft} value={ft}>{ft}</option>
+                ))}
+              </select>
+              {links[team.name] && (
+                <div style={{ color: "#22c55e", fontSize: "0.8rem", marginTop: 6 }}>
+                  ✅ Linked to: {links[team.name]}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ color: "rgba(255,255,255,0.4)", textAlign: "center", padding: "30px 0", marginBottom: 20 }}>
+          No teams in this league yet.
+        </div>
+      )}
+
+      {status && (
+        <div style={{ color: status.startsWith("✅") ? "#22c55e" : "#ff6b6b", fontSize: "0.85rem", marginBottom: 12, textAlign: "center" }}>{status}</div>
+      )}
+
+      <div style={{ display: "flex", gap: 10 }}>
+        <button
+          onClick={saveLinks}
+          disabled={saving}
+          style={{ flex: 1, padding: 14, background: saving ? "rgba(255,20,147,0.4)" : "#FF1493", border: "none", borderRadius: 12, color: "#fff", fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", fontSize: "1rem" }}
+        >
+          {saving ? "Saving..." : "💾 Save Links"}
+        </button>
+        <button onClick={onBack} style={{ flex: 1, padding: 14, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, color: "#fff", cursor: "pointer" }}>
+          ← Back
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Modal ───────────────────────────────────────────────────────────────
 export default function LeagueAdminSettingsModal({ league, season, teams, onClose }) {
   const [view, setView] = useState("main");
@@ -266,6 +393,7 @@ export default function LeagueAdminSettingsModal({ league, season, teams, onClos
   if (view === "history") return <Modal active onClose={() => setView("main")}><ManagerHistoryModal league={league} season={season} onClose={() => setView("main")} /></Modal>;
   if (view === "requests") return <Modal active onClose={() => setView("main")}><RequestsHistoryModal league={league} season={season} onClose={() => setView("main")} /></Modal>;
   if (view === "teamIcon") return <TeamIconUploadModal onClose={() => setView("main")} />;
+  if (view === "teamLinks") return <TeamLinker league={league} teams={teams} onBack={() => setView("main")} />;
 
   if (view === "zones") {
     return (
@@ -355,6 +483,7 @@ export default function LeagueAdminSettingsModal({ league, season, teams, onClos
         ["🎞️", "Manage Slideshow", "slideshow"],
         ["🎨", "Zone Config", "zones"],
         ["🏷️", "Add Team Icon", "teamIcon"],
+        ["🔗", "Team Linking", "teamLinks"],
         ["📜", "Submission History", "requests"],
         ["🔑", "Manager Keys", "keys"],
         ["📋", "Manager History", "history"],
