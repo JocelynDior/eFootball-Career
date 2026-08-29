@@ -18,8 +18,8 @@ export default function TopScorers({ league, season, type = "scorer", onAdd, onE
   const [badges, setBadges] = useState({});
 
   const pathKey = type === "scorer" ? "top_scorers" : "top_assistants";
-  const emoji = type === "scorer" ? "⚽" : "🎯";
-  const label = type === "scorer" ? "Goals" : "Assists";
+  const emoji   = type === "scorer" ? "⚽" : "🎯";
+  const label   = type === "scorer" ? "Goals" : "Assists";
 
   useEffect(() => {
     const unsub = onValue(ref(db, `career_${league}/seasons/season_${season}/${pathKey}`), snap => {
@@ -42,41 +42,65 @@ export default function TopScorers({ league, season, type = "scorer", onAdd, onE
   }, []);
 
   const combined = { ...teamIconsCache, ...badges };
-  const sorted = [...list].sort((a, b) => (b.count || 0) - (a.count || 0));
-  const top3 = sorted.slice(0, 3);
-  const rest = sorted.slice(3);
+  const sorted   = [...list].sort((a, b) => (b.count || 0) - (a.count || 0));
+  const top3     = sorted.slice(0, 3);
+  const rest     = sorted.slice(3);
 
   return (
     <div>
-      {/* Top 3 Podium */}
+      {/* ── TOP 3 PODIUM ── */}
       {top3.length > 0 && (
         <div style={{ display: "flex", marginBottom: 32, borderRadius: 20, overflow: "hidden", ...GLASS }}>
           {top3.map((p, i) => {
             const teamBadge = combined[p.team];
-            // NOTE: p.imageUrl is the match screenshot uploaded by manager.
-            // We intentionally do NOT display it as a player icon here.
-            // The podium card shows only player initials / placeholder.
+            // Admin-set image via pencil edit — stored as p.imageUrl in Firebase
+            const playerImg = p.imageUrl || null;
+
             return (
-              <div key={p.key} style={{ flex: 1, position: "relative", transition: "transform 0.3s", cursor: "pointer" }}
+              <div
+                key={p.key}
+                style={{ flex: 1, position: "relative", transition: "transform 0.3s", cursor: "pointer" }}
                 onMouseOver={e => e.currentTarget.style.transform = "translateY(-8px)"}
                 onMouseOut={e => e.currentTarget.style.transform = "translateY(0)"}
               >
-                {/* Player placeholder — no manager-uploaded image shown */}
-                <div style={{ position: "relative", width: "100%", aspectRatio: "1/1", overflow: "hidden", background: "#000033", borderRight: i < 2 ? "2px solid rgba(255,255,255,0.15)" : "none" }}>
-                  <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02))" }}>
-                    <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "4rem", color: "rgba(255,255,255,0.2)", letterSpacing: 2 }}>{(p.name || "?")[0]}</span>
-                  </div>
-
-                  {/* Medal */}
-                  <div style={{ position: "absolute", top: 12, left: 12, fontSize: "2.2rem", filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.6))", zIndex: 2 }}>{MEDALS[i]}</div>
-
-                  {/* Admin edit */}
-                  {isAdmin && onEdit && (
-                    <button onClick={() => onEdit(p)} style={{ position: "absolute", top: 12, right: 12, background: "rgba(0,0,0,0.6)", border: "1px solid rgba(255,255,255,0.4)", borderRadius: "50%", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: "0.9rem", zIndex: 3 }}>✏️</button>
+                {/* Player image — admin-set via ✏️ edit, or initials placeholder */}
+                <div style={{
+                  position: "relative", width: "100%", aspectRatio: "1/1",
+                  overflow: "hidden", background: "#000033",
+                  borderRight: i < 2 ? "2px solid rgba(255,255,255,0.15)" : "none",
+                }}>
+                  {playerImg ? (
+                    <img
+                      src={playerImg}
+                      alt={p.name}
+                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      onError={e => { e.target.style.display = "none"; }}
+                    />
+                  ) : (
+                    <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02))" }}>
+                      <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "4rem", color: "rgba(255,255,255,0.2)", letterSpacing: 2 }}>
+                        {(p.name || "?")[0]}
+                      </span>
+                    </div>
                   )}
 
-                  {/* Name overlay */}
-                  <div style={{ position: "absolute", bottom: 40, left: 12, background: "linear-gradient(90deg, rgba(0,0,0,0.75), rgba(0,0,0,0.3))", color: "#fff", fontFamily: "'Inter', sans-serif", fontWeight: 800, fontSize: "0.95rem", padding: "5px 14px", borderRadius: 30, backdropFilter: "blur(4px)", zIndex: 2, borderLeft: "3px solid rgba(255,255,255,0.6)", pointerEvents: "none" }}>{p.name}</div>
+                  {/* Medal */}
+                  <div style={{ position: "absolute", top: 12, left: 12, fontSize: "2.2rem", filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.6))", zIndex: 2 }}>
+                    {MEDALS[i]}
+                  </div>
+
+                  {/* Admin edit button */}
+                  {isAdmin && onEdit && (
+                    <button
+                      onClick={() => onEdit(p)}
+                      style={{ position: "absolute", top: 12, right: 12, background: "rgba(0,0,0,0.6)", border: "1px solid rgba(255,255,255,0.4)", borderRadius: "50%", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: "0.9rem", zIndex: 3 }}
+                    >✏️</button>
+                  )}
+
+                  {/* Player name overlay */}
+                  <div style={{ position: "absolute", bottom: 40, left: 12, background: "linear-gradient(90deg, rgba(0,0,0,0.75), rgba(0,0,0,0.3))", color: "#fff", fontFamily: "'Inter', sans-serif", fontWeight: 800, fontSize: "0.95rem", padding: "5px 14px", borderRadius: 30, backdropFilter: "blur(4px)", zIndex: 2, borderLeft: "3px solid rgba(255,255,255,0.6)", pointerEvents: "none" }}>
+                    {p.name}
+                  </div>
 
                   {/* Team badge */}
                   {teamBadge && (
@@ -96,7 +120,7 @@ export default function TopScorers({ league, season, type = "scorer", onAdd, onE
         </div>
       )}
 
-      {/* 4th and below */}
+      {/* ── 4th AND BELOW ── */}
       {rest.length > 0 && (
         <div style={{ borderRadius: 16, overflow: "hidden", ...GLASS, marginBottom: 20 }}>
           <div style={{ overflowX: "auto" }}>
@@ -116,8 +140,17 @@ export default function TopScorers({ league, season, type = "scorer", onAdd, onE
                   >
                     <td style={{ padding: "14px 18px", textAlign: "center", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", color: "#fff" }}>{i + 4}</td>
                     <td style={{ padding: "14px 18px" }}>
-                      {/* No player image shown — manager uploads are match screenshots, not player photos */}
-                      <span style={{ color: "#fff", fontWeight: 700, fontSize: "1rem" }}>{p.name}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        {/* Show admin-set image in list rows too if available */}
+                        {p.imageUrl ? (
+                          <img src={p.imageUrl} alt={p.name} style={{ width: 36, height: 36, borderRadius: "50%", objectFit: "cover", border: "1px solid rgba(255,255,255,0.2)" }} onError={e => { e.target.style.display = "none"; }} />
+                        ) : (
+                          <div style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(255,255,255,0.1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <span style={{ fontSize: "1rem", color: "rgba(255,255,255,0.4)" }}>{(p.name || "?")[0]}</span>
+                          </div>
+                        )}
+                        <span style={{ color: "#fff", fontWeight: 700, fontSize: "1rem" }}>{p.name}</span>
+                      </div>
                     </td>
                     <td style={{ padding: "14px 18px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -131,7 +164,7 @@ export default function TopScorers({ league, season, type = "scorer", onAdd, onE
                     {isAdmin && (
                       <td style={{ padding: "14px 18px" }}>
                         <div style={{ display: "flex", gap: 6 }}>
-                          {onEdit && <button onClick={() => onEdit(p)} style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", padding: "4px 10px", borderRadius: 8, cursor: "pointer", fontSize: "0.8rem" }}>✏️</button>}
+                          {onEdit   && <button onClick={() => onEdit(p)}       style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", padding: "4px 10px", borderRadius: 8, cursor: "pointer", fontSize: "0.8rem" }}>✏️</button>}
                           {onDelete && <button onClick={() => onDelete(p.key)} style={{ background: "rgba(255,0,0,0.15)", border: "none", color: "#ff6b6b", padding: "4px 10px", borderRadius: 8, cursor: "pointer", fontSize: "0.8rem" }}>🗑️</button>}
                         </div>
                       </td>
@@ -145,7 +178,9 @@ export default function TopScorers({ league, season, type = "scorer", onAdd, onE
       )}
 
       {isAdmin && onAdd && (
-        <button onClick={onAdd} style={{ display: "flex", alignItems: "center", gap: 12, background: "rgba(255,255,255,0.08)", border: "2px solid rgba(255,255,255,0.25)", color: "#fff", padding: "16px 40px", borderRadius: 50, cursor: "pointer", fontWeight: 700, fontSize: "1rem", fontFamily: "inherit", transition: "all 0.2s" }}
+        <button
+          onClick={onAdd}
+          style={{ display: "flex", alignItems: "center", gap: 12, background: "rgba(255,255,255,0.08)", border: "2px solid rgba(255,255,255,0.25)", color: "#fff", padding: "16px 40px", borderRadius: 50, cursor: "pointer", fontWeight: 700, fontSize: "1rem", fontFamily: "inherit", transition: "all 0.2s" }}
           onMouseOver={e => e.currentTarget.style.background = "rgba(255,255,255,0.15)"}
           onMouseOut={e => e.currentTarget.style.background = "rgba(255,255,255,0.08)"}
         >
