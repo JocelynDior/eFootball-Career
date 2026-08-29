@@ -97,6 +97,7 @@ export default function FixturesList({ tournamentName }) {
   const [fullyLoaded, setFullyLoaded] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [selectedFixture, setSelectedFixture] = useState(null);
+  const [showFilter, setShowFilter] = useState(false);
   const timerRef = useRef(null);
 
   const normalizedTarget = (tournamentName || "").trim().toLowerCase().replace(/\s+/g, " ");
@@ -253,13 +254,36 @@ export default function FixturesList({ tournamentName }) {
 
   return (
     <div>
-      {/* Team filter */}
-      {allTeams.length > 0 && (
-        <div style={{ marginBottom: 20 }}>
-          <select value={teamFilter} onChange={e => setTeamFilter(e.target.value)} style={{ ...inputStyle, maxWidth: 320, cursor: "pointer" }}>
-            <option value="all">All Teams</option>
-            {allTeams.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
+      {/* Filter bar */}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+        <button
+          onClick={() => setShowFilter(v => !v)}
+          style={{
+            background: teamFilter !== "all" ? "rgba(255,20,147,0.25)" : "rgba(255,255,255,0.06)",
+            border: `1px solid ${teamFilter !== "all" ? "#FF1493" : "rgba(255,255,255,0.2)"}`,
+            borderRadius: 30, color: "#fff", padding: "10px 20px",
+            cursor: "pointer", fontFamily: "inherit", fontSize: "0.9rem",
+            display: "flex", alignItems: "center", gap: 8,
+          }}
+        >
+          🔍 Filter {teamFilter !== "all" && <span style={{ background: "#FF1493", borderRadius: "50%", width: 20, height: 20, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700 }}>1</span>}
+        </button>
+      </div>
+
+      {showFilter && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "flex-end" }} onClick={() => setShowFilter(false)}>
+          <div style={{ marginTop: 70, marginRight: 20, background: "rgba(10,0,25,0.97)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: 18, padding: "20px", minWidth: 260, backdropFilter: "blur(20px)", boxShadow: "0 8px 40px rgba(0,0,0,0.6)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: 2, marginBottom: 16 }}>🔍 Filter Fixtures</div>
+            <label style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: 0.5, display: "block", marginBottom: 6 }}>Team</label>
+            <select value={teamFilter} onChange={e => setTeamFilter(e.target.value)} style={{ width: "100%", padding: "10px 12px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: 10, color: "#fff", fontFamily: "inherit", fontSize: "0.9rem", outline: "none", marginBottom: 14, cursor: "pointer" }}>
+              <option value="all">All Teams</option>
+              {allTeams.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => { setTeamFilter("all"); setShowFilter(false); }} style={{ flex: 1, padding: "10px 0", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 10, color: "#fff", cursor: "pointer", fontSize: "0.9rem" }}>Clear</button>
+              <button onClick={() => setShowFilter(false)} style={{ flex: 1, padding: "10px 0", background: "#FF1493", border: "none", borderRadius: 10, color: "#fff", cursor: "pointer", fontWeight: 700, fontSize: "0.9rem" }}>Apply</button>
+            </div>
+          </div>
         </div>
       )}
 
