@@ -53,22 +53,19 @@ export default function TopScorers({ league, season, type = "scorer", onAdd, onE
         <div style={{ display: "flex", marginBottom: 32, borderRadius: 20, overflow: "hidden", ...GLASS }}>
           {top3.map((p, i) => {
             const teamBadge = combined[p.team];
-            const playerImg = p.imageUrl || null;
+            // NOTE: p.imageUrl is the match screenshot uploaded by manager.
+            // We intentionally do NOT display it as a player icon here.
+            // The podium card shows only player initials / placeholder.
             return (
               <div key={p.key} style={{ flex: 1, position: "relative", transition: "transform 0.3s", cursor: "pointer" }}
                 onMouseOver={e => e.currentTarget.style.transform = "translateY(-8px)"}
                 onMouseOut={e => e.currentTarget.style.transform = "translateY(0)"}
               >
-                {/* Player image */}
+                {/* Player placeholder — no manager-uploaded image shown */}
                 <div style={{ position: "relative", width: "100%", aspectRatio: "1/1", overflow: "hidden", background: "#000033", borderRight: i < 2 ? "2px solid rgba(255,255,255,0.15)" : "none" }}>
-                  {playerImg ? (
-                    <img src={playerImg} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                      onError={e => { e.target.style.display = "none"; }} />
-                  ) : (
-                    <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02))" }}>
-                      <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "4rem", color: "rgba(255,255,255,0.2)", letterSpacing: 2 }}>{(p.name || "?")[0]}</span>
-                    </div>
-                  )}
+                  <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02))" }}>
+                    <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "4rem", color: "rgba(255,255,255,0.2)", letterSpacing: 2 }}>{(p.name || "?")[0]}</span>
+                  </div>
 
                   {/* Medal */}
                   <div style={{ position: "absolute", top: 12, left: 12, fontSize: "2.2rem", filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.6))", zIndex: 2 }}>{MEDALS[i]}</div>
@@ -119,10 +116,8 @@ export default function TopScorers({ league, season, type = "scorer", onAdd, onE
                   >
                     <td style={{ padding: "14px 18px", textAlign: "center", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", color: "#fff" }}>{i + 4}</td>
                     <td style={{ padding: "14px 18px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        {p.imageUrl && <img src={p.imageUrl} alt="" style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover", border: "2px solid rgba(255,255,255,0.25)" }} />}
-                        <span style={{ color: "#fff", fontWeight: 700, fontSize: "1rem" }}>{p.name}</span>
-                      </div>
+                      {/* No player image shown — manager uploads are match screenshots, not player photos */}
+                      <span style={{ color: "#fff", fontWeight: 700, fontSize: "1rem" }}>{p.name}</span>
                     </td>
                     <td style={{ padding: "14px 18px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
