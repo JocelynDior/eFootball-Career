@@ -24,8 +24,17 @@ export async function applyResultToTable(league, season, homeTeam, awayTeam, hom
     hd.p = (hd.p || 0) + 1; hd.l = (hd.l || 0) + 1;
     ad.p = (ad.p || 0) + 1; ad.l = (ad.l || 0) + 1;
   } else if (forfeitType === 'forfeit_win') {
-    hd.p = (hd.p || 0) + 1; hd.w = (hd.w || 0) + 1; hd.pts = (hd.pts || 0) + 3;
-    ad.p = (ad.p || 0) + 1; ad.l = (ad.l || 0) + 1; ad.gd = (ad.gd || 0) - 3;
+    // Winner gets 3 pts, 3 GS, 3 GD; loser gets 0 GA = 3 GC, -3 GD
+    hd.p = (hd.p || 0) + 1;
+    hd.w = (hd.w || 0) + 1;
+    hd.pts = (hd.pts || 0) + 3;
+    hd.gs = (hd.gs || 0) + 3;
+    hd.gd = (hd.gd || 0) + 3;
+
+    ad.p = (ad.p || 0) + 1;
+    ad.l = (ad.l || 0) + 1;
+    ad.gc = (ad.gc || 0) + 3;
+    ad.gd = (ad.gd || 0) - 3;
   } else {
     hd.p = (hd.p || 0) + 1; hd.gs = (hd.gs || 0) + homeScore; hd.gc = (hd.gc || 0) + awayScore; hd.gd = (hd.gd || 0) + (homeScore - awayScore);
     ad.p = (ad.p || 0) + 1; ad.gs = (ad.gs || 0) + awayScore; ad.gc = (ad.gc || 0) + homeScore; ad.gd = (ad.gd || 0) + (awayScore - homeScore);
@@ -61,8 +70,16 @@ export async function reverseResultFromTable(league, season, homeTeam, awayTeam,
     hd.p = Math.max(0, (hd.p || 0) - 1); hd.l = Math.max(0, (hd.l || 0) - 1);
     ad.p = Math.max(0, (ad.p || 0) - 1); ad.l = Math.max(0, (ad.l || 0) - 1);
   } else if (forfeitType === 'forfeit_win') {
-    hd.p = Math.max(0, (hd.p || 0) - 1); hd.w = Math.max(0, (hd.w || 0) - 1); hd.pts = Math.max(0, (hd.pts || 0) - 3);
-    ad.p = Math.max(0, (ad.p || 0) - 1); ad.l = Math.max(0, (ad.l || 0) - 1); ad.gd = (ad.gd || 0) + 3;
+    hd.p = Math.max(0, (hd.p || 0) - 1);
+    hd.w = Math.max(0, (hd.w || 0) - 1);
+    hd.pts = Math.max(0, (hd.pts || 0) - 3);
+    hd.gs = Math.max(0, (hd.gs || 0) - 3);
+    hd.gd = (hd.gd || 0) - 3;
+
+    ad.p = Math.max(0, (ad.p || 0) - 1);
+    ad.l = Math.max(0, (ad.l || 0) - 1);
+    ad.gc = Math.max(0, (ad.gc || 0) - 3);
+    ad.gd = (ad.gd || 0) + 3;
   } else {
     hd.p = Math.max(0, (hd.p || 0) - 1); hd.gs = Math.max(0, (hd.gs || 0) - homeScore); hd.gc = Math.max(0, (hd.gc || 0) - awayScore); hd.gd = (hd.gd || 0) - (homeScore - awayScore);
     ad.p = Math.max(0, (ad.p || 0) - 1); ad.gs = Math.max(0, (ad.gs || 0) - awayScore); ad.gc = Math.max(0, (ad.gc || 0) - homeScore); ad.gd = (ad.gd || 0) - (awayScore - homeScore);
