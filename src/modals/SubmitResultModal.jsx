@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { db, PATHS } from "../firebase";
-import { ref, push, get, set } from "firebase/database";
+import { ref, push, get, set, update } from "firebase/database";
 import { applyResultToTable } from "../utils/tableLogic";
 import { getSASTToday } from "../utils/sastTime";
 import { useAdmin } from "../context/AdminContext";
@@ -20,8 +20,8 @@ const labelStyle = {
   textTransform: "uppercase", letterSpacing: "0.5px",
 };
 
-// Upsert a player's stat in top_scorers or top_assistants using already-imported db
-async function updateTopStat(league, season, pathKey, playerName, count, imageUrl, team) {
+// Upsert a player's stat in top_scorers or top_assistants
+async function updateTopStat(league, season, pathKey, playerName, count, team) {
   const listRef = ref(db, `career_${league}/seasons/season_${season}/${pathKey}`);
   const snap = await get(listRef);
   const existing = snap.val() || {};
@@ -36,24 +36,38 @@ async function updateTopStat(league, season, pathKey, playerName, count, imageUr
     await set(ref(db, `career_${league}/seasons/season_${season}/${pathKey}/${foundKey}`), {
       ...foundEntry,
       count: (foundEntry.count || 0) + count,
-      imageUrl: imageUrl || foundEntry.imageUrl || "",
       team: team || foundEntry.team || "",
     });
   } else {
     await push(ref(db, `career_${league}/seasons/season_${season}/${pathKey}`), {
-      name: playerName, count, imageUrl: imageUrl || "", team: team || "",
+      name: playerName, count, team: team || "",
     });
   }
+}
+
+// Check if a result for the same match (same two teams + same matchday) already exists
+// Returns the existing result entry if found, else null
+async function findExistingResult(league, season, myTeam, opponent, matchday) {
+  const snap = await get(ref(db, PATHS.results(league, season)));
+  const data = snap.val() || {};
+  for (const [key, val] of Object.entries(data)) {
+    const sameMatchday = String(val.md) === String(matchday);
+    const sameTeams =
+      (val.homeTeam === myTeam && val.awayTeam === opponent) ||
+      (val.homeTeam === opponent && val.awayTeam === myTeam);
+    if (sameMatchday && sameTeams) {
+      return { key, ...val };
+    }
+  }
+  return null;
 }
 
 export default function SubmitResultModal({ league, season, teams, onClose }) {
   const { manager } = useAdmin();
   const myTeam = manager?.team || "";
 
-  // Step 1: match type selection
   const [matchType, setMatchType] = useState(null); // null | "normal" | "forfeit"
 
-  // Normal match state
   const [opponent, setOpponent] = useState("");
   const [myScore, setMyScore] = useState(0);
   const [oppScore, setOppScore] = useState(0);
@@ -70,7 +84,6 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
   const [assistImg, setAssistImg] = useState(null);
   const [assistImgPreview, setAssistImgPreview] = useState("");
 
-  // Match image
   const [matchImage, setMatchImage] = useState(null);
   const [matchImagePreview, setMatchImagePreview] = useState("");
 
@@ -78,7 +91,42 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
   const [status, setStatus] = useState("");
   const [confirming, setConfirming] = useState(false);
 
+  // 2nd manager state
+  const [existingResult, setExistingResult] = useState(null); // existing result from manager 1
+  const [checkingDuplicate, setCheckingDuplicate] = useState(false);
+  const [isSecondManager, setIsSecondManager] = useState(false); // true when manager 2
+
   const others = teams.filter(t => t.name !== myTeam).map(t => t.name).sort();
+
+  // When opponent + matchday both filled, check for existing result
+  useEffect(() => {
+    if (!opponent || !matchday || matchType !== "normal") {
+      setExistingResult(null);
+      setIsSecondManager(false);
+      return;
+    }
+    let cancelled = false;
+    setCheckingDuplicate(true);
+    findExistingResult(league, season, myTeam, opponent, matchday).then(found => {
+      if (cancelled) return;
+      if (found) {
+        // Only treat as 2nd manager if we didn't submit it
+        if (found.submittedBy !== (manager?.uid || myTeam)) {
+          setExistingResult(found);
+          setIsSecondManager(true);
+          // Auto-fill score from manager 1
+          const iAmHome = found.homeTeam === myTeam;
+          setMyScore(iAmHome ? (found.homeScore ?? 0) : (found.awayScore ?? 0));
+          setOppScore(iAmHome ? (found.awayScore ?? 0) : (found.homeScore ?? 0));
+        }
+      } else {
+        setExistingResult(null);
+        setIsSecondManager(false);
+      }
+      setCheckingDuplicate(false);
+    });
+    return () => { cancelled = true; };
+  }, [opponent, matchday, matchType, league, season, myTeam, manager]);
 
   function handleMatchImageChange(e) {
     const f = e.target.files[0]; if (!f) return;
@@ -121,50 +169,90 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
       setStatus("Uploading match image...");
       const matchImageUrl = await uploadToImgBB(matchImage);
 
+      // Note: imageUrl is NOT stored for scorers/assists in top stats
+      // We still upload it so match result card can show it, but it won't appear in scorers tab
       const scorersData = await Promise.all(scorers.map(async s => {
-        let imageUrl = "";
-        if (s.imageFile) { try { imageUrl = await uploadToImgBB(s.imageFile); } catch (_) {} }
-        return { player: s.player, goals: s.goals, imageUrl, team: myTeam };
+        return { player: s.player, goals: s.goals, team: myTeam };
       }));
       const assistsData = await Promise.all(assists.map(async a => {
-        let imageUrl = "";
-        if (a.imageFile) { try { imageUrl = await uploadToImgBB(a.imageFile); } catch (_) {} }
-        return { player: a.player, assists: a.assists, imageUrl, team: myTeam };
+        return { player: a.player, assists: a.assists, team: myTeam };
       }));
 
       const homeScore = +myScore;
       const awayScore = +oppScore;
       const isForfeit = matchType === "forfeit";
 
-      setStatus("Saving result...");
-      await push(ref(db, PATHS.results(league, season)), {
-        homeTeam: myTeam, awayTeam: opponent,
-        homeScore: isForfeit ? 3 : homeScore,
-        awayScore: isForfeit ? 0 : awayScore,
-        forfeitType: isForfeit ? "forfeit_win" : "none",
-        matchType: isForfeit ? "forfeit" : "normal",
-        md: +matchday, date, matchImageUrl,
-        goalScorers: { home: isForfeit ? [] : scorersData, away: [] },
-        assists: { home: isForfeit ? [] : assistsData, away: [] },
-        submittedBy: manager?.uid || myTeam,
-        submittedAt: Date.now(),
-        status: "approved",
-      });
+      if (isSecondManager && existingResult) {
+        // ── SECOND MANAGER: update existing result with our scorers, don't touch table ──
+        setStatus("Adding your scorers to match result...");
 
-      setStatus("Updating table...");
-      await applyResultToTable(league, season, myTeam, opponent,
-        isForfeit ? 3 : homeScore,
-        isForfeit ? 0 : awayScore,
-        isForfeit ? "forfeit_win" : "none"
-      );
+        const iAmHome = existingResult.homeTeam === myTeam;
+        const side = iAmHome ? "home" : "away";
 
-      if (!isForfeit) {
+        // Merge scorers & assists into existing result
+        const existingScorers = existingResult.goalScorers || { home: [], away: [] };
+        const existingAssists = existingResult.assists || { home: [], away: [] };
+
+        const updatedScorers = {
+          ...existingScorers,
+          [side]: [...(existingScorers[side] || []), ...scorersData],
+        };
+        const updatedAssists = {
+          ...existingAssists,
+          [side]: [...(existingAssists[side] || []), ...assistsData],
+        };
+
+        await update(ref(db, `${PATHS.results(league, season)}/${existingResult.key}`), {
+          goalScorers: updatedScorers,
+          assists: updatedAssists,
+          [`matchImageUrl_${side}`]: matchImageUrl,
+          secondManagerSubmittedBy: manager?.uid || myTeam,
+          secondManagerSubmittedAt: Date.now(),
+        });
+
+        // Update top scorers / assists stats only
         setStatus("Updating stats...");
         for (const s of scorersData) {
-          await updateTopStat(league, season, "top_scorers", s.player, s.goals, s.imageUrl, myTeam);
+          await updateTopStat(league, season, "top_scorers", s.player, s.goals, myTeam);
         }
         for (const a of assistsData) {
-          await updateTopStat(league, season, "top_assistants", a.player, a.assists, a.imageUrl, myTeam);
+          await updateTopStat(league, season, "top_assistants", a.player, a.assists, myTeam);
+        }
+
+        // Table is NOT updated — manager 1 already did that
+
+      } else {
+        // ── FIRST MANAGER: create new result and update table ──
+        setStatus("Saving result...");
+        await push(ref(db, PATHS.results(league, season)), {
+          homeTeam: myTeam, awayTeam: opponent,
+          homeScore: isForfeit ? 3 : homeScore,
+          awayScore: isForfeit ? 0 : awayScore,
+          forfeitType: isForfeit ? "forfeit_win" : "none",
+          matchType: isForfeit ? "forfeit" : "normal",
+          md: +matchday, date, matchImageUrl,
+          goalScorers: { home: isForfeit ? [] : scorersData, away: [] },
+          assists: { home: isForfeit ? [] : assistsData, away: [] },
+          submittedBy: manager?.uid || myTeam,
+          submittedAt: Date.now(),
+          status: "approved",
+        });
+
+        setStatus("Updating table...");
+        await applyResultToTable(league, season, myTeam, opponent,
+          isForfeit ? 3 : homeScore,
+          isForfeit ? 0 : awayScore,
+          isForfeit ? "forfeit_win" : "none"
+        );
+
+        if (!isForfeit) {
+          setStatus("Updating stats...");
+          for (const s of scorersData) {
+            await updateTopStat(league, season, "top_scorers", s.player, s.goals, myTeam);
+          }
+          for (const a of assistsData) {
+            await updateTopStat(league, season, "top_assistants", a.player, a.assists, myTeam);
+          }
         }
       }
 
@@ -187,14 +275,12 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
     );
   }
 
-  // ─── Step 1: Match type selection ───
   if (!matchType) {
     return (
       <div>
         <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: 8 }}>⚽ Submit Result</h3>
         <p style={{ color: "rgba(255,255,255,0.5)", marginBottom: 28, fontSize: "0.9rem" }}>Your Team: <strong style={{ color: "#FF1493" }}>{myTeam}</strong></p>
 
-        {/* Big warning */}
         <div style={{ background: "rgba(255,165,0,0.12)", border: "2px solid rgba(255,165,0,0.5)", borderRadius: 14, padding: "18px 20px", marginBottom: 28, color: "#FFB347", fontSize: "1.5rem", fontWeight: 800, lineHeight: 1.5, textAlign: "center" }}>
           ⚠️ FALSE RESULTS WILL RESULT IN A 6 POINT DEDUCTION AND THE MATCH WILL BE DECLARED A FORFEIT LOSS.
         </div>
@@ -240,7 +326,7 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
             {myTeam} <span style={{ color: "#FF1493" }}>{isForfeit ? "3 — 0 (W)" : `${myScore} — ${oppScore}`}</span> {opponent}
           </div>
           <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.85rem" }}>
-            {isForfeit ? "Forfeit Win" : "Normal Match"} &nbsp;·&nbsp; Matchday {matchday} &nbsp;·&nbsp; {date}
+            {isForfeit ? "Forfeit Win" : isSecondManager ? "Adding your scorers to existing result" : "Normal Match"} &nbsp;·&nbsp; Matchday {matchday} &nbsp;·&nbsp; {date}
           </div>
           {!isForfeit && scorers.length > 0 && (
             <div style={{ marginTop: 10, fontSize: "0.85rem", color: "rgba(255,255,255,0.6)" }}>
@@ -250,6 +336,11 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
           {!isForfeit && assists.length > 0 && (
             <div style={{ marginTop: 6, fontSize: "0.85rem", color: "rgba(255,255,255,0.6)" }}>
               🎯 {assists.map(a => `${a.player}${a.assists > 1 ? ` (${a.assists})` : ""}`).join(", ")}
+            </div>
+          )}
+          {isSecondManager && (
+            <div style={{ marginTop: 10, background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: 10, padding: "8px 14px", color: "#22c55e", fontSize: "0.85rem" }}>
+              ✅ Score auto-filled from opponent's submission. Table will NOT be updated again.
             </div>
           )}
         </div>
@@ -298,7 +389,6 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
         <label style={labelStyle}>Date</label>
         <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} />
 
-        {/* Match image */}
         <div style={{ border: "2px dashed rgba(255,20,147,0.5)", borderRadius: 14, padding: "16px", marginBottom: 16, background: "rgba(255,20,147,0.05)" }}>
           <div style={{ color: "#FF1493", fontWeight: 700, fontSize: "0.9rem", marginBottom: 8 }}>
             📸 Match Image <span style={{ color: "#ff6b6b" }}>* Required</span>
@@ -355,9 +445,36 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
         {others.map(t => <option key={t} value={t}>{t}</option>)}
       </select>
 
+      {/* 2nd manager notice */}
+      {checkingDuplicate && (
+        <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", marginBottom: 10 }}>🔍 Checking for existing result...</div>
+      )}
+      {isSecondManager && existingResult && (
+        <div style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.4)", borderRadius: 12, padding: "12px 16px", marginBottom: 16, color: "#22c55e", fontSize: "0.9rem", fontWeight: 600 }}>
+          ✅ Your opponent already submitted this result. Score has been auto-filled below.<br />
+          <span style={{ color: "rgba(255,255,255,0.5)", fontWeight: 400, fontSize: "0.8rem" }}>You can only add your scorers & assists. The table will not be updated again.</span>
+        </div>
+      )}
+
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <div><label style={labelStyle}>Your Score</label><input type="number" min={0} value={myScore} onChange={e => setMyScore(e.target.value)} style={inputStyle} /></div>
-        <div><label style={labelStyle}>Opponent Score</label><input type="number" min={0} value={oppScore} onChange={e => setOppScore(e.target.value)} style={inputStyle} /></div>
+        <div>
+          <label style={labelStyle}>Your Score</label>
+          <input
+            type="number" min={0} value={myScore}
+            onChange={e => setMyScore(e.target.value)}
+            style={{ ...inputStyle, opacity: isSecondManager ? 0.6 : 1 }}
+            disabled={isSecondManager}
+          />
+        </div>
+        <div>
+          <label style={labelStyle}>Opponent Score</label>
+          <input
+            type="number" min={0} value={oppScore}
+            onChange={e => setOppScore(e.target.value)}
+            style={{ ...inputStyle, opacity: isSecondManager ? 0.6 : 1 }}
+            disabled={isSecondManager}
+          />
+        </div>
       </div>
 
       <label style={labelStyle}>Matchday <span style={{ color: "#FF1493" }}>*</span></label>
@@ -390,16 +507,11 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
         <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
           <input value={scorerName} onChange={e => setScorerName(e.target.value)} placeholder="Player name" style={{ ...inputStyle, flex: 2, minWidth: 120, marginBottom: 0 }} />
           <input type="number" value={scorerGoals} onChange={e => setScorerGoals(e.target.value)} min={1} style={{ ...inputStyle, width: 80, marginBottom: 0 }} />
-          <label style={{ cursor: "pointer", background: "rgba(255,20,147,0.15)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: 10, padding: "10px 14px", color: "#FF1493", display: "flex", alignItems: "center", gap: 6 }}>
-            {scorerImgPreview ? <img src={scorerImgPreview} alt="" style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "cover" }} /> : "📷"}
-            <input type="file" accept="image/*" onChange={handleScorerImgChange} style={{ display: "none" }} />
-          </label>
           <button onClick={addScorer} style={{ background: "#FF1493", border: "none", borderRadius: 10, color: "#fff", padding: "10px 16px", cursor: "pointer", fontWeight: 700 }}>Add</button>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           {scorers.map((s, i) => (
             <span key={i} style={{ background: "rgba(0,0,0,0.5)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 30, padding: "5px 14px", fontSize: "0.85rem", color: "#fff", display: "inline-flex", alignItems: "center", gap: 8 }}>
-              {s.imagePreview && <img src={s.imagePreview} alt="" style={{ width: 22, height: 22, borderRadius: "50%", objectFit: "cover" }} />}
               ⚽ {s.player} ({s.goals})
               <button onClick={() => removeScorer(i)} style={{ background: "#cc3333", color: "#fff", border: "none", borderRadius: "50%", width: 20, height: 20, cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>✖</button>
             </span>
@@ -413,16 +525,11 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
         <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
           <input value={assistName} onChange={e => setAssistName(e.target.value)} placeholder="Player name" style={{ ...inputStyle, flex: 2, minWidth: 120, marginBottom: 0 }} />
           <input type="number" value={assistCount} onChange={e => setAssistCount(e.target.value)} min={1} style={{ ...inputStyle, width: 80, marginBottom: 0 }} />
-          <label style={{ cursor: "pointer", background: "rgba(255,20,147,0.15)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: 10, padding: "10px 14px", color: "#FF1493", display: "flex", alignItems: "center", gap: 6 }}>
-            {assistImgPreview ? <img src={assistImgPreview} alt="" style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "cover" }} /> : "📷"}
-            <input type="file" accept="image/*" onChange={handleAssistImgChange} style={{ display: "none" }} />
-          </label>
           <button onClick={addAssist} style={{ background: "#FF1493", border: "none", borderRadius: 10, color: "#fff", padding: "10px 16px", cursor: "pointer", fontWeight: 700 }}>Add</button>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           {assists.map((a, i) => (
             <span key={i} style={{ background: "rgba(0,0,0,0.5)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 30, padding: "5px 14px", fontSize: "0.85rem", color: "#fff", display: "inline-flex", alignItems: "center", gap: 8 }}>
-              {a.imagePreview && <img src={a.imagePreview} alt="" style={{ width: 22, height: 22, borderRadius: "50%", objectFit: "cover" }} />}
               🎯 {a.player} ({a.assists})
               <button onClick={() => removeAssist(i)} style={{ background: "#cc3333", color: "#fff", border: "none", borderRadius: "50%", width: 20, height: 20, cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>✖</button>
             </span>
