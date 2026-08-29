@@ -25,7 +25,7 @@ const BATCH = 5;
 
 function TeamBadge({ teamName, iconUrl, size = 80 }) {
   if (iconUrl) {
-    return <img src={iconUrl} alt={teamName} style={{ width: size, height: size, objectFit: "contain" }} />;
+    return <img src={iconUrl} alt={teamName} style={{ width: size, height: size, objectFit: "contain" }} onError={e => { e.target.style.display = "none"; }} />;
   }
   const initials = (teamName || "?").split(" ").map(w => w[0]).join("").slice(0, 3).toUpperCase();
   return (
@@ -45,11 +45,53 @@ function Spinner() {
   );
 }
 
+// Returns "today" | "yesterday" | "upcoming" | "past" for sorting buckets
+function getDateBucket(dateStr) {
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = yesterday.toISOString().slice(0, 10);
+
+  if (dateStr === todayStr) return "today";
+  if (dateStr === yesterdayStr) return "yesterday";
+  if (dateStr > todayStr) return "upcoming";
+  return "past"; // older than yesterday — shown last
+}
+
+// Sort groups in order: today, yesterday, upcoming (asc), past (desc)
+function sortGroupedDates(grouped) {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = yesterday.toISOString().slice(0, 10);
+
+  const today = [];
+  const yest = [];
+  const upcoming = [];
+  const past = [];
+
+  for (const dateStr of Object.keys(grouped)) {
+    const bucket = getDateBucket(dateStr);
+    if (bucket === "today") today.push(dateStr);
+    else if (bucket === "yesterday") yest.push(dateStr);
+    else if (bucket === "upcoming") upcoming.push(dateStr);
+    else past.push(dateStr);
+  }
+
+  upcoming.sort(); // ascending — nearest first
+  past.sort((a, b) => b.localeCompare(a)); // descending — most recent first
+
+  return [...today, ...yest, ...upcoming, ...past];
+}
+
 export default function FixturesList({ tournamentName }) {
   const { isAdmin, teamIconsCache } = useAdmin();
   const [allFixtures, setAllFixtures] = useState([]);
   const [teamFilter, setTeamFilter] = useState("all");
   const [badges, setBadges] = useState({});
+  const [teamLinks, setTeamLinks] = useState({});
   const [visibleCount, setVisibleCount] = useState(BATCH);
   const [loadingMore, setLoadingMore] = useState(false);
   const [fullyLoaded, setFullyLoaded] = useState(false);
@@ -82,7 +124,7 @@ export default function FixturesList({ tournamentName }) {
           }
         }
       }
-      fixtures.sort((a, b) => a.date.localeCompare(b.date));
+      // Don't sort here — we'll sort by bucket grouping instead
       setAllFixtures(fixtures);
       setVisibleCount(BATCH);
       setFullyLoaded(false);
@@ -102,6 +144,51 @@ export default function FixturesList({ tournamentName }) {
     });
     return () => unsub();
   }, []);
+
+  // Load team links for all leagues (fixtures names can differ per league)
+  useEffect(() => {
+    // We load all league settings and merge teamLinks
+    const leagues = ["premier_league", "serie_a", "la_liga"];
+    const unsubscribers = [];
+    const merged = {};
+    leagues.forEach(lg => {
+      const unsub = onValue(ref(db, `career_${lg}_settings/teamLinks`), snap => {
+        const d = snap.val() || {};
+        Object.assign(merged, d);
+        setTeamLinks({ ...merged });
+      });
+      unsubscribers.push(unsub);
+    });
+    return () => unsubscribers.forEach(u => u());
+  }, []);
+
+  function resolveIcon(teamName) {
+    if (!teamName) return null;
+    const nameLower = teamName.toLowerCase();
+    const allIcons = { ...teamIconsCache, ...badges };
+
+    // Direct match
+    const directKey = Object.keys(allIcons).find(k => k.toLowerCase() === nameLower);
+    if (directKey) return allIcons[directKey];
+
+    // Reverse link — fixtures team might be linked from table team
+    // Check if any link maps TO this team name
+    const linkedFrom = Object.entries(teamLinks).find(([, v]) => v.toLowerCase() === nameLower);
+    if (linkedFrom) {
+      const tableTeam = linkedFrom[0];
+      const tableKey = Object.keys(allIcons).find(k => k.toLowerCase() === tableTeam.toLowerCase());
+      if (tableKey) return allIcons[tableKey];
+    }
+
+    // Forward link — this team is a table team linked to a fixtures team
+    const linkedTo = teamLinks[teamName];
+    if (linkedTo) {
+      const linkedKey = Object.keys(allIcons).find(k => k.toLowerCase() === linkedTo.toLowerCase());
+      if (linkedKey) return allIcons[linkedKey];
+    }
+
+    return null;
+  }
 
   const combined = { ...teamIconsCache, ...badges };
   const allTeams = [...new Set(allFixtures.flatMap(f => [f.home, f.away]))].sort();
@@ -144,15 +231,25 @@ export default function FixturesList({ tournamentName }) {
     return `${days[d.getDay()]}, ${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
   }
 
-  // Show spinner while initial load
+  function getDateLabel(dateStr) {
+    const bucket = getDateBucket(dateStr);
+    if (bucket === "today") return "📅 Today";
+    if (bucket === "yesterday") return "📅 Yesterday";
+    return `📅 ${formatDate(dateStr)}`;
+  }
+
   if (initialLoading) return <Spinner />;
 
   const visibleFixtures = filtered.slice(0, visibleCount);
+
+  // Group by date
   const grouped = {};
   for (const fix of visibleFixtures) {
     if (!grouped[fix.date]) grouped[fix.date] = [];
     grouped[fix.date].push(fix);
   }
+
+  const sortedDates = sortGroupedDates(grouped);
 
   return (
     <div>
@@ -166,7 +263,6 @@ export default function FixturesList({ tournamentName }) {
         </div>
       )}
 
-      {/* Empty state — only show after confirmed loaded with no results */}
       {!initialLoading && allFixtures.length === 0 && (
         <div style={{ textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.3)" }}>
           <div style={{ fontSize: "3rem", marginBottom: 12 }}>📅</div>
@@ -175,18 +271,17 @@ export default function FixturesList({ tournamentName }) {
         </div>
       )}
 
-      {/* Filtered empty */}
       {!initialLoading && allFixtures.length > 0 && filtered.length === 0 && (
         <div style={{ textAlign: "center", padding: "40px", color: "rgba(255,255,255,0.3)" }}>No fixtures for selected team.</div>
       )}
 
-      {Object.entries(grouped).map(([dateStr, fixes]) => (
+      {sortedDates.map(dateStr => (
         <div key={dateStr} style={{ marginBottom: 32 }}>
           <div style={{ display: "inline-block", background: "rgba(255,20,147,0.15)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 30, padding: "6px 20px", marginBottom: 16, color: "#FF1493", fontWeight: 700, fontSize: "0.85rem", letterSpacing: 1 }}>
-            📅 {formatDate(dateStr)}
+            {getDateLabel(dateStr)}
           </div>
 
-          {fixes.map((fix, fi) => (
+          {grouped[dateStr].map((fix) => (
             <div
               key={`${fix.dateKey}-${fix.tournKey}-${fix.fixKey}`}
               onClick={() => setSelectedFixture(fix)}
@@ -194,19 +289,18 @@ export default function FixturesList({ tournamentName }) {
               onMouseOver={e => e.currentTarget.style.background = "rgba(255,20,147,0.08)"}
               onMouseOut={e => e.currentTarget.style.background = GLASS.background}
             >
-              {/* Tap hint */}
               <div style={{ position: "absolute", top: 10, right: 14, color: "rgba(255,255,255,0.2)", fontSize: "0.7rem", letterSpacing: 1 }}>TAP FOR DETAILS</div>
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20 }}>
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 12, textAlign: "center" }}>
-                  <TeamBadge teamName={fix.home} iconUrl={combined[fix.home]} size={80} />
+                  <TeamBadge teamName={fix.home} iconUrl={resolveIcon(fix.home)} size={80} />
                   <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", color: "#fff", letterSpacing: 1, lineHeight: 1.1 }}>{fix.home}</span>
                 </div>
                 <div style={{ flexShrink: 0 }}>
                   <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", color: "rgba(255,255,255,0.4)", letterSpacing: 6 }}>VS</span>
                 </div>
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 12, textAlign: "center" }}>
-                  <TeamBadge teamName={fix.away} iconUrl={combined[fix.away]} size={80} />
+                  <TeamBadge teamName={fix.away} iconUrl={resolveIcon(fix.away)} size={80} />
                   <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", color: "#fff", letterSpacing: 1, lineHeight: 1.1 }}>{fix.away}</span>
                 </div>
               </div>
@@ -234,7 +328,6 @@ export default function FixturesList({ tournamentName }) {
         </div>
       )}
 
-      {/* Match details popup */}
       <Modal active={!!selectedFixture} onClose={() => setSelectedFixture(null)}>
         {selectedFixture && (
           <MatchDetailsModal fixture={selectedFixture} onClose={() => setSelectedFixture(null)} />
