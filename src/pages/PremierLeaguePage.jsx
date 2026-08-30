@@ -18,6 +18,7 @@ import StatPlayerModal from "../modals/StatPlayerModal";
 import LeagueRulesModal from "../modals/LeagueRulesModal";
 import LeagueAdminSettingsModal from "../modals/LeagueAdminSettingsModal";
 import SubmitResultModal from "../modals/SubmitResultModal";
+import PendingFixturesModal from "../modals/PendingFixturesModal";
 import LoadingSpinner from "../components/LoadingSpinner";
 import LeagueHeadlineSlideshow from "../components/LeagueHeadlineSlideshow";
 import LeagueTableHeader from "../components/LeagueTableHeader";
@@ -26,10 +27,12 @@ import { applyResultToTable } from "../utils/tableLogic";
 
 const LEAGUE = "premier";
 const LEAGUE_NAME = "Premier League";
+const TOURNAMENT_NAME_KEY = "premier league";
 
 function getSASTNow() { return new Date(Date.now() + 2 * 60 * 60 * 1000); }
 function getSASTDateStr(offsetDays = 0) {
-  const d = getSASTNow(); d.setDate(d.getDate() + offsetDays);
+  const d = new Date(Date.now() + 2 * 3600000);
+  d.setUTCDate(d.getUTCDate() + offsetDays);
   return d.toISOString().split("T")[0];
 }
 
@@ -53,14 +56,32 @@ async function updateTopStat(league, season, pathKey, playerName, count, imageUr
   }
 }
 
-// Per-tab loading state wrapper
-function TabContent({ loading, children, emptyCheck }) {
-  if (loading) return <LoadingSpinner />;
-  return <>{children}</>;
+// ── Matchday number resolver ──────────────────────────────────────────────────
+function useMatchdayNumber(dateStr) {
+  const [md, setMd] = useState(null);
+  useEffect(() => {
+    const unsub = onValue(ref(db, "career_calendarEvents"), snap => {
+      const data = snap.val() || {};
+      const dates = new Set();
+      for (const [date, dayData] of Object.entries(data)) {
+        for (const tourn of Object.values(dayData?.tournaments || {})) {
+          if ((tourn?.name || "").toLowerCase().includes(TOURNAMENT_NAME_KEY)) {
+            const hasFixtures = Object.values(tourn?.fixtures || {}).some(f => f?.home && f?.away);
+            if (hasFixtures) dates.add(date);
+          }
+        }
+      }
+      const sorted = [...dates].sort();
+      const idx = sorted.indexOf(dateStr);
+      setMd(idx >= 0 ? idx + 1 : null);
+    });
+    return () => unsub();
+  }, [dateStr]);
+  return md;
 }
 
-// Countdown card
-function Countdown({ title, startMs, durationMs, accent = "#FF1493" }) {
+// ── Countdown card ────────────────────────────────────────────────────────────
+function Countdown({ title, startMs, durationMs, accent = "#FF1493", matchday }) {
   const [parts, setParts] = useState({ h: "48", m: "00", s: "00", pct: 1 });
   useEffect(() => {
     function tick() {
@@ -97,69 +118,21 @@ function Countdown({ title, startMs, durationMs, accent = "#FF1493" }) {
           </div>
         ))}
       </div>
+      {/* Matchday label */}
+      <div style={{
+        background: `${urgency}18`, border: `1px solid ${urgency}44`,
+        borderRadius: 30, padding: "6px 20px",
+        fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.3rem",
+        color: urgency, letterSpacing: 2,
+      }}>
+        {matchday !== null && matchday !== undefined ? `MATCHDAY ${matchday}` : "—"}
+      </div>
       <div style={{ width: "100%", height: 6, background: "rgba(255,255,255,0.06)", borderRadius: 3 }}>
         <div style={{ width: `${parts.pct * 100}%`, height: "100%", background: urgency, borderRadius: 3, transition: "width 1s linear" }} />
       </div>
     </div>
   );
 }
-
-function PendingCard({ r, section, onApprove, onNoContest, onReject }) {
-  // Countdown synced with matchday deadline:
-  // Today: 48hr from today's SAST midnight
-  // Yesterday: 24hr from yesterday's SAST midnight
-  const [remaining, setRemaining] = useState("");
-
-  useEffect(() => {
-    function getSASTMidnightMs(offsetDays = 0) {
-      const sastNow = new Date(Date.now() + 2 * 3600000);
-      return new Date(Date.UTC(sastNow.getUTCFullYear(), sastNow.getUTCMonth(), sastNow.getUTCDate() + offsetDays, 0, 0, 0) - 2 * 3600000).getTime();
-    }
-    const midnightMs = section === "today" ? getSASTMidnightMs(0) : getSASTMidnightMs(-1);
-    const durationMs = section === "today" ? 48 * 3600000 : 24 * 3600000;
-    const deadlineMs = midnightMs + durationMs;
-
-    function tick() {
-      const diff = deadlineMs - Date.now();
-      if (diff <= 0) { setRemaining("Expired"); return; }
-      const h = Math.floor(diff / 3600000);
-      const m = Math.floor((diff % 3600000) / 60000);
-      const s = Math.floor((diff % 60000) / 1000);
-      setRemaining(`${h}h ${m}m ${s}s`);
-    }
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [section]);
-
-  const msLeft = remaining === "Expired" ? 0 : (() => {
-    const p = remaining.match(/(\d+)h (\d+)m (\d+)s/);
-    if (!p) return Infinity;
-    return (+p[1]) * 3600000 + (+p[2]) * 60000 + (+p[3]) * 1000;
-  })();
-  const countColor = remaining === "Expired" ? "#ff4444" : msLeft < 3600000 ? "#ff6b6b" : msLeft < 7200000 ? "#FFB347" : "#22c55e";
-
-  return (
-    <div style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,20,147,0.2)", borderRadius: 16, padding: "16px 20px", marginBottom: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
-        <div>
-          <div style={{ color: "#fff", fontWeight: 800, fontSize: "1.1rem", fontFamily: "'Bebas Neue', sans-serif", letterSpacing: 1 }}>
-            {r.homeTeam} <span style={{ color: "#FF1493" }}>{r.homeScore ?? "?"} — {r.awayScore ?? "?"}</span> {r.awayTeam}
-          </div>
-          {r.md && <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", marginTop: 2 }}>MD {r.md} · {r.date || ""}</div>}
-          <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "0.75rem", marginTop: 4 }}>by {r.submittedBy || "manager"}</div>
-        </div>
-        <span style={{ color: countColor, fontWeight: 700, fontFamily: "monospace", fontSize: "0.85rem" }}>⏱ {remaining}</span>
-      </div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <button onClick={() => onApprove(r)} style={{ background: "rgba(34,197,94,0.2)", border: "1px solid rgba(34,197,94,0.4)", color: "#22c55e", padding: "8px 16px", borderRadius: 20, cursor: "pointer", fontWeight: 700, fontSize: "0.85rem", fontFamily: "inherit" }}>✅ Approve</button>
-        <button onClick={() => onNoContest(r)} style={{ background: "rgba(255,165,0,0.15)", border: "1px solid rgba(255,165,0,0.4)", color: "#FFB347", padding: "8px 16px", borderRadius: 20, cursor: "pointer", fontWeight: 700, fontSize: "0.85rem", fontFamily: "inherit" }}>🟡 No Contest</button>
-        <button onClick={() => onReject(r)} style={{ background: "rgba(220,50,50,0.15)", border: "1px solid rgba(220,50,50,0.3)", color: "#ff6b6b", padding: "8px 16px", borderRadius: 20, cursor: "pointer", fontWeight: 700, fontSize: "0.85rem", fontFamily: "inherit" }}>🗑️ Reject</button>
-      </div>
-    </div>
-  );
-}
-
 
 export default function PremierLeaguePage() {
   const { isAdmin } = useAdmin();
@@ -172,7 +145,6 @@ export default function PremierLeaguePage() {
   const [loading, setLoading] = useState(true);
   const [tabLoading, setTabLoading] = useState(false);
   const [tabMode, setTabMode] = useState("table");
-  const [adminMenuOpen, setAdminMenuOpen] = useState(false);
 
   const [editTeam, setEditTeam] = useState(undefined);
   const [editResult, setEditResult] = useState(undefined);
@@ -181,6 +153,12 @@ export default function PremierLeaguePage() {
   const [adminOpen, setAdminOpen] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [submitOpen, setSubmitOpen] = useState(false);
+  const [pendingOpen, setPendingOpen] = useState(false);
+
+  const todayStr = getSASTDateStr(0);
+  const yesterdayStr = getSASTDateStr(-1);
+  const todayMd = useMatchdayNumber(todayStr);
+  const yesterdayMd = useMatchdayNumber(yesterdayStr);
 
   useEffect(() => {
     const unsub = onValue(ref(db, `career_${LEAGUE}_settings`), snap => {
@@ -206,7 +184,6 @@ export default function PremierLeaguePage() {
     return () => unsubs.forEach(u => u());
   }, [season]);
 
-  // Tab change shows spinner briefly
   function handleTabChange(t) {
     setTabLoading(true);
     setTab(t);
@@ -254,12 +231,6 @@ export default function PremierLeaguePage() {
     catch (e) { alert("Error: " + e.message); }
   }
 
-  const todayStr = getSASTDateStr(0);
-  const yesterdayStr = getSASTDateStr(-1);
-  const pendingToday = pending.filter(r => { if (!r.submittedAt) return true; return new Date(r.submittedAt + 2 * 3600000).toISOString().split("T")[0] === todayStr; });
-  const pendingYesterday = pending.filter(r => { if (!r.submittedAt) return false; return new Date(r.submittedAt + 2 * 3600000).toISOString().split("T")[0] === yesterdayStr; });
-
-  // Countdowns
   function getSASTMidnight(offsetDays = 0) {
     const sastNow = new Date(Date.now() + 2 * 3600000);
     return new Date(Date.UTC(sastNow.getUTCFullYear(), sastNow.getUTCMonth(), sastNow.getUTCDate() + offsetDays, 0, 0, 0) - 2 * 3600000).getTime();
@@ -274,7 +245,6 @@ export default function PremierLeaguePage() {
     { id: "results", label: "RESULTS" },
     { id: "scorers", label: "TOP SCORERS" },
     { id: "assists", label: "TOP ASSISTS" },
-    ...(isAdmin && pending.length > 0 ? [{ id: "pending", label: `PENDING (${pending.length})` }] : []),
   ];
 
   return (
@@ -284,7 +254,6 @@ export default function PremierLeaguePage() {
       <LeagueHeadlineSlideshow league={LEAGUE} />
 
       <div style={{ padding: "20px 20px 0" }}>
-        {/* League table header with season selector integrated */}
         <LeagueTableHeader
           title={LEAGUE_NAME}
           currentSeason={season}
@@ -297,21 +266,47 @@ export default function PremierLeaguePage() {
           onMenuOpen={isAdmin ? () => setAdminOpen(true) : undefined}
         />
 
-        {/* Countdown circles — where season selector used to be */}
+        {/* Countdown blocks with matchday labels */}
         <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
           <Countdown
             title="⏮ PREVIOUS MATCHDAY DEADLINE"
             startMs={yesterdayMidnight}
             durationMs={D48}
             accent="#FF1493"
+            matchday={yesterdayMd}
           />
           <Countdown
             title="📅 CURRENT MATCHDAY DEADLINE"
             startMs={todayMidnight}
             durationMs={D48}
             accent="#a855f7"
+            matchday={todayMd}
           />
         </div>
+
+        {/* Admin pending button */}
+        {isAdmin && (
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+            <button
+              onClick={() => setPendingOpen(true)}
+              style={{
+                background: pending.length > 0 ? "rgba(255,20,147,0.15)" : "rgba(255,255,255,0.05)",
+                border: `1px solid ${pending.length > 0 ? "rgba(255,20,147,0.5)" : "rgba(255,255,255,0.15)"}`,
+                color: pending.length > 0 ? "#FF1493" : "rgba(255,255,255,0.5)",
+                padding: "9px 20px", borderRadius: 30, cursor: "pointer",
+                fontFamily: "'Bebas Neue', sans-serif", fontSize: "1rem", letterSpacing: 1,
+                display: "flex", alignItems: "center", gap: 8,
+              }}
+            >
+              ⏳ PENDING RESULTS
+              {pending.length > 0 && (
+                <span style={{ background: "#FF1493", color: "#fff", borderRadius: "50%", width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700, fontFamily: "inherit" }}>
+                  {pending.length}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
 
         <TabBar tabs={TABS} activeTab={tab} onTabChange={handleTabChange} />
       </div>
@@ -358,33 +353,11 @@ export default function PremierLeaguePage() {
                 onDelete={async k => await remove(ref(db, `${PATHS.topAssistants(LEAGUE, season)}/${k}`))}
               />
             )}
-            {tab === "pending" && isAdmin && (
-              <div>
-                <h2 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: 2, marginBottom: 24 }}>⏳ Pending Results</h2>
-                {pendingToday.length > 0 && (
-                  <div style={{ marginBottom: 32 }}>
-                    <div style={{ display: "inline-block", background: "rgba(34,197,94,0.15)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: 30, padding: "6px 20px", marginBottom: 16, color: "#22c55e", fontWeight: 700, fontSize: "0.85rem", letterSpacing: 1 }}>📅 TODAY — 48hr to review</div>
-                    {pendingToday.map(r => <PendingCard key={r.key} r={r} section="today" onApprove={handleApprovePending} onNoContest={handleNoContest} onReject={handleRejectPending} />)}
-                  </div>
-                )}
-                {pendingYesterday.length > 0 && (
-                  <div>
-                    <div style={{ display: "inline-block", background: "rgba(255,165,0,0.15)", border: "1px solid rgba(255,165,0,0.3)", borderRadius: 30, padding: "6px 20px", marginBottom: 16, color: "#FFB347", fontWeight: 700, fontSize: "0.85rem", letterSpacing: 1 }}>📅 YESTERDAY — 24hr to review</div>
-                    {pendingYesterday.map(r => <PendingCard key={r.key} r={r} section="yesterday" onApprove={handleApprovePending} onNoContest={handleNoContest} onReject={handleRejectPending} />)}
-                  </div>
-                )}
-                {pending.length === 0 && (
-                  <div style={{ textAlign: "center", padding: "60px 20px", color: "rgba(255,255,255,0.3)" }}>
-                    <div style={{ fontSize: "3rem", marginBottom: 12 }}>✅</div>
-                    <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", letterSpacing: 3 }}>No Pending Results</div>
-                  </div>
-                )}
-              </div>
-            )}
           </>
         )}
       </div>
 
+      {/* Modals */}
       <Modal active={editTeam !== undefined} onClose={() => setEditTeam(undefined)}>
         <AddTeamModal league={LEAGUE} season={season} team={editTeam || null} onClose={() => setEditTeam(undefined)} />
       </Modal>
@@ -402,6 +375,9 @@ export default function PremierLeaguePage() {
       </Modal>
       <Modal active={submitOpen} onClose={() => setSubmitOpen(false)}>
         <SubmitResultModal league={LEAGUE} season={season} teams={teams} onClose={() => setSubmitOpen(false)} />
+      </Modal>
+      <Modal active={pendingOpen} onClose={() => setPendingOpen(false)}>
+        <PendingFixturesModal league={LEAGUE} season={season} onClose={() => setPendingOpen(false)} />
       </Modal>
     </div>
   );
