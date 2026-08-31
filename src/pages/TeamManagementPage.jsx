@@ -11,7 +11,7 @@ import StadiumModal from "../modals/StadiumModal";
 import TeamModal from "../modals/TeamModal";
 import TeamHistoryModal from "../modals/TeamHistoryModal";
 import FinanceDateFilterModal from "../modals/FinanceDateFilterModal";
-import WikiSearchModal from "../modals/WikiSearchModal";
+import AdminFinanceModal from "../modals/AdminFinanceModal";
 
 const TABS = [
   { id: "stadium", label: "STADIUM" },
@@ -89,403 +89,142 @@ function formatDateOnly(ts) {
   });
 }
 
-// ─── RECURRING EXPENSE CHECK (runs on page load) ──────────────────────────
+// ─── RECURRING TRANSACTIONS CHECK (runs on page load) ─────────────────────
 async function processRecurringTransactions(team) {
   if (!team) return;
+
+  const todayMidnight = new Date();
+  todayMidnight.setHours(0, 0, 0, 0);
+
+  // ── 1. Recurring expense + recurring income (type field) ──────────────
   try {
     const recurringSnap = await get(ref(db, `career_team_management/${team}/finance/recurring`));
     const recurringData = recurringSnap.val();
-    if (!recurringData) return;
 
-    const now = Date.now();
-    const todayMidnight = new Date();
-    todayMidnight.setHours(0, 0, 0, 0);
-
-    for (const [rid, rec] of Object.entries(recurringData)) {
-      if (rec.status === "completed" || rec.status === "cancelled") continue;
-
-      const startTs = rec.startTs;
-      const dailyAmount = Number(rec.dailyAmount);
-      const totalCap = Number(rec.totalCap);
-
-      // Get all transactions linked to this recurring id
+    if (recurringData) {
       const txSnap = await get(ref(db, `career_team_management/${team}/finance/transactions`));
       const txData = txSnap.val() || {};
-      const linkedTxs = Object.values(txData).filter(t => t.recurringId === rid);
-      const totalDebited = linkedTxs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
 
-      if (totalDebited >= totalCap) {
-        // Mark as completed
-        await update(ref(db, `career_team_management/${team}/finance/recurring/${rid}`), { status: "completed" });
-        continue;
+      for (const [rid, rec] of Object.entries(recurringData)) {
+        if (rec.status === "completed" || rec.status === "cancelled") continue;
+
+        const isIncome = rec.type === "income";
+        const dailyAmount = Number(rec.dailyAmount);
+        const totalCap = Number(rec.totalCap);
+
+        const linkedTxs = Object.values(txData).filter(t => t.recurringId === rid);
+        const totalDebited = linkedTxs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+
+        if (totalDebited >= totalCap) {
+          await update(ref(db, `career_team_management/${team}/finance/recurring/${rid}`), { status: "completed" });
+          continue;
+        }
+
+        const startDate = new Date(rec.startTs);
+        startDate.setHours(0, 0, 0, 0);
+        const debitedSet = new Set(linkedTxs.filter(t => t.debitDate).map(t => t.debitDate));
+        const cursor = new Date(startDate);
+        const writes = [];
+
+        while (cursor <= todayMidnight) {
+          const dateStr = cursor.toISOString().slice(0, 10);
+          if (!debitedSet.has(dateStr)) {
+            const remaining = totalCap - totalDebited - writes.reduce((s, w) => s + w.amount, 0);
+            if (remaining <= 0) break;
+            const amount = Math.min(dailyAmount, remaining);
+            writes.push({
+              type: isIncome ? "income" : "expense",
+              category: isIncome ? "Recurring Income" : "Recurring Expense",
+              source: rec.description || (isIncome ? "Recurring Income" : "Recurring"),
+              amount,
+              month: ALL_MONTHS[cursor.getMonth()],
+              monthIndex: cursor.getMonth(),
+              year: cursor.getFullYear(),
+              createdAt: cursor.getTime(),
+              debitDate: dateStr,
+              recurringId: rid,
+              addedByAdmin: true,
+              sentBy: "System (Recurring)",
+              receivedBy: team,
+            });
+          }
+          cursor.setDate(cursor.getDate() + 1);
+        }
+
+        for (const tx of writes) {
+          await push(ref(db, `career_team_management/${team}/finance/transactions`), tx);
+        }
+
+        const newTotal = totalDebited + writes.reduce((s, w) => s + w.amount, 0);
+        if (newTotal >= totalCap) {
+          await update(ref(db, `career_team_management/${team}/finance/recurring/${rid}`), { status: "completed" });
+        }
       }
+    }
+  } catch (e) {
+    console.error("Recurring tx error:", e);
+  }
 
-      // Find the last debited day
-      const debitedDates = linkedTxs
-        .filter(t => t.debitDate)
-        .map(t => t.debitDate)
-        .sort();
+  // ── 2. Kit Sales ───────────────────────────────────────────────────────
+  try {
+    const kitsSnap = await get(ref(db, `career_team_management/${team}/finance/recurring_kits`));
+    const kitsData = kitsSnap.val();
+    if (!kitsData) return;
 
-      const startDate = new Date(startTs);
+    const txSnap = await get(ref(db, `career_team_management/${team}/finance/transactions`));
+    const txData = txSnap.val() || {};
+
+    for (const [kid, kit] of Object.entries(kitsData)) {
+      if (kit.status === "cancelled") continue;
+
+      const kitPrice = Number(kit.kitPrice);
+      const dailyMin = Number(kit.dailyMin);
+      const dailyMax = Number(kit.dailyMax);
+
+      const linkedTxs = Object.values(txData).filter(t => t.kitSalesId === kid);
+      const debitedSet = new Set(linkedTxs.filter(t => t.debitDate).map(t => t.debitDate));
+
+      const startDate = new Date(kit.startTs);
       startDate.setHours(0, 0, 0, 0);
-
-      // Build set of already debited date strings (YYYY-MM-DD)
-      const debitedSet = new Set(debitedDates);
-
-      // Walk from startDate to today, applying missed debits
       const cursor = new Date(startDate);
       const writes = [];
 
       while (cursor <= todayMidnight) {
         const dateStr = cursor.toISOString().slice(0, 10);
         if (!debitedSet.has(dateStr)) {
-          const remaining = totalCap - totalDebited - writes.reduce((s, w) => s + w.amount, 0);
-          if (remaining <= 0) break;
-          const amount = Math.min(dailyAmount, remaining);
+          // Seeded random using date so re-runs produce the same value for same day
+          const seed = parseInt(dateStr.replace(/-/g, ""), 10) + kid.length;
+          const pseudoRand = ((seed * 9301 + 49297) % 233280) / 233280;
+          const kitsCount = Math.floor(dailyMin + pseudoRand * (dailyMax - dailyMin + 1));
+          const amount = kitsCount * kitPrice;
           writes.push({
-            type: "expense",
-            category: "Recurring Expense",
-            source: rec.description || "Recurring",
+            type: "income",
+            category: "Kit Sales",
+            source: `${kitsCount} kits × €${kitPrice.toLocaleString()}`,
             amount,
             month: ALL_MONTHS[cursor.getMonth()],
             monthIndex: cursor.getMonth(),
             year: cursor.getFullYear(),
             createdAt: cursor.getTime(),
             debitDate: dateStr,
-            recurringId: rid,
+            kitSalesId: kid,
+            kitsCount,
+            kitPrice,
             addedByAdmin: true,
-            sentBy: "System (Recurring)",
+            sentBy: "System (Kit Sales)",
             receivedBy: team,
           });
         }
         cursor.setDate(cursor.getDate() + 1);
       }
 
-      // Push all missed debits
       for (const tx of writes) {
         await push(ref(db, `career_team_management/${team}/finance/transactions`), tx);
       }
-
-      // Check if now completed
-      const newTotal = totalDebited + writes.reduce((s, w) => s + w.amount, 0);
-      if (newTotal >= totalCap) {
-        await update(ref(db, `career_team_management/${team}/finance/recurring/${rid}`), { status: "completed" });
-      }
     }
   } catch (e) {
-    console.error("Recurring tx error:", e);
+    console.error("Kit sales recurring error:", e);
   }
-}
-
-// ─── ADMIN FINANCE MODAL (Add Transaction) ────────────────────────────────
-function AdminFinanceModal({ onClose, defaultTeam }) {
-  const [allTeams, setAllTeams] = useState([]);
-  const [selectedTeam, setSelectedTeam] = useState(defaultTeam || "");
-  const [txType, setTxType] = useState("income");
-  const [category, setCategory] = useState(INCOME_CATEGORIES[0]);
-  const [source, setSource] = useState("");
-  const [amount, setAmount] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [done, setDone] = useState(false);
-  const [error, setError] = useState("");
-  const [showWiki, setShowWiki] = useState(false);
-
-  // Recurring fields
-  const [recurringDescription, setRecurringDescription] = useState("");
-  const [recurringDailyAmount, setRecurringDailyAmount] = useState("");
-  const [recurringTotalCap, setRecurringTotalCap] = useState("");
-
-  const isRecurring = category === "Recurring Expense";
-  const isBroadcasting = category === "Broadcasting";
-  const isShirtSales = category === "Shirt Sales";
-  const needsWiki = isBroadcasting || isShirtSales;
-
-  useEffect(() => {
-    const unsub = onValue(ref(db, PATHS.accounts), snap => {
-      const data = snap.val() || {};
-      const teams = [...new Set(Object.values(data).filter(a => a.team).map(a => a.team))];
-      setAllTeams(teams);
-    });
-    return () => unsub();
-  }, []);
-
-  useEffect(() => {
-    setCategory(txType === "income" ? INCOME_CATEGORIES[0] : EXPENSE_CATEGORIES[0]);
-    setAmount("");
-    setSource("");
-  }, [txType]);
-
-  // Calculate end date for recurring
-  function getRecurringEndDate() {
-    const daily = Number(recurringDailyAmount);
-    const total = Number(recurringTotalCap);
-    if (!daily || !total || daily <= 0 || total <= 0) return null;
-    const days = Math.ceil(total / daily);
-    const end = new Date();
-    end.setDate(end.getDate() + days);
-    return end.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-  }
-
-  async function handleSubmit() {
-    if (!selectedTeam) { setError("Please select a team."); return; }
-
-    if (isRecurring) {
-      if (!recurringDailyAmount || !recurringTotalCap || Number(recurringDailyAmount) <= 0 || Number(recurringTotalCap) <= 0) {
-        setError("Please fill in daily amount and total cap.");
-        return;
-      }
-      setSaving(true);
-      setError("");
-      try {
-        const now = new Date();
-        const daily = Number(recurringDailyAmount);
-        const total = Number(recurringTotalCap);
-        const days = Math.ceil(total / daily);
-        const endDate = new Date();
-        endDate.setDate(endDate.getDate() + days);
-
-        await push(ref(db, `career_team_management/${selectedTeam}/finance/recurring`), {
-          description: recurringDescription.trim() || "Recurring Expense",
-          dailyAmount: daily,
-          totalCap: total,
-          startTs: now.getTime(),
-          startDate: now.toISOString().slice(0, 10),
-          endDate: endDate.toISOString().slice(0, 10),
-          status: "active",
-          createdAt: now.getTime(),
-          addedByAdmin: true,
-        });
-
-        setDone(true);
-        setTimeout(onClose, 1600);
-      } catch (e) {
-        setError("Failed: " + e.message);
-      }
-      setSaving(false);
-      return;
-    }
-
-    if (!amount || Number(amount) <= 0) { setError("Please enter a valid amount."); return; }
-    setSaving(true);
-    setError("");
-    try {
-      const amt = Number(amount);
-      const now = new Date();
-      const monthIndex = now.getMonth();
-      const monthName = ALL_MONTHS[monthIndex];
-      const year = now.getFullYear();
-
-      await push(ref(db, `career_team_management/${selectedTeam}/finance/transactions`), {
-        type: txType,
-        category,
-        source: source.trim() || null,
-        amount: amt,
-        month: monthName,
-        monthIndex,
-        year,
-        createdAt: Date.now(),
-        addedByAdmin: true,
-        sentBy: "Admin",
-        receivedBy: selectedTeam,
-      });
-
-      setDone(true);
-      setTimeout(onClose, 1600);
-    } catch (e) {
-      setError("Failed: " + e.message);
-    }
-    setSaving(false);
-  }
-
-  const inputStyle = {
-    width: "100%", padding: "18px 20px",
-    background: "rgba(255,255,255,0.06)",
-    border: "1px solid rgba(255,20,147,0.35)",
-    borderRadius: "14px", color: "#fff",
-    fontFamily: "inherit", fontSize: "1.2rem",
-    outline: "none", boxSizing: "border-box",
-  };
-  const labelStyle = {
-    color: "rgba(255,255,255,0.65)", fontSize: "1rem",
-    display: "block", marginBottom: "8px",
-    textTransform: "uppercase", letterSpacing: "0.8px", fontWeight: 700,
-  };
-
-  return (
-    <div style={{ fontFamily: "'Inter', sans-serif" }}>
-      <h3 style={{ color: "#ffffff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", marginBottom: "8px", letterSpacing: "3px" }}>
-        💰 TEAM FINANCES
-      </h3>
-      <p style={{ color: "rgba(255,255,255,0.45)", marginBottom: "28px", fontSize: "1rem" }}>Assign funds or deduct expenses from a team's balance.</p>
-
-      {done ? (
-        <div style={{ textAlign: "center", padding: "40px 20px", color: "#00ff88", fontWeight: 700, fontSize: "1.4rem", background: "rgba(0,255,136,0.08)", borderRadius: "16px" }}>
-          ✅ {isRecurring ? "Recurring Transaction Set Up!" : "Transaction Applied!"}
-        </div>
-      ) : (
-        <>
-          {/* Team */}
-          <div style={{ marginBottom: "22px" }}>
-            <label style={labelStyle}>Select Team</label>
-            <select value={selectedTeam} onChange={e => setSelectedTeam(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
-              <option value="">— Choose a team —</option>
-              {allTeams.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
-
-          {/* Type */}
-          <div style={{ marginBottom: "22px" }}>
-            <label style={labelStyle}>Transaction Type</label>
-            <div style={{ display: "flex", gap: "12px" }}>
-              {["income", "expense"].map(t => (
-                <button key={t} onClick={() => setTxType(t)} style={{
-                  flex: 1, padding: "16px", borderRadius: "14px", cursor: "pointer",
-                  fontFamily: "inherit", fontWeight: 700, fontSize: "1.1rem",
-                  background: txType === t ? (t === "income" ? "#00cc66" : "#ff4444") : "rgba(255,255,255,0.06)",
-                  border: `1px solid ${txType === t ? (t === "income" ? "#00cc66" : "#ff4444") : "rgba(255,255,255,0.15)"}`,
-                  color: "#fff", transition: "all 0.2s", textTransform: "uppercase",
-                }}>
-                  {t === "income" ? "💰 Income" : "📤 Expense"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Category */}
-          <div style={{ marginBottom: "22px" }}>
-            <label style={labelStyle}>Category</label>
-            <select value={category} onChange={e => setCategory(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
-              {(txType === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES).map(c => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* ── RECURRING EXPENSE FIELDS ── */}
-          {isRecurring && (
-            <div style={{ background: "rgba(255,170,0,0.06)", border: "1px solid rgba(255,170,0,0.25)", borderRadius: "16px", padding: "20px", marginBottom: "22px" }}>
-              <div style={{ color: "#ffaa44", fontWeight: 700, fontSize: "1rem", marginBottom: "16px", textTransform: "uppercase", letterSpacing: "1px" }}>
-                🔁 Recurring Setup
-              </div>
-              <div style={{ marginBottom: "14px" }}>
-                <label style={labelStyle}>What is it for?</label>
-                <input value={recurringDescription} onChange={e => setRecurringDescription(e.target.value)} placeholder="e.g. Stadium lease, Staff salaries..." style={inputStyle} />
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px", marginBottom: "14px" }}>
-                <div>
-                  <label style={labelStyle}>Daily Amount (€)</label>
-                  <input value={recurringDailyAmount} onChange={e => setRecurringDailyAmount(e.target.value)} type="number" min="0" placeholder="e.g. 50000" style={inputStyle} />
-                  {recurringDailyAmount && Number(recurringDailyAmount) > 0 && (
-                    <div style={{ color: "#ff6b6b", fontSize: "0.9rem", marginTop: "4px", fontWeight: 700 }}>
-                      −{formatAmount(Number(recurringDailyAmount))}/day
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <label style={labelStyle}>Total Cap (€)</label>
-                  <input value={recurringTotalCap} onChange={e => setRecurringTotalCap(e.target.value)} type="number" min="0" placeholder="e.g. 5000000" style={inputStyle} />
-                  {recurringTotalCap && Number(recurringTotalCap) > 0 && (
-                    <div style={{ color: "#ffaa44", fontSize: "0.9rem", marginTop: "4px", fontWeight: 700 }}>
-                      Total: {formatAmount(Number(recurringTotalCap))}
-                    </div>
-                  )}
-                </div>
-              </div>
-              {/* Auto-calculated dates */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
-                <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: "12px", padding: "14px 16px" }}>
-                  <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "4px" }}>Start Date</div>
-                  <div style={{ color: "#fff", fontWeight: 700, fontSize: "1rem" }}>
-                    {new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
-                  </div>
-                </div>
-                <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: "12px", padding: "14px 16px" }}>
-                  <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "4px" }}>End Date</div>
-                  <div style={{ color: getRecurringEndDate() ? "#00ff88" : "rgba(255,255,255,0.3)", fontWeight: 700, fontSize: "1rem" }}>
-                    {getRecurringEndDate() || "Set amounts above"}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ── BROADCASTING / SHIRT SALES — Wikipedia ── */}
-          {needsWiki && !isRecurring && (
-            <div style={{ marginBottom: "22px" }}>
-              <label style={labelStyle}>{isBroadcasting ? "Broadcasting Revenue" : "Shirt Sales Revenue"}</label>
-              <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-                <input
-                  value={amount}
-                  onChange={e => setAmount(e.target.value)}
-                  type="number"
-                  min="0"
-                  placeholder="Auto-filled from Wikipedia or enter manually"
-                  style={{ ...inputStyle, flex: 1 }}
-                />
-                <button
-                  onClick={() => { if (selectedTeam) setShowWiki(true); else setError("Select a team first."); }}
-                  style={{ padding: "18px 20px", background: "rgba(255,20,147,0.15)", border: "1px solid rgba(255,20,147,0.5)", borderRadius: "14px", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem", whiteSpace: "nowrap" }}
-                >
-                  🔍 Wiki Search
-                </button>
-              </div>
-              {amount && Number(amount) > 0 && (
-                <div style={{ marginTop: "8px", color: "#00ff88", fontSize: "1.1rem", fontWeight: 700 }}>
-                  +{formatAmount(Number(amount))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ── STANDARD AMOUNT (non-wiki, non-recurring) ── */}
-          {!needsWiki && !isRecurring && (
-            <>
-              <div style={{ marginBottom: "22px" }}>
-                <label style={labelStyle}>Source <span style={{ color: "rgba(255,255,255,0.3)", fontWeight: 400, textTransform: "none" }}>(optional)</span></label>
-                <input value={source} onChange={e => setSource(e.target.value)} placeholder="e.g. Spotify, Nike, Club Name..." style={inputStyle} />
-              </div>
-              <div style={{ marginBottom: "28px" }}>
-                <label style={labelStyle}>Amount (€)</label>
-                <input value={amount} onChange={e => setAmount(e.target.value)} placeholder="e.g. 5000000" style={inputStyle} type="number" min="0" />
-                {amount && Number(amount) > 0 && (
-                  <div style={{ marginTop: "8px", color: txType === "income" ? "#00ff88" : "#ff6b6b", fontSize: "1.1rem", fontWeight: 700 }}>
-                    {txType === "income" ? "+" : "−"}{formatAmount(Number(amount))}
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-
-          {/* Source for wiki categories */}
-          {needsWiki && (
-            <div style={{ marginBottom: "22px" }}>
-              <label style={labelStyle}>Source <span style={{ color: "rgba(255,255,255,0.3)", fontWeight: 400, textTransform: "none" }}>(optional)</span></label>
-              <input value={source} onChange={e => setSource(e.target.value)} placeholder="e.g. Wikipedia, Official report..." style={inputStyle} />
-            </div>
-          )}
-
-          {error && <div style={{ color: "#ff6b6b", fontSize: "1rem", marginBottom: "16px", padding: "14px", background: "rgba(255,0,0,0.1)", borderRadius: "12px" }}>{error}</div>}
-
-          <div style={{ display: "flex", gap: "14px" }}>
-            <button onClick={handleSubmit} disabled={saving} style={{ flex: 1, padding: "18px", background: "#ff1493", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.2rem", cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}>
-              {saving ? "Applying..." : isRecurring ? "🔁 Set Up Recurring" : "✅ Apply Transaction"}
-            </button>
-            <button onClick={onClose} style={{ flex: 1, padding: "18px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "14px", color: "#fff", cursor: "pointer", fontSize: "1.2rem" }}>Cancel</button>
-          </div>
-        </>
-      )}
-
-      {/* Wikipedia Modal */}
-      {showWiki && (
-        <WikiSearchModal
-          mode={isBroadcasting ? "broadcasting" : "shirt_sales"}
-          team={selectedTeam}
-          onConfirm={amt => { setAmount(String(amt)); setShowWiki(false); }}
-          onClose={() => setShowWiki(false)}
-        />
-      )}
-    </div>
-  );
 }
 
 // ─── ADMIN TEAM SELECTOR ──────────────────────────────────────────────────
@@ -590,6 +329,9 @@ function UpgradeStadiumPopup({ team, onClose }) {
   );
 }
 
+// ─── ALL LEAGUES FOR TICKET CALCULATION ───────────────────────────────────
+const ALL_LEAGUES = ["premier", "laliga", "seriea", "bundesliga", "ligue1", "ucl", "uel"];
+
 // ─── STADIUM TAB ──────────────────────────────────────────────────────────
 function StadiumTab({ team, isAdmin, onEditStadium }) {
   const [data, setData] = useState(null);
@@ -597,6 +339,7 @@ function StadiumTab({ team, isAdmin, onEditStadium }) {
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [underConstruction, setUnderConstruction] = useState(false);
   const [savingConstruction, setSavingConstruction] = useState(false);
+  const [homeGamesCount, setHomeGamesCount] = useState(0);
   const timerRef = useRef(null);
 
   useEffect(() => {
@@ -607,6 +350,40 @@ function StadiumTab({ team, isAdmin, onEditStadium }) {
       setUnderConstruction(d?.underConstruction || false);
     });
     return () => unsub();
+  }, [team]);
+
+  // ── Fetch home games across all leagues active seasons ──────────────
+  useEffect(() => {
+    if (!team) return;
+    let cancelled = false;
+
+    async function fetchHomeGames() {
+      let total = 0;
+      for (const league of ALL_LEAGUES) {
+        try {
+          // Get active season (last in seasons array)
+          const settingsSnap = await get(ref(db, `career_${league}_settings/seasons`));
+          const seasons = settingsSnap.val();
+          if (!seasons || !seasons.length) continue;
+          const activeSeason = seasons[seasons.length - 1];
+
+          const resultsSnap = await get(ref(db, `career_${league}/seasons/season_${activeSeason}/results`));
+          const resultsData = resultsSnap.val();
+          if (!resultsData) continue;
+
+          const homeGames = Object.values(resultsData).filter(r =>
+            r.homeTeam === team && r.forfeitType !== "no_contest"
+          );
+          total += homeGames.length;
+        } catch (e) {
+          // league may not exist, skip
+        }
+      }
+      if (!cancelled) setHomeGamesCount(total);
+    }
+
+    fetchHomeGames();
+    return () => { cancelled = true; };
   }, [team]);
 
   useEffect(() => {
@@ -627,6 +404,11 @@ function StadiumTab({ team, isAdmin, onEditStadium }) {
     setSavingConstruction(false);
   }
 
+  const capacity = data?.capacity ? Number(data.capacity) : 0;
+  const ticketPrice = data?.ticketPrice ? Number(data.ticketPrice) : 0;
+  const ticketsSold = homeGamesCount * capacity;
+  const stadiumIncome = ticketsSold * ticketPrice;
+
   if (!data) return (
     <div style={{ textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.3)" }}>
       <div style={{ fontSize: "4rem", marginBottom: "16px" }}>🏟️</div>
@@ -646,7 +428,6 @@ function StadiumTab({ team, isAdmin, onEditStadium }) {
     <div style={{ width: "100%" }}>
       {isAdmin && (
         <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px", marginBottom: "16px", flexWrap: "wrap" }}>
-          {/* Under Construction toggle */}
           <button
             onClick={toggleConstruction}
             disabled={savingConstruction}
@@ -701,7 +482,6 @@ function StadiumTab({ team, isAdmin, onEditStadium }) {
             Capacity: <span style={{ color: "#fff", fontWeight: 700, fontSize: "2rem" }}>{Number(data.capacity).toLocaleString()}</span>
           </div>
         )}
-        {/* ── Under Construction badge ── */}
         {underConstruction && (
           <div style={{ marginTop: "10px", display: "inline-flex", alignItems: "center", gap: "8px", background: "rgba(255,170,0,0.12)", border: "1px solid rgba(255,170,0,0.4)", borderRadius: "20px", padding: "8px 20px" }}>
             <span style={{ fontSize: "1.4rem" }}>🏗️</span>
@@ -712,14 +492,30 @@ function StadiumTab({ team, isAdmin, onEditStadium }) {
 
       <div style={{ ...GLASS, borderRadius: "20px", overflow: "hidden", marginBottom: "28px" }}>
         {[
-          { label: "🎟️ Tickets Sold This Season", value: "0" },
-          { label: "💶 Standard Ticket Price", value: data.ticketPrice ? `€${Number(data.ticketPrice).toLocaleString()}` : "—" },
-          { label: "👑 VIP Ticket Price", value: data.vipTicketPrice ? `€${Number(data.vipTicketPrice).toLocaleString()}` : "—" },
-          { label: "💸 Stadium Expenses Per Game", value: data.expensesPerGame ? `€${Number(data.expensesPerGame).toLocaleString()}` : "—" },
-          { label: "🤝 Stadium Sponsorship Deals", value: data.sponsorshipDeals || "—" },
-          { label: "🎪 Stadium External Events", value: "0" },
+          {
+            label: "🎟️ Tickets Sold This Season",
+            value: capacity > 0
+              ? `${ticketsSold.toLocaleString()} (${homeGamesCount} home game${homeGamesCount !== 1 ? "s" : ""})`
+              : "—",
+          },
+          {
+            label: "💶 Standard Ticket Price",
+            value: data.ticketPrice ? `€${Number(data.ticketPrice).toLocaleString()}` : "—",
+          },
+          {
+            label: "💰 Stadium Income",
+            value: stadiumIncome > 0 ? `€${stadiumIncome.toLocaleString()}` : "—",
+          },
+          {
+            label: "💸 Stadium Expenses Per Game",
+            value: data.expensesPerGame ? `€${Number(data.expensesPerGame).toLocaleString()}` : "—",
+          },
+          {
+            label: "🤝 Sponsorship Deals",
+            value: data.sponsorshipDeals || "—",
+          },
         ].map(({ label, value }, i) => (
-          <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "40px 56px", borderBottom: i < 5 ? "1px solid rgba(255,20,147,0.1)" : "none", background: i % 2 === 0 ? "rgba(255,255,255,0.02)" : "transparent" }}>
+          <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "40px 56px", borderBottom: i < 4 ? "1px solid rgba(255,20,147,0.1)" : "none", background: i % 2 === 0 ? "rgba(255,255,255,0.02)" : "transparent" }}>
             <span style={{ color: "rgba(255,255,255,0.6)", fontSize: "2.6rem" }}>{label}</span>
             <span style={{ color: "#fff", fontWeight: 700, fontSize: "2.8rem" }}>{value}</span>
           </div>
@@ -1218,23 +1014,32 @@ function FinanceTab({ team, isAdmin }) {
           <div style={{ color: "#ffaa44", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "3px", marginBottom: "28px" }}>🔁 RECURRING TRANSACTIONS</div>
           <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
             {recurringList.map(rec => {
+              const isRecIncome = rec.type === "income";
+              const accentColor = isRecIncome ? "#00ff88" : "#ffaa44";
+              const accentBg = isRecIncome ? "rgba(0,255,136,0.06)" : "rgba(255,170,0,0.06)";
+              const accentBorder = isRecIncome ? "rgba(0,255,136,0.2)" : "rgba(255,170,0,0.2)";
               const linkedTxs = transactions.filter(t => t.recurringId === rec.id);
               const totalDebited = linkedTxs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
               const progress = Math.min((totalDebited / rec.totalCap) * 100, 100);
               return (
-                <div key={rec.id} style={{ background: "rgba(255,170,0,0.06)", border: "1px solid rgba(255,170,0,0.2)", borderRadius: "16px", padding: "20px 24px" }}>
+                <div key={rec.id} style={{ background: accentBg, border: `1px solid ${accentBorder}`, borderRadius: "16px", padding: "20px 24px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "12px" }}>
                     <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                        <span style={{ color: accentColor, fontSize: "0.85rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px" }}>
+                          {isRecIncome ? "🟢 Income" : "🔁 Expense"}
+                        </span>
+                      </div>
                       <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.1rem" }}>{rec.description}</div>
                       <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.85rem", marginTop: "4px" }}>
-                        {formatAmount(rec.dailyAmount)}/day · Total cap: {formatAmount(rec.totalCap)}
+                        {isRecIncome ? "+" : "−"}{formatAmount(rec.dailyAmount)}/day · Total cap: {formatAmount(rec.totalCap)}
                       </div>
                       <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "0.8rem", marginTop: "2px" }}>
                         {rec.startDate} → {rec.endDate}
                       </div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                      <span style={{ background: rec.status === "completed" ? "rgba(0,255,136,0.15)" : "rgba(255,170,0,0.15)", color: rec.status === "completed" ? "#00ff88" : "#ffaa44", border: `1px solid ${rec.status === "completed" ? "rgba(0,255,136,0.4)" : "rgba(255,170,0,0.4)"}`, borderRadius: "8px", padding: "4px 12px", fontSize: "0.8rem", fontWeight: 700, textTransform: "uppercase" }}>
+                      <span style={{ background: rec.status === "completed" ? "rgba(0,255,136,0.15)" : `${accentColor}22`, color: rec.status === "completed" ? "#00ff88" : accentColor, border: `1px solid ${rec.status === "completed" ? "rgba(0,255,136,0.4)" : accentBorder}`, borderRadius: "8px", padding: "4px 12px", fontSize: "0.8rem", fontWeight: 700, textTransform: "uppercase" }}>
                         {rec.status}
                       </span>
                       <button onClick={() => handleDeleteRecurring(rec.id)} style={{ width: "32px", height: "32px", background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.4)", borderRadius: "8px", color: "#ff6b6b", cursor: "pointer", fontSize: "0.9rem" }}>
@@ -1242,12 +1047,11 @@ function FinanceTab({ team, isAdmin }) {
                       </button>
                     </div>
                   </div>
-                  {/* Progress bar */}
                   <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: "8px", height: "8px", overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${progress}%`, background: rec.status === "completed" ? "#00ff88" : "linear-gradient(to right, #ffaa44, #ff6b6b)", borderRadius: "8px", transition: "width 0.5s" }} />
+                    <div style={{ height: "100%", width: `${progress}%`, background: rec.status === "completed" ? "#00ff88" : isRecIncome ? "linear-gradient(to right, #00cc66, #00ff88)" : "linear-gradient(to right, #ffaa44, #ff6b6b)", borderRadius: "8px", transition: "width 0.5s" }} />
                   </div>
                   <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", marginTop: "6px" }}>
-                    {formatAmount(totalDebited)} debited of {formatAmount(rec.totalCap)} ({progress.toFixed(1)}%)
+                    {formatAmount(totalDebited)} {isRecIncome ? "credited" : "debited"} of {formatAmount(rec.totalCap)} ({progress.toFixed(1)}%)
                   </div>
                 </div>
               );
@@ -1265,31 +1069,30 @@ function FinanceTab({ team, isAdmin }) {
             <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px" }}>No Transactions Yet</div>
           </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
             {transactions.map(tx => {
               const isIncome = tx.type === "income";
               return (
                 <div
                   key={tx.id}
                   onClick={() => isAdmin ? setSelectedTx(tx) : undefined}
-                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 24px", background: isIncome ? "rgba(0,255,136,0.05)" : "rgba(255,100,100,0.05)", border: `1px solid ${isIncome ? "rgba(0,255,136,0.15)" : "rgba(255,100,100,0.15)"}`, borderRadius: "14px", cursor: isAdmin ? "pointer" : "default", transition: "all 0.2s" }}
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "40px 48px", background: isIncome ? "rgba(0,255,136,0.05)" : "rgba(255,100,100,0.05)", border: `1px solid ${isIncome ? "rgba(0,255,136,0.15)" : "rgba(255,100,100,0.15)"}`, borderRadius: "14px", cursor: isAdmin ? "pointer" : "default", transition: "all 0.2s" }}
                   onMouseOver={e => { if (isAdmin) e.currentTarget.style.background = isIncome ? "rgba(0,255,136,0.1)" : "rgba(255,100,100,0.1)"; }}
                   onMouseOut={e => { if (isAdmin) e.currentTarget.style.background = isIncome ? "rgba(0,255,136,0.05)" : "rgba(255,100,100,0.05)"; }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-                    <div style={{ width: "56px", height: "56px", background: isIncome ? "rgba(0,255,136,0.15)" : "rgba(255,100,100,0.15)", borderRadius: "14px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.8rem", flexShrink: 0 }}>
-                      {tx.recurringId ? "🔁" : isIncome ? "💰" : "📤"}
+                  <div style={{ display: "flex", alignItems: "center", gap: "32px" }}>
+                    <div style={{ width: "112px", height: "112px", background: isIncome ? "rgba(0,255,136,0.15)" : "rgba(255,100,100,0.15)", borderRadius: "20px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "3.6rem", flexShrink: 0 }}>
+                      {tx.kitSalesId ? "👕" : tx.recurringId ? "🔁" : isIncome ? "💰" : "📤"}
                     </div>
                     <div>
-                      <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.1rem" }}>{tx.category}</div>
-                      {tx.source && <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.9rem", marginTop: "2px" }}>{tx.source}</div>}
-                      {/* Date + time on preview */}
-                      <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "0.85rem", marginTop: "3px" }}>
+                      <div style={{ color: "#fff", fontWeight: 700, fontSize: "2.2rem" }}>{tx.category}</div>
+                      {tx.source && <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "1.8rem", marginTop: "4px" }}>{tx.source}</div>}
+                      <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "1.7rem", marginTop: "6px" }}>
                         {tx.createdAt ? formatDateOnly(tx.createdAt) : `${tx.month} ${tx.year}`}
                       </div>
                     </div>
                   </div>
-                  <div style={{ color: isIncome ? "#00ff88" : "#ff6b6b", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", letterSpacing: "1px", fontWeight: 700 }}>
+                  <div style={{ color: isIncome ? "#00ff88" : "#ff6b6b", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.2rem", letterSpacing: "1px", fontWeight: 700 }}>
                     {isIncome ? "+" : "−"}{formatAmount(tx.amount)}
                   </div>
                 </div>
