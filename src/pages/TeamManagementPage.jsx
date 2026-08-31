@@ -359,22 +359,101 @@ function StadiumTab({ team, isAdmin, onEditStadium }) {
 
     async function fetchHomeGames() {
       let total = 0;
+
+      // Get stadium data for transaction creation
+      const stadiumSnap = await get(ref(db, `career_team_management/${team}/stadium`));
+      const stadiumData = stadiumSnap.val();
+      const capacity = stadiumData?.capacity ? Number(stadiumData.capacity) : 0;
+      const ticketPrice = stadiumData?.ticketPrice ? Number(stadiumData.ticketPrice) : 0;
+      const expensesPerGame = stadiumData?.expensesPerGame ? Number(stadiumData.expensesPerGame) : 0;
+
+      // Get existing transactions to avoid duplicates
+      const txSnap = await get(ref(db, `career_team_management/${team}/finance/transactions`));
+      const txData = txSnap.val() || {};
+      const existingMatchIds = new Set(
+        Object.values(txData).filter(t => t.matchId).map(t => t.matchId)
+      );
+
       for (const league of ALL_LEAGUES) {
         try {
-          // Get active season (last in seasons array)
-          const settingsSnap = await get(ref(db, `career_${league}_settings/seasons`));
-          const seasons = settingsSnap.val();
-          if (!seasons || !seasons.length) continue;
-          const activeSeason = seasons[seasons.length - 1];
+          // Get active season — read season keys directly from the league node
+          const seasonsSnap = await get(ref(db, `career_${league}/seasons`));
+          const seasonsData = seasonsSnap.val();
+          if (!seasonsData) continue;
 
-          const resultsSnap = await get(ref(db, `career_${league}/seasons/season_${activeSeason}/results`));
+          // Take the last season key (e.g. "season_1", "season_2")
+          const seasonKeys = Object.keys(seasonsData).sort();
+          const activeSeasonKey = seasonKeys[seasonKeys.length - 1];
+
+          const resultsSnap = await get(ref(db, `career_${league}/seasons/${activeSeasonKey}/results`));
           const resultsData = resultsSnap.val();
           if (!resultsData) continue;
 
-          const homeGames = Object.values(resultsData).filter(r =>
+          const leagueLabel = league === "premier" ? "Premier League"
+            : league === "laliga" ? "La Liga"
+            : league === "seriea" ? "Serie A"
+            : league === "bundesliga" ? "Bundesliga"
+            : league === "ligue1" ? "Ligue 1"
+            : league === "ucl" ? "Champions League"
+            : league === "uel" ? "Europa League"
+            : league.toUpperCase();
+
+          const homeGames = Object.entries(resultsData).filter(([, r]) =>
             r.homeTeam === team && r.forfeitType !== "no_contest"
           );
+
           total += homeGames.length;
+
+          // Auto-create ticket income + stadium expense per home match
+          for (const [matchKey, match] of homeGames) {
+            const matchId = `${league}_${activeSeasonKey}_${matchKey}`;
+            const incomeMatchId = `income_${matchId}`;
+            const expenseMatchId = `expense_${matchId}`;
+
+            const matchDate = match.date ? new Date(match.date) : new Date();
+            const monthIndex = matchDate.getMonth();
+            const year = matchDate.getFullYear();
+            const source = `${leagueLabel} — MD${match.md || "?"} vs ${match.awayTeam}`;
+
+            // Ticket income
+            if (!existingMatchIds.has(incomeMatchId) && capacity > 0 && ticketPrice > 0) {
+              const incomeAmount = capacity * ticketPrice;
+              await push(ref(db, `career_team_management/${team}/finance/transactions`), {
+                type: "income",
+                category: "Stadium Income",
+                source,
+                amount: incomeAmount,
+                month: ALL_MONTHS[monthIndex],
+                monthIndex,
+                year,
+                createdAt: matchDate.getTime(),
+                matchId: incomeMatchId,
+                addedByAdmin: true,
+                sentBy: "System (Stadium)",
+                receivedBy: team,
+              });
+              existingMatchIds.add(incomeMatchId);
+            }
+
+            // Stadium expense per game
+            if (!existingMatchIds.has(expenseMatchId) && expensesPerGame > 0) {
+              await push(ref(db, `career_team_management/${team}/finance/transactions`), {
+                type: "expense",
+                category: "Facility Expenses",
+                source,
+                amount: expensesPerGame,
+                month: ALL_MONTHS[monthIndex],
+                monthIndex,
+                year,
+                createdAt: matchDate.getTime(),
+                matchId: expenseMatchId,
+                addedByAdmin: true,
+                sentBy: "System (Stadium)",
+                receivedBy: team,
+              });
+              existingMatchIds.add(expenseMatchId);
+            }
+          }
         } catch (e) {
           // league may not exist, skip
         }
@@ -1022,35 +1101,35 @@ function FinanceTab({ team, isAdmin }) {
               const totalDebited = linkedTxs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
               const progress = Math.min((totalDebited / rec.totalCap) * 100, 100);
               return (
-                <div key={rec.id} style={{ background: accentBg, border: `1px solid ${accentBorder}`, borderRadius: "16px", padding: "20px 24px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "12px" }}>
+                <div key={rec.id} style={{ background: accentBg, border: `1px solid ${accentBorder}`, borderRadius: "16px", padding: "40px 48px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "24px" }}>
                     <div>
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                        <span style={{ color: accentColor, fontSize: "0.85rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+                        <span style={{ color: accentColor, fontSize: "1.7rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px" }}>
                           {isRecIncome ? "🟢 Income" : "🔁 Expense"}
                         </span>
                       </div>
-                      <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.1rem" }}>{rec.description}</div>
-                      <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.85rem", marginTop: "4px" }}>
+                      <div style={{ color: "#fff", fontWeight: 700, fontSize: "2.2rem" }}>{rec.description}</div>
+                      <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.7rem", marginTop: "8px" }}>
                         {isRecIncome ? "+" : "−"}{formatAmount(rec.dailyAmount)}/day · Total cap: {formatAmount(rec.totalCap)}
                       </div>
-                      <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "0.8rem", marginTop: "2px" }}>
+                      <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "1.6rem", marginTop: "4px" }}>
                         {rec.startDate} → {rec.endDate}
                       </div>
                     </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                      <span style={{ background: rec.status === "completed" ? "rgba(0,255,136,0.15)" : `${accentColor}22`, color: rec.status === "completed" ? "#00ff88" : accentColor, border: `1px solid ${rec.status === "completed" ? "rgba(0,255,136,0.4)" : accentBorder}`, borderRadius: "8px", padding: "4px 12px", fontSize: "0.8rem", fontWeight: 700, textTransform: "uppercase" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+                      <span style={{ background: rec.status === "completed" ? "rgba(0,255,136,0.15)" : `${accentColor}22`, color: rec.status === "completed" ? "#00ff88" : accentColor, border: `1px solid ${rec.status === "completed" ? "rgba(0,255,136,0.4)" : accentBorder}`, borderRadius: "8px", padding: "8px 20px", fontSize: "1.6rem", fontWeight: 700, textTransform: "uppercase" }}>
                         {rec.status}
                       </span>
-                      <button onClick={() => handleDeleteRecurring(rec.id)} style={{ width: "32px", height: "32px", background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.4)", borderRadius: "8px", color: "#ff6b6b", cursor: "pointer", fontSize: "0.9rem" }}>
+                      <button onClick={() => handleDeleteRecurring(rec.id)} style={{ width: "56px", height: "56px", background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.4)", borderRadius: "8px", color: "#ff6b6b", cursor: "pointer", fontSize: "1.8rem" }}>
                         🗑️
                       </button>
                     </div>
                   </div>
-                  <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: "8px", height: "8px", overflow: "hidden" }}>
+                  <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: "8px", height: "16px", overflow: "hidden" }}>
                     <div style={{ height: "100%", width: `${progress}%`, background: rec.status === "completed" ? "#00ff88" : isRecIncome ? "linear-gradient(to right, #00cc66, #00ff88)" : "linear-gradient(to right, #ffaa44, #ff6b6b)", borderRadius: "8px", transition: "width 0.5s" }} />
                   </div>
-                  <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", marginTop: "6px" }}>
+                  <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.6rem", marginTop: "12px" }}>
                     {formatAmount(totalDebited)} {isRecIncome ? "credited" : "debited"} of {formatAmount(rec.totalCap)} ({progress.toFixed(1)}%)
                   </div>
                 </div>
