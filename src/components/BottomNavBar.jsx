@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useAdmin } from "../context/AdminContext";
 import Modal from "./Modal";
 import CreatePostModal from "../modals/CreatePostModal";
-import CreateCommentModal from "../modals/CreateCommentModal";
+import CreateCaptionModal from "../modals/CreateCaptionModal";
 
 // ── SVG Icons ──────────────────────────────────────────────────────────────
 
@@ -13,18 +13,6 @@ function HomeIcon({ active }) {
     <svg width="56" height="56" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path d="M3.5 11.9L14 3.5L24.5 11.9V24.5H18.667V17.111H9.333V24.5H3.5V11.9Z"
         stroke={c} strokeWidth="2" strokeLinejoin="round" fill={active ? "rgba(255,20,147,0.15)" : "none"} />
-    </svg>
-  );
-}
-
-function MessagesIcon({ active }) {
-  const c = active ? "#FF1493" : "rgba(255,255,255,0.45)";
-  return (
-    <svg width="56" height="56" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M4 5.5H24C24.828 5.5 25.5 6.172 25.5 7V19C25.5 19.828 24.828 20.5 24 20.5H8L2.5 25.5V7C2.5 6.172 3.172 5.5 4 5.5Z"
-        stroke={c} strokeWidth="2" strokeLinejoin="round" fill={active ? "rgba(255,20,147,0.15)" : "none"} />
-      <line x1="8" y1="11" x2="20" y2="11" stroke={c} strokeWidth="1.8" strokeLinecap="round" />
-      <line x1="8" y1="15" x2="16" y2="15" stroke={c} strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   );
 }
@@ -58,7 +46,7 @@ function SettingsIcon({ active }) {
 
 // ── Post type picker popup ─────────────────────────────────────────────────
 
-function PostTypePicker({ onPost, onComment, onClose }) {
+function PostTypePicker({ onPost, onCaption, onClose }) {
   return (
     <div
       onClick={onClose}
@@ -76,29 +64,29 @@ function PostTypePicker({ onPost, onComment, onClose }) {
           backdropFilter: "blur(24px)",
           border: "1px solid rgba(255,20,147,0.3)",
           borderRadius: "28px 28px 0 0",
-          padding: "12px 20px 36px",
+          padding: "12px 20px 48px",
           animation: "slideUp 0.25s ease",
         }}
       >
         {/* Handle bar */}
-        <div style={{ width: "48px", height: "5px", borderRadius: "3px", background: "rgba(255,255,255,0.2)", margin: "0 auto 28px" }} />
+        <div style={{ width: "48px", height: "5px", borderRadius: "3px", background: "rgba(255,255,255,0.2)", margin: "0 auto 36px" }} />
 
-        {/* Create Post option */}
+        {/* Create Post */}
         <button
           onClick={onPost}
           style={{
-            width: "100%", display: "flex", alignItems: "center", gap: "20px",
-            padding: "22px 24px", marginBottom: "12px",
+            width: "100%", display: "flex", alignItems: "center", gap: "24px",
+            padding: "28px 28px", marginBottom: "16px",
             background: "rgba(255,20,147,0.08)",
             border: "1px solid rgba(255,20,147,0.25)",
-            borderRadius: "18px", cursor: "pointer",
+            borderRadius: "20px", cursor: "pointer",
             transition: "all 0.18s",
           }}
           onMouseOver={e => e.currentTarget.style.background = "rgba(255,20,147,0.18)"}
           onMouseOut={e => e.currentTarget.style.background = "rgba(255,20,147,0.08)"}
         >
-          <div style={{ width: "52px", height: "52px", borderRadius: "14px", background: "rgba(255,20,147,0.2)", border: "1.5px solid rgba(255,20,147,0.5)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+          <div style={{ width: "72px", height: "72px", borderRadius: "18px", background: "rgba(255,20,147,0.2)", border: "1.5px solid rgba(255,20,147,0.5)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <svg width="36" height="36" viewBox="0 0 26 26" fill="none">
               <rect x="2" y="2" width="22" height="16" rx="3" stroke="#FF1493" strokeWidth="1.8" />
               <path d="M2 13l5-5 4 4 4-4 5 5" stroke="#FF1493" strokeWidth="1.8" strokeLinejoin="round" />
               <line x1="2" y1="21" x2="24" y2="21" stroke="#FF1493" strokeWidth="1.8" strokeLinecap="round" />
@@ -106,27 +94,27 @@ function PostTypePicker({ onPost, onComment, onClose }) {
             </svg>
           </div>
           <div style={{ textAlign: "left" }}>
-            <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.15rem" }}>Create Post</div>
-            <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.85rem", marginTop: "3px" }}>Image with caption</div>
+            <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.7rem" }}>Create Post</div>
+            <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "1.2rem", marginTop: "5px" }}>Image or video with caption</div>
           </div>
         </button>
 
-        {/* Create Comment option */}
+        {/* Create Caption */}
         <button
-          onClick={onComment}
+          onClick={onCaption}
           style={{
-            width: "100%", display: "flex", alignItems: "center", gap: "20px",
-            padding: "22px 24px",
+            width: "100%", display: "flex", alignItems: "center", gap: "24px",
+            padding: "28px 28px",
             background: "rgba(255,20,147,0.08)",
             border: "1px solid rgba(255,20,147,0.25)",
-            borderRadius: "18px", cursor: "pointer",
+            borderRadius: "20px", cursor: "pointer",
             transition: "all 0.18s",
           }}
           onMouseOver={e => e.currentTarget.style.background = "rgba(255,20,147,0.18)"}
           onMouseOut={e => e.currentTarget.style.background = "rgba(255,20,147,0.08)"}
         >
-          <div style={{ width: "52px", height: "52px", borderRadius: "14px", background: "rgba(255,20,147,0.2)", border: "1.5px solid rgba(255,20,147,0.5)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+          <div style={{ width: "72px", height: "72px", borderRadius: "18px", background: "rgba(255,20,147,0.2)", border: "1.5px solid rgba(255,20,147,0.5)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <svg width="36" height="36" viewBox="0 0 26 26" fill="none">
               <path d="M3 3.5H23C23.828 3.5 24.5 4.172 24.5 5V17C24.5 17.828 23.828 18.5 23 18.5H7L1.5 24V5C1.5 4.172 2.172 3.5 3 3.5Z"
                 stroke="#FF1493" strokeWidth="1.8" strokeLinejoin="round" />
               <line x1="6.5" y1="9.5" x2="19.5" y2="9.5" stroke="#FF1493" strokeWidth="1.8" strokeLinecap="round" />
@@ -134,8 +122,8 @@ function PostTypePicker({ onPost, onComment, onClose }) {
             </svg>
           </div>
           <div style={{ textAlign: "left" }}>
-            <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.15rem" }}>Create Comment</div>
-            <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.85rem", marginTop: "3px" }}>Text-only reply</div>
+            <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.7rem" }}>Create Caption</div>
+            <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "1.2rem", marginTop: "5px" }}>Text only, like a tweet</div>
           </div>
         </button>
       </div>
@@ -159,12 +147,11 @@ export default function BottomNavBar() {
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [createPostOpen, setCreatePostOpen] = useState(false);
-  const [createCommentOpen, setCreateCommentOpen] = useState(false);
+  const [createCaptionOpen, setCreateCaptionOpen] = useState(false);
 
   const canPost = isAdmin || !!manager;
   const isHome = location.pathname === "/";
   const isSettings = location.pathname === "/settings";
-  const isMessages = false; // placeholder
 
   function handlePlus() {
     if (!canPost) return;
@@ -195,16 +182,7 @@ export default function BottomNavBar() {
           <span style={{ color: isHome ? "#FF1493" : "rgba(255,255,255,0.4)", fontSize: "0.75rem", fontWeight: 600, letterSpacing: "0.5px" }}>HOME</span>
         </button>
 
-        {/* Messages */}
-        <button
-          onClick={() => {}}
-          style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", padding: "10px 20px", borderRadius: "14px", transition: "background 0.2s", opacity: 0.5 }}
-        >
-          <MessagesIcon active={isMessages} />
-          <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.75rem", fontWeight: 600, letterSpacing: "0.5px" }}>MESSAGES</span>
-        </button>
-
-        {/* Plus — center */}
+        {/* Plus — centered */}
         <button
           onClick={handlePlus}
           style={{
@@ -238,7 +216,7 @@ export default function BottomNavBar() {
         <PostTypePicker
           onClose={() => setPickerOpen(false)}
           onPost={() => { setPickerOpen(false); setCreatePostOpen(true); }}
-          onComment={() => { setPickerOpen(false); setCreateCommentOpen(true); }}
+          onCaption={() => { setPickerOpen(false); setCreateCaptionOpen(true); }}
         />
       )}
 
@@ -247,9 +225,9 @@ export default function BottomNavBar() {
         <CreatePostModal onClose={() => setCreatePostOpen(false)} />
       </Modal>
 
-      {/* Create Comment Modal */}
-      <Modal active={createCommentOpen} onClose={() => setCreateCommentOpen(false)}>
-        <CreateCommentModal onClose={() => setCreateCommentOpen(false)} />
+      {/* Create Caption Modal */}
+      <Modal active={createCaptionOpen} onClose={() => setCreateCaptionOpen(false)}>
+        <CreateCaptionModal onClose={() => setCreateCaptionOpen(false)} />
       </Modal>
     </>
   );
