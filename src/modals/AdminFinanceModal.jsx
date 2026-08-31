@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { db, PATHS } from "../firebase";
-import { ref, onValue, push } from "../firebase";
+import { db, PATHS, ref, push } from "../firebase";
+import { onValue } from "firebase/database";
 import WikiSearchModal from "./WikiSearchModal";
 
 const GLASS = {
