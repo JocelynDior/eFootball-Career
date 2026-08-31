@@ -217,7 +217,7 @@ function PlayerSlotPopup({ slotIndex, role, existingPlayer, teamPath, team, onCl
               {/* Age */}
               <div>
                 <label style={labelStyle}>Age</label>
-                <input value={age} onChange={e => setAge(e.target.value)} style={inputStyle} readOnly style={{ ...inputStyle, opacity: 0.7 }} />
+                <input value={age} onChange={e => setAge(e.target.value)} style={{ ...inputStyle, opacity: 0.7 }} readOnly />
               </div>
               {/* Wage */}
               <div>
