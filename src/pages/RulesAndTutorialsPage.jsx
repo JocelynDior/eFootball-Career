@@ -13,7 +13,6 @@ const GLASS = {
   background: "rgba(255,255,255,0.04)",
   backdropFilter: "blur(16px)",
   WebkitBackdropFilter: "blur(16px)",
-  border: `1px solid rgba(255,20,147,0.28)`,
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -96,24 +95,24 @@ function AudioPlayer({ url }) {
   }
 
   return (
-    <div style={{ display:"flex", alignItems:"center", gap:"12px", background:"rgba(255,20,147,0.07)", border:`1px solid ${PINK_BORDER}`, borderRadius:"24px", padding:"14px 18px", marginTop:"12px" }}>
+    <div style={{ display:"flex", alignItems:"center", gap:"24px", background:"rgba(255,20,147,0.07)", borderRadius:"0", padding:"28px 36px", marginTop:"24px", width:"100%", boxSizing:"border-box" }}>
       <audio ref={audioRef} src={url} preload="metadata" />
-      <button onClick={togglePlay} disabled={error} style={{ width:"48px", height:"48px", borderRadius:"50%", background: error ? "rgba(255,80,80,0.2)" : `linear-gradient(135deg, ${PINK}, #ff69b4)`, border:"none", cursor: error ? "not-allowed" : "pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1.3rem", flexShrink:0, boxShadow:`0 4px 16px rgba(255,20,147,0.35)` }}>
+      <button onClick={togglePlay} disabled={error} style={{ width:"96px", height:"96px", borderRadius:"50%", background: error ? "rgba(255,80,80,0.2)" : `linear-gradient(135deg, ${PINK}, #ff69b4)`, border:"none", cursor: error ? "not-allowed" : "pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"2.6rem", flexShrink:0, boxShadow:`0 4px 16px rgba(255,20,147,0.35)` }}>
         {loading ? "⏳" : error ? "⚠️" : playing ? "⏸" : "▶"}
       </button>
-      <button onClick={handleRewind} disabled={error} style={{ width:"36px", height:"36px", borderRadius:"50%", background:"rgba(255,255,255,0.07)", border:`1px solid ${PINK_BORDER}`, cursor: error ? "not-allowed" : "pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"0.8rem", color:"#fff", flexShrink:0 }} title="Rewind 10s">↩10</button>
-      <div style={{ flex:1, display:"flex", flexDirection:"column", gap:"6px" }}>
-        <div onClick={handleSeek} style={{ display:"flex", alignItems:"center", gap:"2px", height:"36px", cursor:"pointer", padding:"4px 0" }}>
+      <button onClick={handleRewind} disabled={error} style={{ width:"72px", height:"72px", borderRadius:"50%", background:"rgba(255,255,255,0.07)", border:`1px solid ${PINK_BORDER}`, cursor: error ? "not-allowed" : "pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1.6rem", color:"#fff", flexShrink:0 }} title="Rewind 10s">↩10</button>
+      <div style={{ flex:1, display:"flex", flexDirection:"column", gap:"12px" }}>
+        <div onClick={handleSeek} style={{ display:"flex", alignItems:"center", gap:"4px", height:"72px", cursor:"pointer", padding:"8px 0" }}>
           {bars.map((h, i) => (
-            <div key={i} style={{ flex:1, height:`${h*100}%`, borderRadius:"2px", background: i < filledBars ? `linear-gradient(to top, ${PINK}, #ff69b4)` : "rgba(255,255,255,0.18)", minHeight:"3px" }} />
+            <div key={i} style={{ flex:1, height:`${h*100}%`, borderRadius:"4px", background: i < filledBars ? `linear-gradient(to top, ${PINK}, #ff69b4)` : "rgba(255,255,255,0.18)", minHeight:"6px" }} />
           ))}
         </div>
         <div style={{ display:"flex", justifyContent:"space-between" }}>
-          <span style={{ color:"rgba(255,255,255,0.45)", fontSize:"0.73rem" }}>{fmt(currentTime)}</span>
-          <span style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.73rem" }}>{fmt(duration)}</span>
+          <span style={{ color:"rgba(255,255,255,0.45)", fontSize:"1.46rem" }}>{fmt(currentTime)}</span>
+          <span style={{ color:"rgba(255,255,255,0.3)", fontSize:"1.46rem" }}>{fmt(duration)}</span>
         </div>
       </div>
-      <div style={{ color:"rgba(255,20,147,0.6)", fontSize:"1.1rem", flexShrink:0 }}>🎙️</div>
+      <div style={{ color:"rgba(255,20,147,0.6)", fontSize:"2.2rem", flexShrink:0 }}>🎙️</div>
     </div>
   );
 }
@@ -160,16 +159,16 @@ function HeroBanner({ isAdmin }) {
             <div style={{ position:"absolute", inset:0, background:"linear-gradient(to bottom, rgba(0,0,0,0.4) 0%, transparent 40%)", pointerEvents:"none" }} />
             <button onClick={() => setPlaying(true)} style={{ position:"relative", zIndex:2, width:"80px", height:"80px", borderRadius:"50%", background:`linear-gradient(135deg, ${PINK}, #ff69b4)`, border:"none", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"2rem", boxShadow:`0 0 40px rgba(255,20,147,0.6), 0 0 80px rgba(255,20,147,0.2)`, transition:"transform 0.2s" }} onMouseOver={e => e.currentTarget.style.transform="scale(1.1)"} onMouseOut={e => e.currentTarget.style.transform="scale(1)"}>▶</button>
             <div style={{ position:"absolute", bottom:"20px", left:"24px", zIndex:2 }}>
-              <div style={{ color:"rgba(255,255,255,0.5)", fontSize:"0.75rem", letterSpacing:"2px", textTransform:"uppercase", fontWeight:700, marginBottom:"4px" }}>Now Playing</div>
-              <div style={{ color:"#fff", fontFamily:"'Bebas Neue', sans-serif", fontSize:"1.6rem", letterSpacing:"3px", textShadow:"0 2px 12px rgba(0,0,0,0.8)" }}>LEAGUE ANNOUNCEMENT</div>
+              <div style={{ color:"rgba(255,255,255,0.5)", fontSize:"1.5rem", letterSpacing:"2px", textTransform:"uppercase", fontWeight:700, marginBottom:"4px" }}>Now Playing</div>
+              <div style={{ color:"#fff", fontFamily:"'Bebas Neue', sans-serif", fontSize:"3.2rem", letterSpacing:"3px", textShadow:"0 2px 12px rgba(0,0,0,0.8)" }}>LEAGUE ANNOUNCEMENT</div>
             </div>
           </>
         )}
 
         {!playing && !videoUrl && (
           <div style={{ textAlign:"center", color:"rgba(255,255,255,0.2)" }}>
-            <div style={{ fontSize:"3rem", marginBottom:"8px" }}>🎬</div>
-            <div style={{ fontFamily:"'Bebas Neue', sans-serif", fontSize:"1.4rem", letterSpacing:"3px" }}>No Banner Video Set</div>
+            <div style={{ fontSize:"6rem", marginBottom:"8px" }}>🎬</div>
+            <div style={{ fontFamily:"'Bebas Neue', sans-serif", fontSize:"2.8rem", letterSpacing:"3px" }}>No Banner Video Set</div>
           </div>
         )}
 
@@ -217,17 +216,19 @@ function RuleCard({ rule, index, isAdmin, onEdit, onDelete }) {
   const [view, setView] = useState(hasAudio ? "audio" : "text");
 
   return (
-    <div style={{ ...GLASS, borderRadius:"20px", padding:"28px 28px 24px", animation:`fadeUp 0.4s ease ${index * 0.06}s both` }}>
-      <div style={{ textAlign:"center", marginBottom:"18px" }}>
-        <h2 style={{ fontFamily:"'Bebas Neue', sans-serif", fontSize:"2rem", color:PINK, letterSpacing:"3px", margin:0, textShadow:`0 0 20px rgba(255,20,147,0.4)` }}>{rule.title}</h2>
-        <div style={{ height:"2px", width:"60px", background:`linear-gradient(to right, transparent, ${PINK}, transparent)`, margin:"8px auto 0" }} />
+    <div style={{ ...GLASS, borderRadius:"0", padding:"48px 0 40px", animation:`fadeUp 0.4s ease ${index * 0.06}s both`, width:"100%", boxSizing:"border-box" }}>
+      {/* Title */}
+      <div style={{ textAlign:"center", marginBottom:"32px", padding:"0 40px" }}>
+        <h2 style={{ fontFamily:"'Bebas Neue', sans-serif", fontSize:"4rem", color:PINK, letterSpacing:"3px", margin:0, textShadow:`0 0 20px rgba(255,20,147,0.4)` }}>{rule.title}</h2>
+        <div style={{ height:"3px", width:"120px", background:`linear-gradient(to right, transparent, ${PINK}, transparent)`, margin:"14px auto 0" }} />
       </div>
 
+      {/* Toggle */}
       {hasBoth && (
-        <div style={{ display:"flex", justifyContent:"center", marginBottom:"16px" }}>
-          <div style={{ display:"flex", background:"rgba(255,255,255,0.05)", borderRadius:"30px", padding:"4px", border:`1px solid ${PINK_BORDER}` }}>
+        <div style={{ display:"flex", justifyContent:"center", marginBottom:"28px" }}>
+          <div style={{ display:"flex", background:"rgba(255,255,255,0.05)", borderRadius:"30px", padding:"6px", border:`1px solid ${PINK_BORDER}` }}>
             {[{key:"audio",label:"🎙️ Audio"},{key:"text",label:"📝 Text"}].map(({key,label}) => (
-              <button key={key} onClick={() => setView(key)} style={{ padding:"8px 20px", borderRadius:"26px", border:"none", cursor:"pointer", fontWeight:700, fontSize:"0.85rem", transition:"all 0.2s", background: view===key ? PINK : "transparent", color: view===key ? "#fff" : "rgba(255,255,255,0.45)" }}>
+              <button key={key} onClick={() => setView(key)} style={{ padding:"16px 40px", borderRadius:"26px", border:"none", cursor:"pointer", fontWeight:700, fontSize:"1.7rem", transition:"all 0.2s", background: view===key ? PINK : "transparent", color: view===key ? "#fff" : "rgba(255,255,255,0.45)", fontFamily:"inherit" }}>
                 {label}
               </button>
             ))}
@@ -235,17 +236,21 @@ function RuleCard({ rule, index, isAdmin, onEdit, onDelete }) {
         </div>
       )}
 
+      {/* Audio */}
       {(!hasBoth || view === "audio") && hasAudio && <AudioPlayer url={rule.audioUrl} />}
+
+      {/* Text */}
       {(!hasBoth || view === "text") && hasText && (
-        <div style={{ background:"rgba(255,20,147,0.05)", border:`1px solid ${PINK_BORDER}`, borderRadius:"14px", padding:"18px 20px", marginTop: hasBoth ? 0 : "12px" }}>
-          <p style={{ color:"rgba(255,255,255,0.82)", margin:0, lineHeight:1.7, fontSize:"0.97rem", whiteSpace:"pre-wrap" }}>{rule.text}</p>
+        <div style={{ background:"rgba(255,20,147,0.05)", padding:"36px 40px", marginTop: hasBoth ? 0 : "24px" }}>
+          <p style={{ color:"rgba(255,255,255,0.88)", margin:0, lineHeight:1.75, fontSize:"1.94rem", whiteSpace:"pre-wrap", textAlign:"center" }}>{rule.text}</p>
         </div>
       )}
 
+      {/* Admin controls */}
       {isAdmin && (
-        <div style={{ display:"flex", gap:"8px", justifyContent:"flex-end", marginTop:"16px" }}>
-          <button onClick={() => onEdit(rule)} style={{ padding:"7px 16px", background:PINK_DIM, border:`1px solid ${PINK_BORDER}`, borderRadius:"10px", color:PINK, cursor:"pointer", fontSize:"0.85rem", fontWeight:700 }}>✏️ Edit</button>
-          <button onClick={() => onDelete(rule.id)} style={{ padding:"7px 16px", background:"rgba(255,80,80,0.1)", border:"1px solid rgba(255,80,80,0.25)", borderRadius:"10px", color:"#ff6b6b", cursor:"pointer", fontSize:"0.85rem" }}>🗑️</button>
+        <div style={{ display:"flex", gap:"12px", justifyContent:"flex-end", marginTop:"24px", padding:"0 40px" }}>
+          <button onClick={() => onEdit(rule)} style={{ padding:"12px 28px", background:PINK_DIM, border:`1px solid ${PINK_BORDER}`, borderRadius:"10px", color:PINK, cursor:"pointer", fontSize:"1.7rem", fontWeight:700 }}>✏️ Edit</button>
+          <button onClick={() => onDelete(rule.id)} style={{ padding:"12px 28px", background:"rgba(255,80,80,0.1)", border:"1px solid rgba(255,80,80,0.25)", borderRadius:"10px", color:"#ff6b6b", cursor:"pointer", fontSize:"1.7rem" }}>🗑️</button>
         </div>
       )}
     </div>
@@ -470,21 +475,25 @@ export default function RulesAndTutorialsPage() {
 
       <HeroBanner isAdmin={isAdmin} />
 
-      <div style={{ padding:"0 20px 100px", maxWidth:"860px", margin:"0 auto" }}>
+      <div style={{ padding:"0 0 100px", width:"100%" }}>
 
-        {/* Heading */}
-        <div style={{ textAlign:"center", marginBottom:"36px" }}>
-          <h1 style={{ fontFamily:"'Bebas Neue', sans-serif", fontSize:"clamp(2.4rem, 7vw, 4rem)", color:"#fff", letterSpacing:"6px", margin:"0 0 8px", textShadow:`0 0 30px rgba(255,20,147,0.35)` }}>
+        {/* ── Page Heading ── */}
+        <div style={{ textAlign:"center", marginBottom:"36px", padding:"0 20px" }}>
+          <h1 style={{ fontFamily:"'Bebas Neue', sans-serif", fontSize:"clamp(4.8rem, 14vw, 8rem)", color:"#fff", letterSpacing:"6px", margin:"0 0 8px", textShadow:`0 0 30px rgba(255,20,147,0.35)` }}>
             COMMUNITY REGULATIONS
           </h1>
-          <div style={{ height:"3px", width:"100px", background:`linear-gradient(to right, transparent, ${PINK}, transparent)`, margin:"0 auto" }} />
+          <div style={{ height:"3px", width:"200px", background:`linear-gradient(to right, transparent, ${PINK}, transparent)`, margin:"0 auto" }} />
         </div>
 
-        {/* Tabs */}
-        <div style={{ display:"flex", justifyContent:"center", marginBottom:"32px" }}>
-          <div style={{ display:"flex", background:"rgba(255,255,255,0.04)", borderRadius:"40px", padding:"5px", border:`1px solid ${PINK_BORDER}`, gap:"4px" }}>
+        {/* ── Tabs — same style as TabBar component ── */}
+        <div style={{ padding:"0 20px", marginBottom:"32px" }}>
+          <div style={{ display:"flex", justifyContent:"stretch", background:"rgba(255,255,255,0.04)", backdropFilter:"blur(12px)", WebkitBackdropFilter:"blur(12px)", border:`1px solid rgba(255,20,147,0.2)`, borderRadius:"50px", padding:"8px", gap:"4px", overflowX:"auto" }}>
             {[{ key:"rules", label:"📋 Rules" }, { key:"tutorials", label:"🎬 Tutorials" }].map(({ key, label }) => (
-              <button key={key} onClick={() => setActiveTab(key)} style={{ padding:"12px 32px", borderRadius:"36px", border:"none", cursor:"pointer", fontWeight:700, fontSize:"0.95rem", fontFamily:"inherit", transition:"all 0.25s", background: activeTab === key ? PINK : "transparent", color: activeTab === key ? "#fff" : "rgba(255,255,255,0.4)", boxShadow: activeTab === key ? `0 4px 20px rgba(255,20,147,0.4)` : "none", letterSpacing:"0.5px" }}>
+              <button key={key} onClick={() => setActiveTab(key)}
+                style={{ flex:"1 1 0", background: activeTab === key ? PINK : "transparent", border:"none", color: activeTab === key ? "#fff" : "rgba(255,255,255,0.6)", padding:"20px 16px", borderRadius:"30px", fontWeight:700, fontSize:"1.7rem", cursor:"pointer", letterSpacing:"0.4px", transition:"all 0.25s", fontFamily:"inherit", whiteSpace:"nowrap", textAlign:"center", minWidth:0, boxShadow: activeTab === key ? `0 4px 20px rgba(255,20,147,0.4)` : "none" }}
+                onMouseOver={e => { if (activeTab !== key) e.currentTarget.style.background = "rgba(255,255,255,0.1)"; }}
+                onMouseOut={e => { if (activeTab !== key) e.currentTarget.style.background = "transparent"; }}
+              >
                 {label}
               </button>
             ))}
@@ -495,22 +504,22 @@ export default function RulesAndTutorialsPage() {
         {activeTab === "rules" && (
           <>
             {isAdmin && (
-              <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:"20px" }}>
-                <button onClick={() => { setEditRule(null); setShowRuleModal(true); }} style={{ padding:"12px 24px", background:`linear-gradient(135deg, ${PINK}, #ff69b4)`, border:"none", borderRadius:"14px", color:"#fff", fontWeight:700, fontSize:"1rem", cursor:"pointer", boxShadow:`0 4px 20px rgba(255,20,147,0.4)`, transition:"transform 0.15s" }} onMouseOver={e => e.currentTarget.style.transform="translateY(-2px)"} onMouseOut={e => e.currentTarget.style.transform="translateY(0)"}>
+              <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:"20px", padding:"0 20px" }}>
+                <button onClick={() => { setEditRule(null); setShowRuleModal(true); }} style={{ padding:"14px 32px", background:`linear-gradient(135deg, ${PINK}, #ff69b4)`, border:"none", borderRadius:"14px", color:"#fff", fontWeight:700, fontSize:"1.7rem", cursor:"pointer", boxShadow:`0 4px 20px rgba(255,20,147,0.4)`, transition:"transform 0.15s" }} onMouseOver={e => e.currentTarget.style.transform="translateY(-2px)"} onMouseOut={e => e.currentTarget.style.transform="translateY(0)"}>
                   ➕ Add Rule
                 </button>
               </div>
             )}
             {loadingRules && (
-              <div style={{ textAlign:"center", padding:"60px", color:"rgba(255,255,255,0.3)", fontFamily:"'Bebas Neue', sans-serif", fontSize:"1.8rem", letterSpacing:"3px" }}>LOADING...</div>
+              <div style={{ textAlign:"center", padding:"60px", color:"rgba(255,255,255,0.3)", fontFamily:"'Bebas Neue', sans-serif", fontSize:"3.4rem", letterSpacing:"3px" }}>LOADING...</div>
             )}
             {!loadingRules && rules.length === 0 && (
-              <div style={{ ...GLASS, borderRadius:"20px", padding:"60px 40px", textAlign:"center" }}>
-                <div style={{ fontSize:"3.5rem", marginBottom:"12px" }}>📭</div>
-                <div style={{ fontFamily:"'Bebas Neue', sans-serif", fontSize:"1.8rem", color:"rgba(255,255,255,0.3)", letterSpacing:"3px" }}>{isAdmin ? "No Rules Yet — Add One Above" : "No Rules Published Yet"}</div>
+              <div style={{ ...GLASS, margin:"0 20px", borderRadius:"20px", padding:"60px 40px", textAlign:"center" }}>
+                <div style={{ fontSize:"7rem", marginBottom:"12px" }}>📭</div>
+                <div style={{ fontFamily:"'Bebas Neue', sans-serif", fontSize:"3.4rem", color:"rgba(255,255,255,0.3)", letterSpacing:"3px" }}>{isAdmin ? "No Rules Yet — Add One Above" : "No Rules Published Yet"}</div>
               </div>
             )}
-            <div style={{ display:"flex", flexDirection:"column", gap:"20px" }}>
+            <div style={{ display:"flex", flexDirection:"column", gap:"0", width:"100%" }}>
               {rules.map((rule, i) => (
                 <RuleCard key={rule.id} rule={rule} index={i} isAdmin={isAdmin}
                   onEdit={r => { setEditRule(r); setShowRuleModal(true); }}
@@ -525,25 +534,25 @@ export default function RulesAndTutorialsPage() {
         {activeTab === "tutorials" && (
           <>
             {isAdmin && (
-              <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:"20px" }}>
-                <button onClick={() => { setEditTutorial(null); setShowTutorialModal(true); }} style={{ padding:"12px 24px", background:`linear-gradient(135deg, ${PINK}, #ff69b4)`, border:"none", borderRadius:"14px", color:"#fff", fontWeight:700, fontSize:"1rem", cursor:"pointer", boxShadow:`0 4px 20px rgba(255,20,147,0.4)`, transition:"transform 0.15s" }} onMouseOver={e => e.currentTarget.style.transform="translateY(-2px)"} onMouseOut={e => e.currentTarget.style.transform="translateY(0)"}>
+              <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:"20px", padding:"0 20px" }}>
+                <button onClick={() => { setEditTutorial(null); setShowTutorialModal(true); }} style={{ padding:"14px 32px", background:`linear-gradient(135deg, ${PINK}, #ff69b4)`, border:"none", borderRadius:"14px", color:"#fff", fontWeight:700, fontSize:"1.7rem", cursor:"pointer", boxShadow:`0 4px 20px rgba(255,20,147,0.4)`, transition:"transform 0.15s" }} onMouseOver={e => e.currentTarget.style.transform="translateY(-2px)"} onMouseOut={e => e.currentTarget.style.transform="translateY(0)"}>
                   ➕ Add Tutorial
                 </button>
               </div>
             )}
             {loadingTutorials && (
-              <div style={{ textAlign:"center", padding:"60px", color:"rgba(255,255,255,0.3)", fontFamily:"'Bebas Neue', sans-serif", fontSize:"1.8rem", letterSpacing:"3px" }}>LOADING...</div>
+              <div style={{ textAlign:"center", padding:"60px", color:"rgba(255,255,255,0.3)", fontFamily:"'Bebas Neue', sans-serif", fontSize:"3.4rem", letterSpacing:"3px" }}>LOADING...</div>
             )}
             {!loadingTutorials && tutorials.length === 0 && (
-              <div style={{ ...GLASS, borderRadius:"20px", padding:"60px 40px", textAlign:"center" }}>
-                <div style={{ fontSize:"3.5rem", marginBottom:"12px" }}>🎬</div>
-                <div style={{ fontFamily:"'Bebas Neue', sans-serif", fontSize:"1.8rem", color:"rgba(255,255,255,0.3)", letterSpacing:"3px" }}>{isAdmin ? "No Tutorials Yet — Add One Above" : "No Tutorials Published Yet"}</div>
+              <div style={{ ...GLASS, margin:"0 20px", borderRadius:"20px", padding:"60px 40px", textAlign:"center" }}>
+                <div style={{ fontSize:"7rem", marginBottom:"12px" }}>🎬</div>
+                <div style={{ fontFamily:"'Bebas Neue', sans-serif", fontSize:"3.4rem", color:"rgba(255,255,255,0.3)", letterSpacing:"3px" }}>{isAdmin ? "No Tutorials Yet — Add One Above" : "No Tutorials Published Yet"}</div>
               </div>
             )}
             {tutorials.length > 0 && (
               <>
-                <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.8rem", textAlign:"center", marginBottom:"16px", letterSpacing:"1px", textTransform:"uppercase" }}>← Swipe to explore →</p>
-                <div style={{ display:"flex", gap:"16px", overflowX:"auto", paddingBottom:"16px", paddingLeft:"4px", paddingRight:"4px", scrollbarWidth:"thin", scrollbarColor:`${PINK} rgba(255,255,255,0.05)` }}>
+                <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"1.6rem", textAlign:"center", marginBottom:"16px", letterSpacing:"1px", textTransform:"uppercase", padding:"0 20px" }}>← Swipe to explore →</p>
+                <div style={{ display:"flex", gap:"16px", overflowX:"auto", paddingBottom:"16px", paddingLeft:"20px", paddingRight:"20px", scrollbarWidth:"thin", scrollbarColor:`${PINK} rgba(255,255,255,0.05)` }}>
                   {tutorials.map(t => (
                     <TutorialCard key={t.id} tutorial={t} isAdmin={isAdmin}
                       onEdit={tut => { setEditTutorial(tut); setShowTutorialModal(true); }}
