@@ -242,6 +242,12 @@ export default function PendingFixturesModal({ league, season, onClose }) {
     return new Date(p.submittedAt + 2 * 3600000).toISOString().split("T")[0] === yesterdayStr;
   });
 
+  // ── Stable refs so the auto no-contest interval never stale-closes over arrays ─
+  const calendarTodayRef     = useRef([]);
+  const calendarYesterdayRef = useRef([]);
+  calendarTodayRef.current     = calendarToday;
+  calendarYesterdayRef.current = calendarYesterday;
+
   // ── Auto no-contest logic ────────────────────────────────────────────────────
   useEffect(() => {
     if (!autoNoContest) return;
@@ -250,7 +256,11 @@ export default function PendingFixturesModal({ league, season, onClose }) {
       const fireKey = `${fixture.home}__${fixture.away}__${fixture.date}`;
       if (autoFiredRef.current.has(fireKey)) return;
       if (Date.now() < deadlineMs) return;
-      // Double-check result doesn't exist yet
+
+      // Mark immediately to prevent concurrent double-fires
+      autoFiredRef.current.add(fireKey);
+
+      // Double-check against Firebase directly (source of truth)
       const snap = await get(ref(db, PATHS.results(league, season)));
       const existingResults = snap.val() ? Object.values(snap.val()) : [];
       const alreadyDone = existingResults.some(r => {
@@ -259,9 +269,8 @@ export default function PendingFixturesModal({ league, season, onClose }) {
           ((r.homeTeam === fixture.home && r.awayTeam === fixture.away) ||
            (r.homeTeam === fixture.away && r.awayTeam === fixture.home));
       });
-      if (alreadyDone) { autoFiredRef.current.add(fireKey); return; }
+      if (alreadyDone) return; // already recorded, keep key in set to suppress future checks
 
-      autoFiredRef.current.add(fireKey);
       try {
         await push(ref(db, PATHS.results(league, season)), {
           homeTeam: fixture.home, awayTeam: fixture.away,
@@ -274,17 +283,23 @@ export default function PendingFixturesModal({ league, season, onClose }) {
         });
         await applyResultToTable(league, season, fixture.home, fixture.away, 0, 0, "no_contest");
       } catch (e) {
+        // Allow retry on next tick
         autoFiredRef.current.delete(fireKey);
         console.error("Auto no-contest failed:", e);
       }
     }
 
-    const interval = setInterval(() => {
-      calendarToday.forEach(f => fireNoContest(f, todayDeadlineMs));
-      calendarYesterday.forEach(f => fireNoContest(f, yesterdayDeadlineMs));
-    }, 5000);
+    function runChecks() {
+      calendarTodayRef.current.forEach(f => fireNoContest(f, todayDeadlineMs));
+      calendarYesterdayRef.current.forEach(f => fireNoContest(f, yesterdayDeadlineMs));
+    }
+
+    // Run immediately when enabled, then every 10 s
+    runChecks();
+    const interval = setInterval(runChecks, 10000);
     return () => clearInterval(interval);
-  }, [autoNoContest, calendarToday, calendarYesterday, todayDeadlineMs, yesterdayDeadlineMs, league, season]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoNoContest, todayDeadlineMs, yesterdayDeadlineMs, league, season]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
   async function handleNoContestCalendar(fixture) {
