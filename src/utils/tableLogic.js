@@ -21,26 +21,62 @@ export async function applyResultToTable(league, season, homeTeam, awayTeam, hom
   const ad = awayEntry.data;
 
   if (forfeitType === 'no_contest') {
-    hd.p = (hd.p || 0) + 1; hd.l = (hd.l || 0) + 1;
-    ad.p = (ad.p || 0) + 1; ad.l = (ad.l || 0) + 1;
+    hd.p   = (hd.p  || 0) + 1;
+    hd.l   = (hd.l  || 0) + 1;
+    ad.p   = (ad.p  || 0) + 1;
+    ad.l   = (ad.l  || 0) + 1;
+    // GS / GC / GD unchanged — no goals scored in a no-contest
   } else if (forfeitType === 'forfeit_win') {
-    // Winner gets 3 pts, 3 GS, 3 GD; loser gets 0 GA = 3 GC, -3 GD
-    hd.p = (hd.p || 0) + 1;
-    hd.w = (hd.w || 0) + 1;
+    // Home team is always the winner when a forfeit_win is submitted
+    hd.p   = (hd.p  || 0) + 1;
+    hd.w   = (hd.w  || 0) + 1;
     hd.pts = (hd.pts || 0) + 3;
-    hd.gs = (hd.gs || 0) + 3;
-    hd.gd = (hd.gd || 0) + 3;
+    hd.gs  = (hd.gs  || 0) + 3;
+    hd.gc  = (hd.gc  || 0);       // winner concedes 0
+    hd.gd  = (hd.gs  || 0) - (hd.gc  || 0); // recalculate from stored gs/gc
 
-    ad.p = (ad.p || 0) + 1;
-    ad.l = (ad.l || 0) + 1;
-    ad.gc = (ad.gc || 0) + 3;
-    ad.gd = (ad.gd || 0) - 3;
+    ad.p   = (ad.p  || 0) + 1;
+    ad.l   = (ad.l  || 0) + 1;
+    ad.gc  = (ad.gc  || 0) + 3;
+    ad.gs  = (ad.gs  || 0);       // loser scores 0
+    ad.gd  = (ad.gs  || 0) - (ad.gc  || 0); // recalculate from stored gs/gc
+
+    // Overwrite gd with the delta applied correctly
+    hd.gd = ((hd.gd !== undefined ? hd.gd : 0));
+    // Simpler: accumulate the delta
+    const prevHd = homeEntry.data;
+    const prevAd = awayEntry.data;
+    hd.gd = (prevHd.gd || 0) + 3;
+    ad.gd = (prevAd.gd || 0) - 3;
   } else {
-    hd.p = (hd.p || 0) + 1; hd.gs = (hd.gs || 0) + homeScore; hd.gc = (hd.gc || 0) + awayScore; hd.gd = (hd.gd || 0) + (homeScore - awayScore);
-    ad.p = (ad.p || 0) + 1; ad.gs = (ad.gs || 0) + awayScore; ad.gc = (ad.gc || 0) + homeScore; ad.gd = (ad.gd || 0) + (awayScore - homeScore);
-    if (homeScore > awayScore) { hd.w = (hd.w || 0) + 1; hd.pts = (hd.pts || 0) + 3; ad.l = (ad.l || 0) + 1; }
-    else if (homeScore < awayScore) { ad.w = (ad.w || 0) + 1; ad.pts = (ad.pts || 0) + 3; hd.l = (hd.l || 0) + 1; }
-    else { hd.d = (hd.d || 0) + 1; hd.pts = (hd.pts || 0) + 1; ad.d = (ad.d || 0) + 1; ad.pts = (ad.pts || 0) + 1; }
+    // Normal match — accumulate all stats
+    const hScore = Number(homeScore);
+    const aScore = Number(awayScore);
+
+    hd.p   = (hd.p  || 0) + 1;
+    hd.gs  = (hd.gs  || 0) + hScore;
+    hd.gc  = (hd.gc  || 0) + aScore;
+    hd.gd  = (hd.gd  || 0) + (hScore - aScore);
+
+    ad.p   = (ad.p  || 0) + 1;
+    ad.gs  = (ad.gs  || 0) + aScore;
+    ad.gc  = (ad.gc  || 0) + hScore;
+    ad.gd  = (ad.gd  || 0) + (aScore - hScore);
+
+    if (hScore > aScore) {
+      hd.w   = (hd.w  || 0) + 1;
+      hd.pts = (hd.pts || 0) + 3;
+      ad.l   = (ad.l  || 0) + 1;
+    } else if (hScore < aScore) {
+      ad.w   = (ad.w  || 0) + 1;
+      ad.pts = (ad.pts || 0) + 3;
+      hd.l   = (hd.l  || 0) + 1;
+    } else {
+      hd.d   = (hd.d  || 0) + 1;
+      hd.pts = (hd.pts || 0) + 1;
+      ad.d   = (ad.d  || 0) + 1;
+      ad.pts = (ad.pts || 0) + 1;
+    }
   }
 
   await set(ref(db, `${PATHS.table(league, season)}/${homeEntry.key}`), hd);
@@ -67,25 +103,49 @@ export async function reverseResultFromTable(league, season, homeTeam, awayTeam,
   const ad = awayEntry.data;
 
   if (forfeitType === 'no_contest') {
-    hd.p = Math.max(0, (hd.p || 0) - 1); hd.l = Math.max(0, (hd.l || 0) - 1);
-    ad.p = Math.max(0, (ad.p || 0) - 1); ad.l = Math.max(0, (ad.l || 0) - 1);
-  } else if (forfeitType === 'forfeit_win') {
     hd.p = Math.max(0, (hd.p || 0) - 1);
-    hd.w = Math.max(0, (hd.w || 0) - 1);
-    hd.pts = Math.max(0, (hd.pts || 0) - 3);
-    hd.gs = Math.max(0, (hd.gs || 0) - 3);
-    hd.gd = (hd.gd || 0) - 3;
-
+    hd.l = Math.max(0, (hd.l || 0) - 1);
     ad.p = Math.max(0, (ad.p || 0) - 1);
     ad.l = Math.max(0, (ad.l || 0) - 1);
-    ad.gc = Math.max(0, (ad.gc || 0) - 3);
-    ad.gd = (ad.gd || 0) + 3;
+  } else if (forfeitType === 'forfeit_win') {
+    hd.p   = Math.max(0, (hd.p  || 0) - 1);
+    hd.w   = Math.max(0, (hd.w  || 0) - 1);
+    hd.pts = Math.max(0, (hd.pts || 0) - 3);
+    hd.gs  = Math.max(0, (hd.gs  || 0) - 3);
+    hd.gd  = (hd.gd  || 0) - 3;
+
+    ad.p   = Math.max(0, (ad.p  || 0) - 1);
+    ad.l   = Math.max(0, (ad.l  || 0) - 1);
+    ad.gc  = Math.max(0, (ad.gc  || 0) - 3);
+    ad.gd  = (ad.gd  || 0) + 3;
   } else {
-    hd.p = Math.max(0, (hd.p || 0) - 1); hd.gs = Math.max(0, (hd.gs || 0) - homeScore); hd.gc = Math.max(0, (hd.gc || 0) - awayScore); hd.gd = (hd.gd || 0) - (homeScore - awayScore);
-    ad.p = Math.max(0, (ad.p || 0) - 1); ad.gs = Math.max(0, (ad.gs || 0) - awayScore); ad.gc = Math.max(0, (ad.gc || 0) - homeScore); ad.gd = (ad.gd || 0) - (awayScore - homeScore);
-    if (homeScore > awayScore) { hd.w = Math.max(0, (hd.w || 0) - 1); hd.pts = Math.max(0, (hd.pts || 0) - 3); ad.l = Math.max(0, (ad.l || 0) - 1); }
-    else if (homeScore < awayScore) { ad.w = Math.max(0, (ad.w || 0) - 1); ad.pts = Math.max(0, (ad.pts || 0) - 3); hd.l = Math.max(0, (hd.l || 0) - 1); }
-    else { hd.d = Math.max(0, (hd.d || 0) - 1); hd.pts = Math.max(0, (hd.pts || 0) - 1); ad.d = Math.max(0, (ad.d || 0) - 1); ad.pts = Math.max(0, (ad.pts || 0) - 1); }
+    const hScore = Number(homeScore);
+    const aScore = Number(awayScore);
+
+    hd.p   = Math.max(0, (hd.p  || 0) - 1);
+    hd.gs  = Math.max(0, (hd.gs  || 0) - hScore);
+    hd.gc  = Math.max(0, (hd.gc  || 0) - aScore);
+    hd.gd  = (hd.gd  || 0) - (hScore - aScore);
+
+    ad.p   = Math.max(0, (ad.p  || 0) - 1);
+    ad.gs  = Math.max(0, (ad.gs  || 0) - aScore);
+    ad.gc  = Math.max(0, (ad.gc  || 0) - hScore);
+    ad.gd  = (ad.gd  || 0) - (aScore - hScore);
+
+    if (hScore > aScore) {
+      hd.w   = Math.max(0, (hd.w  || 0) - 1);
+      hd.pts = Math.max(0, (hd.pts || 0) - 3);
+      ad.l   = Math.max(0, (ad.l  || 0) - 1);
+    } else if (hScore < aScore) {
+      ad.w   = Math.max(0, (ad.w  || 0) - 1);
+      ad.pts = Math.max(0, (ad.pts || 0) - 3);
+      hd.l   = Math.max(0, (hd.l  || 0) - 1);
+    } else {
+      hd.d   = Math.max(0, (hd.d  || 0) - 1);
+      hd.pts = Math.max(0, (hd.pts || 0) - 1);
+      ad.d   = Math.max(0, (ad.d  || 0) - 1);
+      ad.pts = Math.max(0, (ad.pts || 0) - 1);
+    }
   }
 
   await set(ref(db, `${PATHS.table(league, season)}/${homeEntry.key}`), hd);
