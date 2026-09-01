@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
 import { db, PATHS } from "../firebase";
-import { ref, push, get, set, update } from "firebase/database";
+import { ref, push, get, set, update, remove, onValue } from "firebase/database";
 import { applyResultToTable } from "../utils/tableLogic";
 import { getSASTToday } from "../utils/sastTime";
 import { useAdmin } from "../context/AdminContext";
 import { uploadToImgBB } from "../utils/imgUpload";
 
-// ── League → tournament name mapping (matches FixturesList tournamentName prop) ──
+// ── League → tournament name mapping ──────────────────────────────────────────
 const LEAGUE_TOURNAMENT = {
   premier: "Premier League",
   serie_a: "Serie A",
@@ -26,6 +26,26 @@ const labelStyle = {
   display: "block", marginBottom: 4,
   textTransform: "uppercase", letterSpacing: "0.5px",
 };
+
+// ── Check if a result matches any forbidden result ────────────────────────────
+function isForbiddenResult(forbiddenList, homeTeam, awayTeam, homeScore, awayScore) {
+  for (const f of forbiddenList) {
+    const teamsMatch =
+      (f.homeTeam === homeTeam && f.awayTeam === awayTeam) ||
+      (f.homeTeam === awayTeam && f.awayTeam === homeTeam);
+    if (!teamsMatch) continue;
+    // If score is specified, check it too; if not, any score between these teams is forbidden
+    if (f.homeScore !== undefined && f.awayScore !== undefined) {
+      const scoresMatch =
+        (Number(f.homeScore) === Number(homeTeam === f.homeTeam ? homeScore : awayScore) &&
+         Number(f.awayScore) === Number(homeTeam === f.homeTeam ? awayScore : homeScore));
+      if (scoresMatch) return true;
+    } else {
+      return true;
+    }
+  }
+  return false;
+}
 
 // ── Upsert scorer/assistant in top stats ──────────────────────────────────────
 async function updateTopStat(league, season, pathKey, playerName, count, team) {
@@ -79,11 +99,10 @@ async function detectHomeAway(league, myTeam, opponent) {
       }
     }
   }
-  // Default: submitting manager is home
   return { homeTeam: myTeam, awayTeam: opponent };
 }
 
-// ── Check for existing result (same teams + matchday) — re-run at submit time ─
+// ── Check for existing result ─────────────────────────────────────────────────
 async function findExistingResult(league, season, myTeam, opponent, matchday) {
   const snap = await get(ref(db, PATHS.results(league, season)));
   const data = snap.val() || {};
@@ -97,66 +116,48 @@ async function findExistingResult(league, season, myTeam, opponent, matchday) {
   return null;
 }
 
-// ── Existing-player picker sheet ─────────────────────────────────────────────
+// ── Player picker sheet ───────────────────────────────────────────────────────
 function PlayerPickerSheet({ title, players, myTeam, onSelectExisting, onAddNew, onClose }) {
   const [newName, setNewName] = useState("");
   const [showNew, setShowNew] = useState(false);
-
   const myPlayers = players.filter(p => (p.team || "").toLowerCase() === myTeam.toLowerCase());
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "flex-end" }} onClick={onClose}>
       <div style={{ width: "100%", maxHeight: "75vh", background: "rgba(10,0,25,0.98)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: "24px 24px 0 0", padding: "24px 20px", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
         <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", letterSpacing: 2, marginBottom: 16 }}>{title}</div>
-
         {myPlayers.length > 0 && (
           <div style={{ marginBottom: 16 }}>
             <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>Your existing players</div>
             {myPlayers.map(p => (
-              <button
-                key={p.key}
-                onClick={() => onSelectExisting(p)}
-                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", background: "rgba(255,20,147,0.08)", border: "1px solid rgba(255,20,147,0.25)", borderRadius: 12, padding: "12px 16px", marginBottom: 8, cursor: "pointer", color: "#fff" }}
-              >
+              <button key={p.key} onClick={() => onSelectExisting(p)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", background: "rgba(255,20,147,0.08)", border: "1px solid rgba(255,20,147,0.25)", borderRadius: 12, padding: "12px 16px", marginBottom: 8, cursor: "pointer", color: "#fff" }}>
                 <span style={{ fontWeight: 700, fontSize: "1rem" }}>{p.name}</span>
                 <span style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.2rem" }}>{p.count || 0}</span>
               </button>
             ))}
           </div>
         )}
-
         {!showNew ? (
-          <button
-            onClick={() => setShowNew(true)}
-            style={{ width: "100%", padding: "14px 0", background: "rgba(255,255,255,0.06)", border: "2px dashed rgba(255,20,147,0.4)", borderRadius: 12, color: "#FF1493", fontWeight: 700, fontSize: "1rem", cursor: "pointer" }}
-          >
+          <button onClick={() => setShowNew(true)} style={{ width: "100%", padding: "14px 0", background: "rgba(255,255,255,0.06)", border: "2px dashed rgba(255,20,147,0.4)", borderRadius: 12, color: "#FF1493", fontWeight: 700, fontSize: "1rem", cursor: "pointer" }}>
             + Add Different Player
           </button>
         ) : (
           <div>
             <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>New player name</div>
-            <input
-              autoFocus
-              value={newName}
-              onChange={e => setNewName(e.target.value)}
-              placeholder="Player name..."
-              style={inputStyle}
-              onKeyDown={e => { if (e.key === "Enter" && newName.trim()) { onAddNew(newName.trim()); } }}
-            />
+            <input autoFocus value={newName} onChange={e => setNewName(e.target.value)} placeholder="Player name..." style={inputStyle} onKeyDown={e => { if (e.key === "Enter" && newName.trim()) onAddNew(newName.trim()); }} />
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={() => { if (newName.trim()) onAddNew(newName.trim()); }} style={{ flex: 1, padding: 12, background: "#FF1493", border: "none", borderRadius: 12, color: "#fff", fontWeight: 700, cursor: "pointer" }}>Add</button>
               <button onClick={() => setShowNew(false)} style={{ flex: 1, padding: 12, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 12, color: "#fff", cursor: "pointer" }}>Back</button>
             </div>
           </div>
         )}
-
         <button onClick={onClose} style={{ width: "100%", marginTop: 12, padding: 12, background: "transparent", border: "none", color: "rgba(255,255,255,0.4)", cursor: "pointer", fontSize: "0.9rem" }}>Cancel</button>
       </div>
     </div>
   );
 }
 
-// ── Count picker ─────────────────────────────────────────────────────────────
+// ── Count picker ──────────────────────────────────────────────────────────────
 function CountPicker({ label, value, onChange }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 6 }}>
@@ -168,10 +169,255 @@ function CountPicker({ label, value, onChange }) {
   );
 }
 
+// ── Admin: Forbidden Results Manager ─────────────────────────────────────────
+function ForbiddenResultsManager({ league, teams, onClose }) {
+  const [forbiddenList, setForbiddenList] = useState([]);
+  const [homeTeam, setHomeTeam]   = useState("");
+  const [awayTeam, setAwayTeam]   = useState("");
+  const [homeScore, setHomeScore] = useState("");
+  const [awayScore, setAwayScore] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState("");
+
+  useEffect(() => {
+    const unsub = onValue(ref(db, `career_${league}_settings/forbiddenResults`), snap => {
+      const d = snap.val() || {};
+      setForbiddenList(Object.entries(d).map(([k, v]) => ({ key: k, ...v })));
+    });
+    return () => unsub();
+  }, [league]);
+
+  async function handleAdd() {
+    if (!homeTeam || !awayTeam) { setStatus("Select both teams."); return; }
+    if (homeTeam === awayTeam) { setStatus("Teams must be different."); return; }
+    setSaving(true);
+    setStatus("");
+    const entry = { homeTeam, awayTeam };
+    if (homeScore !== "" && awayScore !== "") {
+      entry.homeScore = Number(homeScore);
+      entry.awayScore = Number(awayScore);
+    }
+    await push(ref(db, `career_${league}_settings/forbiddenResults`), entry);
+    setHomeTeam(""); setAwayTeam(""); setHomeScore(""); setAwayScore("");
+    setSaving(false);
+    setStatus("✅ Forbidden result added.");
+  }
+
+  async function handleDelete(key) {
+    if (!window.confirm("Remove this forbidden result?")) return;
+    await remove(ref(db, `career_${league}_settings/forbiddenResults/${key}`));
+  }
+
+  const teamNames = teams.map(t => t.name).sort();
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: "1.2rem" }}>← Back</button>
+        <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", margin: 0 }}>🚫 Forbidden Results</h3>
+      </div>
+
+      <div style={{ background: "rgba(255,50,50,0.08)", border: "1px solid rgba(255,50,50,0.3)", borderRadius: 12, padding: "12px 16px", marginBottom: 20, color: "rgba(255,200,200,0.8)", fontSize: "0.85rem", lineHeight: 1.6 }}>
+        Any result matching a forbidden entry will be <strong>automatically declined</strong> when a manager or admin tries to submit it.
+        You can forbid a specific score, or leave the score blank to block any result between two teams.
+      </div>
+
+      {/* Add form */}
+      <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,20,147,0.2)", borderRadius: 14, padding: "16px 18px", marginBottom: 20 }}>
+        <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.2rem", letterSpacing: 1, marginBottom: 14 }}>Add Forbidden Result</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div>
+            <label style={labelStyle}>Home Team</label>
+            <select value={homeTeam} onChange={e => setHomeTeam(e.target.value)} style={inputStyle}>
+              <option value="">— Select —</option>
+              {teamNames.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>Away Team</label>
+            <select value={awayTeam} onChange={e => setAwayTeam(e.target.value)} style={inputStyle}>
+              <option value="">— Select —</option>
+              {teamNames.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.75rem", marginBottom: 10 }}>Score (optional — leave blank to block any result between these teams)</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div>
+            <label style={labelStyle}>Home Score</label>
+            <input type="number" min={0} value={homeScore} onChange={e => setHomeScore(e.target.value)} placeholder="e.g. 3" style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Away Score</label>
+            <input type="number" min={0} value={awayScore} onChange={e => setAwayScore(e.target.value)} placeholder="e.g. 0" style={inputStyle} />
+          </div>
+        </div>
+        {status && <div style={{ color: status.startsWith("✅") ? "#22c55e" : "#ff6b6b", fontSize: "0.85rem", marginBottom: 10 }}>{status}</div>}
+        <button onClick={handleAdd} disabled={saving} style={{ width: "100%", padding: 12, background: "#FF1493", border: "none", borderRadius: 12, color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem" }}>
+          {saving ? "Saving..." : "🚫 Add Forbidden Result"}
+        </button>
+      </div>
+
+      {/* Existing list */}
+      {forbiddenList.length === 0 ? (
+        <div style={{ color: "rgba(255,255,255,0.3)", textAlign: "center", padding: "24px 0", fontSize: "0.9rem" }}>No forbidden results set.</div>
+      ) : (
+        <div>
+          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Active Forbidden Results</div>
+          {forbiddenList.map(f => (
+            <div key={f.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,50,50,0.06)", border: "1px solid rgba(255,50,50,0.2)", borderRadius: 12, padding: "12px 16px", marginBottom: 8 }}>
+              <div>
+                <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.1rem", letterSpacing: 1 }}>
+                  {f.homeTeam} <span style={{ color: "#FF1493" }}>vs</span> {f.awayTeam}
+                </div>
+                {f.homeScore !== undefined && f.awayScore !== undefined ? (
+                  <div style={{ color: "rgba(255,200,200,0.6)", fontSize: "0.8rem" }}>Score: {f.homeScore} — {f.awayScore}</div>
+                ) : (
+                  <div style={{ color: "rgba(255,200,200,0.6)", fontSize: "0.8rem" }}>Any score</div>
+                )}
+              </div>
+              <button onClick={() => handleDelete(f.key)} style={{ background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.3)", borderRadius: 8, color: "#ff6b6b", padding: "6px 12px", cursor: "pointer", fontSize: "0.9rem" }}>🗑️</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Admin: Enter Result Directly ──────────────────────────────────────────────
+function AdminEnterResultView({ league, season, teams, forbiddenList, onClose }) {
+  const [homeTeam, setHomeTeam]   = useState("");
+  const [awayTeam, setAwayTeam]   = useState("");
+  const [homeScore, setHomeScore] = useState(0);
+  const [awayScore, setAwayScore] = useState(0);
+  const [matchday, setMatchday]   = useState("");
+  const [date, setDate]           = useState(getSASTToday());
+  const [matchType, setMatchType] = useState("normal");
+  const [saving, setSaving]       = useState(false);
+  const [status, setStatus]       = useState("");
+
+  const teamNames = teams.map(t => t.name).sort();
+
+  async function handleSubmit() {
+    if (!homeTeam || !awayTeam) { setStatus("Select both teams."); return; }
+    if (homeTeam === awayTeam)  { setStatus("Teams must be different."); return; }
+    if (!matchday)              { setStatus("Matchday is required."); return; }
+
+    const isForfeit    = matchType === "forfeit";
+    const isNoContest  = matchType === "no_contest";
+    const finalHome    = isForfeit ? 3 : isNoContest ? 0 : Number(homeScore);
+    const finalAway    = isForfeit ? 0 : isNoContest ? 0 : Number(awayScore);
+    const forfeitType  = isForfeit ? "forfeit_win" : isNoContest ? "no_contest" : "none";
+
+    // Check forbidden
+    if (!isForfeit && !isNoContest) {
+      if (isForbiddenResult(forbiddenList, homeTeam, awayTeam, finalHome, finalAway)) {
+        setStatus("❌ Result Declined — this result is on the forbidden list.");
+        return;
+      }
+    }
+
+    setSaving(true);
+    setStatus("Saving...");
+    try {
+      await push(ref(db, PATHS.results(league, season)), {
+        homeTeam, awayTeam, homeScore: finalHome, awayScore: finalAway,
+        forfeitType, matchType,
+        md: Number(matchday), date,
+        goalScorers: { home: [], away: [] },
+        assists: { home: [], away: [] },
+        submittedBy: "admin",
+        submittedAt: Date.now(),
+        status: "approved",
+        approvedAt: Date.now(),
+      });
+      await applyResultToTable(league, season, homeTeam, awayTeam, finalHome, finalAway, forfeitType);
+      setStatus("✅ Result entered successfully!");
+      setTimeout(onClose, 1200);
+    } catch (e) {
+      setStatus("Error: " + e.message);
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: "1.2rem" }}>← Back</button>
+        <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", margin: 0 }}>📋 Enter Result</h3>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 18 }}>
+        {[["normal","⚽ Normal"], ["forfeit","🚫 Forfeit Win"], ["no_contest","🟡 No Contest"]].map(([val, label]) => (
+          <button key={val} onClick={() => setMatchType(val)} style={{ padding: "10px 6px", borderRadius: 10, border: `2px solid ${matchType === val ? "#FF1493" : "rgba(255,255,255,0.15)"}`, background: matchType === val ? "rgba(255,20,147,0.15)" : "rgba(255,255,255,0.04)", color: matchType === val ? "#FF1493" : "rgba(255,255,255,0.6)", fontWeight: 700, cursor: "pointer", fontSize: "0.8rem" }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div>
+          <label style={labelStyle}>Home Team</label>
+          <select value={homeTeam} onChange={e => setHomeTeam(e.target.value)} style={inputStyle}>
+            <option value="">— Select —</option>
+            {teamNames.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>Away Team</label>
+          <select value={awayTeam} onChange={e => setAwayTeam(e.target.value)} style={inputStyle}>
+            <option value="">— Select —</option>
+            {teamNames.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {matchType === "normal" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div>
+            <label style={labelStyle}>Home Score</label>
+            <input type="number" min={0} value={homeScore} onChange={e => setHomeScore(e.target.value)} style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Away Score</label>
+            <input type="number" min={0} value={awayScore} onChange={e => setAwayScore(e.target.value)} style={inputStyle} />
+          </div>
+        </div>
+      )}
+
+      <label style={labelStyle}>Matchday</label>
+      <input type="number" min={1} value={matchday} onChange={e => setMatchday(e.target.value)} placeholder="e.g. 5" style={inputStyle} />
+
+      <label style={labelStyle}>Date</label>
+      <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} />
+
+      {status && <div style={{ color: status.startsWith("✅") ? "#22c55e" : "#ff6b6b", fontSize: "0.85rem", margin: "10px 0", textAlign: "center" }}>{status}</div>}
+
+      <button onClick={handleSubmit} disabled={saving} style={{ width: "100%", padding: 14, background: "#FF1493", border: "none", borderRadius: 12, color: "#fff", fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", fontSize: "1rem", opacity: saving ? 0.7 : 1 }}>
+        {saving ? "Saving..." : "✅ Submit Result"}
+      </button>
+    </div>
+  );
+}
+
 // ── Main Modal ────────────────────────────────────────────────────────────────
 export default function SubmitResultModal({ league, season, teams, onClose }) {
-  const { manager } = useAdmin();
+  const { manager, isAdmin } = useAdmin();
   const myTeam = manager?.team || "";
+
+  // Forbidden results list (loaded for everyone — needed to validate on submit)
+  const [forbiddenList, setForbiddenList] = useState([]);
+  useEffect(() => {
+    const unsub = onValue(ref(db, `career_${league}_settings/forbiddenResults`), snap => {
+      const d = snap.val() || {};
+      setForbiddenList(Object.entries(d).map(([k, v]) => ({ key: k, ...v })));
+    });
+    return () => unsub();
+  }, [league]);
+
+  // Admin sub-view: null | "enter_result" | "forbidden"
+  const [adminView, setAdminView] = useState(null);
 
   const [matchType, setMatchType] = useState(null);
 
@@ -183,27 +429,22 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
   const [date,       setDate]       = useState(getSASTToday());
 
   // Scorers & assists
-  const [scorers,  setScorers]  = useState([]); // [{ player, goals }]
-  const [assists,  setAssists]  = useState([]); // [{ player, assists }]
+  const [scorers,  setScorers]  = useState([]);
+  const [assists,  setAssists]  = useState([]);
 
-  // Existing players from Firebase (for picker)
   const [existingScorers,  setExistingScorers]  = useState([]);
   const [existingAssists,  setExistingAssists]  = useState([]);
 
-  // Picker sheet state
-  const [pickerType,   setPickerType]   = useState(null); // "scorer" | "assist" | null
-  const [pendingCount, setPendingCount] = useState(1);    // how many goals/assists to assign
+  const [pickerType,   setPickerType]   = useState(null);
+  const [pendingCount, setPendingCount] = useState(1);
 
-  // Match image (single upload)
   const [matchImage,        setMatchImage]        = useState(null);
   const [matchImagePreview, setMatchImagePreview] = useState("");
 
-  // Duplicate / 2nd manager
   const [existingResult,   setExistingResult]   = useState(null);
   const [isSecondManager,  setIsSecondManager]  = useState(false);
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);
 
-  // Home/away detection
   const [detectedHome, setDetectedHome] = useState(null);
   const [detectedAway, setDetectedAway] = useState(null);
 
@@ -213,7 +454,6 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
 
   const others = teams.filter(t => t.name !== myTeam).map(t => t.name).sort();
 
-  // Load existing scorers & assists from Firebase for picker
   useEffect(() => {
     if (!league || !season) return;
     get(ref(db, `career_${league}/seasons/season_${season}/top_scorers`)).then(snap => {
@@ -226,7 +466,6 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
     });
   }, [league, season]);
 
-  // When opponent + matchday are set: detect home/away AND check for duplicate
   useEffect(() => {
     if (!opponent || !matchday || matchType !== "normal") {
       setExistingResult(null);
@@ -237,7 +476,6 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
     }
     let cancelled = false;
     setCheckingDuplicate(true);
-
     Promise.all([
       detectHomeAway(league, myTeam, opponent),
       findExistingResult(league, season, myTeam, opponent, matchday),
@@ -245,7 +483,6 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
       if (cancelled) return;
       setDetectedHome(homeAway.homeTeam);
       setDetectedAway(homeAway.awayTeam);
-
       if (existing && existing.submittedBy !== (manager?.uid || myTeam)) {
         setExistingResult(existing);
         setIsSecondManager(true);
@@ -267,62 +504,41 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
     const r = new FileReader(); r.onload = ev => setMatchImagePreview(ev.target.result); r.readAsDataURL(f);
   }
 
-  // Scorer picker callbacks
   function openScorerPicker() { setPendingCount(1); setPickerType("scorer"); }
   function openAssistPicker() { setPendingCount(1); setPickerType("assist"); }
 
   function handleSelectExistingScorer(player) {
     setScorers(prev => {
       const idx = prev.findIndex(s => s.player.toLowerCase() === player.name.toLowerCase());
-      if (idx >= 0) {
-        const updated = [...prev];
-        updated[idx] = { ...updated[idx], goals: updated[idx].goals + pendingCount };
-        return updated;
-      }
+      if (idx >= 0) { const u = [...prev]; u[idx] = { ...u[idx], goals: u[idx].goals + pendingCount }; return u; }
       return [...prev, { player: player.name, goals: pendingCount }];
     });
     setPickerType(null);
   }
-
   function handleAddNewScorer(name) {
     setScorers(prev => {
       const idx = prev.findIndex(s => s.player.toLowerCase() === name.toLowerCase());
-      if (idx >= 0) {
-        const updated = [...prev];
-        updated[idx] = { ...updated[idx], goals: updated[idx].goals + pendingCount };
-        return updated;
-      }
+      if (idx >= 0) { const u = [...prev]; u[idx] = { ...u[idx], goals: u[idx].goals + pendingCount }; return u; }
       return [...prev, { player: name, goals: pendingCount }];
     });
     setPickerType(null);
   }
-
   function handleSelectExistingAssist(player) {
     setAssists(prev => {
       const idx = prev.findIndex(a => a.player.toLowerCase() === player.name.toLowerCase());
-      if (idx >= 0) {
-        const updated = [...prev];
-        updated[idx] = { ...updated[idx], assists: updated[idx].assists + pendingCount };
-        return updated;
-      }
+      if (idx >= 0) { const u = [...prev]; u[idx] = { ...u[idx], assists: u[idx].assists + pendingCount }; return u; }
       return [...prev, { player: player.name, assists: pendingCount }];
     });
     setPickerType(null);
   }
-
   function handleAddNewAssist(name) {
     setAssists(prev => {
       const idx = prev.findIndex(a => a.player.toLowerCase() === name.toLowerCase());
-      if (idx >= 0) {
-        const updated = [...prev];
-        updated[idx] = { ...updated[idx], assists: updated[idx].assists + pendingCount };
-        return updated;
-      }
+      if (idx >= 0) { const u = [...prev]; u[idx] = { ...u[idx], assists: u[idx].assists + pendingCount }; return u; }
       return [...prev, { player: name, assists: pendingCount }];
     });
     setPickerType(null);
   }
-
   function removeScorer(i) { setScorers(prev => prev.filter((_, idx) => idx !== i)); }
   function removeAssist(i) { setAssists(prev => prev.filter((_, idx) => idx !== i)); }
 
@@ -336,76 +552,64 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
   async function handleConfirmSubmit() {
     setSaving(true);
     try {
-      // ── Re-check duplicate at submit time (race condition guard) ──
       const existingNow = await findExistingResult(league, season, myTeam, opponent, matchday);
       const isSecondNow = existingNow && existingNow.submittedBy !== (manager?.uid || myTeam);
 
-      // ── Detect home/away at submit time ──
       const homeAway = await detectHomeAway(league, myTeam, opponent);
       const homeTeam = homeAway.homeTeam;
       const awayTeam = homeAway.awayTeam;
       const iAmHome  = homeTeam === myTeam || homeTeam.toLowerCase() === myTeam.toLowerCase();
 
-      setStatus("Uploading match image...");
-      const matchImageUrl = await uploadToImgBB(matchImage);
-
-      const isForfeit  = matchType === "forfeit";
+      const isForfeit = matchType === "forfeit";
       const homeScore  = isForfeit ? 3 : (iAmHome ? +myScore : +oppScore);
       const awayScore  = isForfeit ? 0 : (iAmHome ? +oppScore : +myScore);
+
+      // ── Forbidden result check ──
+      if (!isForfeit && !isSecondNow) {
+        if (isForbiddenResult(forbiddenList, homeTeam, awayTeam, homeScore, awayScore)) {
+          setStatus("❌ Result Declined — this result has been flagged as forbidden by the admin.");
+          setSaving(false);
+          setConfirming(false);
+          return;
+        }
+      }
+
+      setStatus("Uploading match image...");
+      const matchImageUrl = await uploadToImgBB(matchImage);
 
       const scorersData = scorers.map(s => ({ player: s.player, goals: s.goals, team: myTeam }));
       const assistsData = assists.map(a => ({ player: a.player, assists: a.assists, team: myTeam }));
 
       if (isSecondNow && existingNow) {
-        // ── 2nd MANAGER: add scorers to existing result, skip table update ──
         setStatus("Adding your scorers to match result...");
         const side = iAmHome ? "home" : "away";
         const existingGoalScorers = existingNow.goalScorers || { home: [], away: [] };
         const existingAssistsData = existingNow.assists    || { home: [], away: [] };
-
         await update(ref(db, `${PATHS.results(league, season)}/${existingNow.key}`), {
-          goalScorers: {
-            ...existingGoalScorers,
-            [side]: [...(existingGoalScorers[side] || []), ...scorersData],
-          },
-          assists: {
-            ...existingAssistsData,
-            [side]: [...(existingAssistsData[side] || []), ...assistsData],
-          },
+          goalScorers: { ...existingGoalScorers, [side]: [...(existingGoalScorers[side] || []), ...scorersData] },
+          assists:     { ...existingAssistsData, [side]: [...(existingAssistsData[side] || []), ...assistsData] },
           [`matchImageUrl_${side}`]: matchImageUrl,
           secondManagerSubmittedBy: manager?.uid || myTeam,
           secondManagerSubmittedAt: Date.now(),
         });
-
         setStatus("Updating stats...");
         for (const s of scorersData) await updateTopStat(league, season, "top_scorers",    s.player, s.goals,   myTeam);
         for (const a of assistsData) await updateTopStat(league, season, "top_assistants", a.player, a.assists, myTeam);
-
       } else {
-        // ── 1st MANAGER: create result and update table ──
         setStatus("Saving result...");
         await push(ref(db, PATHS.results(league, season)), {
-          homeTeam, awayTeam,
-          homeScore, awayScore,
+          homeTeam, awayTeam, homeScore, awayScore,
           forfeitType: isForfeit ? "forfeit_win" : "none",
           matchType:   isForfeit ? "forfeit"      : "normal",
           md: +matchday, date, matchImageUrl,
-          goalScorers: {
-            home: iAmHome ? scorersData : [],
-            away: iAmHome ? [] : scorersData,
-          },
-          assists: {
-            home: iAmHome ? assistsData : [],
-            away: iAmHome ? [] : assistsData,
-          },
+          goalScorers: { home: iAmHome ? scorersData : [], away: iAmHome ? [] : scorersData },
+          assists:     { home: iAmHome ? assistsData : [], away: iAmHome ? [] : assistsData },
           submittedBy:  manager?.uid || myTeam,
           submittedAt:  Date.now(),
           status: "approved",
         });
-
         setStatus("Updating table...");
         await applyResultToTable(league, season, homeTeam, awayTeam, homeScore, awayScore, isForfeit ? "forfeit_win" : "none");
-
         if (!isForfeit) {
           setStatus("Updating stats...");
           for (const s of scorersData) await updateTopStat(league, season, "top_scorers",    s.player, s.goals,   myTeam);
@@ -422,7 +626,41 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
     setSaving(false);
   }
 
-  // ── No team assigned ──────────────────────────────────────────────────────
+  // ── Admin landing screen ──────────────────────────────────────────────────
+  if (isAdmin && !myTeam && !adminView) {
+    return (
+      <div>
+        <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: 8 }}>⚽ Admin Result Tools</h3>
+        <p style={{ color: "rgba(255,255,255,0.5)", marginBottom: 28, fontSize: "0.9rem" }}>Choose an action:</p>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+          <button onClick={() => setAdminView("enter_result")} style={{ background: "rgba(255,20,147,0.1)", border: "2px solid rgba(255,20,147,0.5)", borderRadius: 20, padding: "32px 16px", cursor: "pointer", color: "#fff", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}
+            onMouseOver={e => e.currentTarget.style.background = "rgba(255,20,147,0.22)"} onMouseOut={e => e.currentTarget.style.background = "rgba(255,20,147,0.1)"}>
+            <span style={{ fontSize: "2.5rem" }}>📋</span>
+            <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: 2, textAlign: "center" }}>Enter New Result</span>
+          </button>
+          <button onClick={() => setAdminView("forbidden")} style={{ background: "rgba(255,50,50,0.08)", border: "2px solid rgba(255,50,50,0.4)", borderRadius: 20, padding: "32px 16px", cursor: "pointer", color: "#fff", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}
+            onMouseOver={e => e.currentTarget.style.background = "rgba(255,50,50,0.18)"} onMouseOut={e => e.currentTarget.style.background = "rgba(255,50,50,0.08)"}>
+            <span style={{ fontSize: "2.5rem" }}>🚫</span>
+            <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: 2, textAlign: "center" }}>Forbidden Results</span>
+            {forbiddenList.length > 0 && (
+              <span style={{ background: "#FF1493", borderRadius: 20, padding: "2px 10px", fontSize: "0.8rem", fontWeight: 700 }}>{forbiddenList.length} active</span>
+            )}
+          </button>
+        </div>
+        <button onClick={onClose} style={{ width: "100%", padding: 14, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, color: "#fff", cursor: "pointer" }}>Cancel</button>
+      </div>
+    );
+  }
+
+  // Admin sub-views
+  if (adminView === "forbidden") {
+    return <ForbiddenResultsManager league={league} teams={teams} onClose={() => setAdminView(null)} />;
+  }
+  if (adminView === "enter_result") {
+    return <AdminEnterResultView league={league} season={season} teams={teams} forbiddenList={forbiddenList} onClose={() => setAdminView(null)} />;
+  }
+
+  // ── No team assigned (non-admin) ──────────────────────────────────────────
   if (!myTeam) {
     return (
       <div>
@@ -456,6 +694,19 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
             <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem" }}>Opponent didn't show</span>
           </button>
         </div>
+
+        {/* Admin shortcut — also shown here if they have a team */}
+        {isAdmin && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+            <button onClick={() => setAdminView("enter_result")} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 14, padding: "14px 10px", cursor: "pointer", color: "rgba(255,255,255,0.7)", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, fontSize: "0.8rem", fontWeight: 700 }}>
+              📋 Admin: Enter Result
+            </button>
+            <button onClick={() => setAdminView("forbidden")} style={{ background: "rgba(255,50,50,0.06)", border: "1px solid rgba(255,50,50,0.25)", borderRadius: 14, padding: "14px 10px", cursor: "pointer", color: "rgba(255,150,150,0.8)", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, fontSize: "0.8rem", fontWeight: 700 }}>
+              🚫 Forbidden Results {forbiddenList.length > 0 && `(${forbiddenList.length})`}
+            </button>
+          </div>
+        )}
+
         <button onClick={onClose} style={{ width: "100%", padding: 14, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, color: "#fff", cursor: "pointer" }}>Cancel</button>
       </div>
     );
@@ -575,26 +826,11 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
   // ── Normal match form ─────────────────────────────────────────────────────
   return (
     <div>
-      {/* Picker sheet */}
       {pickerType === "scorer" && (
-        <PlayerPickerSheet
-          title="⚽ Add Goal Scorer"
-          players={existingScorers}
-          myTeam={myTeam}
-          onSelectExisting={handleSelectExistingScorer}
-          onAddNew={handleAddNewScorer}
-          onClose={() => setPickerType(null)}
-        />
+        <PlayerPickerSheet title="⚽ Add Goal Scorer" players={existingScorers} myTeam={myTeam} onSelectExisting={handleSelectExistingScorer} onAddNew={handleAddNewScorer} onClose={() => setPickerType(null)} />
       )}
       {pickerType === "assist" && (
-        <PlayerPickerSheet
-          title="🎯 Add Assist"
-          players={existingAssists}
-          myTeam={myTeam}
-          onSelectExisting={handleSelectExistingAssist}
-          onAddNew={handleAddNewAssist}
-          onClose={() => setPickerType(null)}
-        />
+        <PlayerPickerSheet title="🎯 Add Assist" players={existingAssists} myTeam={myTeam} onSelectExisting={handleSelectExistingAssist} onAddNew={handleAddNewAssist} onClose={() => setPickerType(null)} />
       )}
 
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
@@ -616,7 +852,6 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
         {others.map(t => <option key={t} value={t}>{t}</option>)}
       </select>
 
-      {/* Home/Away detected */}
       {detectedHome && (
         <div style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: "0.85rem", color: "rgba(255,255,255,0.6)" }}>
           🏟️ <strong style={{ color: "#fff" }}>{detectedHome}</strong> (Home) vs <strong style={{ color: "#fff" }}>{detectedAway}</strong> (Away)
@@ -624,7 +859,6 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
         </div>
       )}
 
-      {/* 2nd manager notice */}
       {checkingDuplicate && (
         <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", marginBottom: 10 }}>🔍 Checking for existing result...</div>
       )}
@@ -651,7 +885,6 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
       <label style={labelStyle}>Date</label>
       <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} />
 
-      {/* ── SINGLE MATCH IMAGE ── */}
       <div style={{ border: "2px dashed rgba(255,20,147,0.5)", borderRadius: 14, padding: "16px", marginBottom: 20, background: "rgba(255,20,147,0.05)" }}>
         <div style={{ color: "#FF1493", fontWeight: 700, fontSize: "0.9rem", marginBottom: 8 }}>📸 Match Image <span style={{ color: "#ff6b6b" }}>* Required</span></div>
         {matchImagePreview ? (
@@ -667,16 +900,11 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
         )}
       </div>
 
-      {/* ── SCORERS ── */}
+      {/* Scorers */}
       <div style={{ borderTop: "1px solid rgba(255,20,147,0.2)", paddingTop: 16, marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
           <div style={{ color: "#fff", fontWeight: 700, fontSize: "0.95rem" }}>⚽ Goal Scorers</div>
-          <button
-            onClick={openScorerPicker}
-            style={{ background: "#FF1493", border: "none", borderRadius: 20, color: "#fff", padding: "8px 18px", cursor: "pointer", fontWeight: 700, fontSize: "0.85rem" }}
-          >
-            + Add Scorer
-          </button>
+          <button onClick={openScorerPicker} style={{ background: "#FF1493", border: "none", borderRadius: 20, color: "#fff", padding: "8px 18px", cursor: "pointer", fontWeight: 700, fontSize: "0.85rem" }}>+ Add Scorer</button>
         </div>
         {scorers.length === 0 && <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "0.85rem" }}>No scorers added yet.</div>}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -690,16 +918,11 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
         </div>
       </div>
 
-      {/* ── ASSISTS ── */}
+      {/* Assists */}
       <div style={{ borderTop: "1px solid rgba(255,20,147,0.2)", paddingTop: 16, marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
           <div style={{ color: "#fff", fontWeight: 700, fontSize: "0.95rem" }}>🎯 Assists</div>
-          <button
-            onClick={openAssistPicker}
-            style={{ background: "rgba(255,20,147,0.2)", border: "1px solid rgba(255,20,147,0.5)", borderRadius: 20, color: "#FF1493", padding: "8px 18px", cursor: "pointer", fontWeight: 700, fontSize: "0.85rem" }}
-          >
-            + Add Assist
-          </button>
+          <button onClick={openAssistPicker} style={{ background: "rgba(255,20,147,0.2)", border: "1px solid rgba(255,20,147,0.5)", borderRadius: 20, color: "#FF1493", padding: "8px 18px", cursor: "pointer", fontWeight: 700, fontSize: "0.85rem" }}>+ Add Assist</button>
         </div>
         {assists.length === 0 && <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "0.85rem" }}>No assists added yet.</div>}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
