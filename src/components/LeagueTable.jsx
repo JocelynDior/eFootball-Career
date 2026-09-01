@@ -23,15 +23,7 @@ function FormCircle({ result }) {
   );
 }
 
-// Full-height divider between sticky left and scrollable stats
-const DIVIDER = {
-  width: 2,
-  background: "rgba(255,255,255,0.22)",
-  flexShrink: 0,
-  alignSelf: "stretch",
-};
-
-const COL_W = 88; // wider columns for 2x font
+const COL_W = 88;
 
 function StatCell({ val, color, size = "2rem", bold = false }) {
   return (
@@ -52,6 +44,9 @@ function StatCell({ val, color, size = "2rem", bold = false }) {
   );
 }
 
+// Fixed-width left column — wide enough for long names, never clips
+const LEFT_W = 360;
+
 function TeamRow({ team, rank, onEdit, onDelete, iconUrl, form, zoneColor }) {
   const p   = team.p   ?? team.played ?? 0;
   const w   = team.w   ?? team.won    ?? 0;
@@ -59,7 +54,8 @@ function TeamRow({ team, rank, onEdit, onDelete, iconUrl, form, zoneColor }) {
   const l   = team.l   ?? team.lost   ?? 0;
   const gs  = team.gs  ?? team.goalsFor     ?? 0;
   const gc  = team.gc  ?? team.goalsAgainst ?? 0;
-  const gd  = team.gd  ?? (gs - gc);
+  // Always use the stored gd field (accumulated delta). Only fall back to gs-gc if gd is absent.
+  const gd  = team.gd !== undefined ? team.gd : (gs - gc);
   const pts = team.pts ?? team.points ?? 0;
   const gdStr = gd > 0 ? `+${gd}` : String(gd);
   const gdColor = gd > 0 ? "#22c55e" : gd < 0 ? "#ff6b6b" : "rgba(255,255,255,0.4)";
@@ -71,7 +67,6 @@ function TeamRow({ team, rank, onEdit, onDelete, iconUrl, form, zoneColor }) {
       style={{
         display: "flex",
         alignItems: "stretch",
-        // Zone color bar on the left — from Firebase config, transparent if no zone
         borderLeft: `6px solid ${zoneColor || "transparent"}`,
         background: rowBg,
         transition: "background 0.15s",
@@ -84,12 +79,13 @@ function TeamRow({ team, rank, onEdit, onDelete, iconUrl, form, zoneColor }) {
       {/* ── STICKY LEFT: Rank + Icon + Full Name ── */}
       <div style={{
         display: "flex", alignItems: "center", gap: 12,
-        paddingLeft: 10, paddingRight: 16,
-        // Wide enough for longest name — no ellipsis
-        minWidth: 340,
+        paddingLeft: 10, paddingRight: 0,
+        width: LEFT_W, minWidth: LEFT_W,
         position: "sticky", left: 0, zIndex: 2,
-        background: "inherit",
+        // Solid background so it doesn't bleed through the divider
+        background: rank % 2 === 0 ? "rgb(14,4,28)" : "rgb(10,2,22)",
         flexShrink: 0,
+        boxSizing: "border-box",
       }}>
         {/* Rank */}
         <span style={{
@@ -102,13 +98,13 @@ function TeamRow({ team, rank, onEdit, onDelete, iconUrl, form, zoneColor }) {
         </span>
 
         {/* Icon */}
-        <div style={{ width: 64, height: 64, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ width: 56, height: 56, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
           {iconUrl
-            ? <img src={iconUrl} alt={team.name} style={{ width: 64, height: 64, objectFit: "contain" }}
+            ? <img src={iconUrl} alt={team.name} style={{ width: 56, height: 56, objectFit: "contain" }}
                 onError={e => { e.target.style.display = "none"; }} />
             : (
-              <div style={{ width: 64, height: 64, borderRadius: "50%", background: "rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.1rem", color: "#fff" }}>
+              <div style={{ width: 56, height: 56, borderRadius: "50%", background: "rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1rem", color: "#fff" }}>
                   {(team.name || "?").split(" ").map(w => w[0]).join("").slice(0, 3).toUpperCase()}
                 </span>
               </div>
@@ -116,21 +112,30 @@ function TeamRow({ team, rank, onEdit, onDelete, iconUrl, form, zoneColor }) {
           }
         </div>
 
-        {/* Full name — no overflow hidden, no ellipsis, not bold */}
+        {/* Full name — no truncation, no ellipsis */}
         <span style={{
           color: "#fff",
           fontWeight: 400,
-          fontSize: "1.9rem",
+          fontSize: "1.75rem",
           whiteSpace: "nowrap",
           fontFamily: "'Bebas Neue', sans-serif",
           letterSpacing: 1,
+          flex: 1,
+          paddingRight: 12,
         }}>
           {team.name || "—"}
         </span>
       </div>
 
       {/* ── FULL-HEIGHT SOLID DIVIDER ── */}
-      <div style={DIVIDER} />
+      <div style={{
+        width: 3,
+        minWidth: 3,
+        background: "rgba(255,255,255,0.28)",
+        flexShrink: 0,
+        // stretch to full row height via align-self on flex child
+        alignSelf: "stretch",
+      }} />
 
       {/* ── SCROLLABLE STATS ── */}
       <StatCell val={p}      color="rgba(255,255,255,0.7)" />
@@ -171,10 +176,9 @@ export default function LeagueTable({ league, season, teams = [], onEdit, onDele
   const { teamIconsCache } = useAdmin();
   const [badges, setBadges]       = useState({});
   const [teamLinks, setTeamLinks] = useState({});
-  const [zones, setZones]         = useState([]); // [{ from, to, color, label }]
+  const [zones, setZones]         = useState([]);
   const [dashedLines, setDashedLines] = useState([]);
 
-  // career_team_management badges — same as FixturesList
   useEffect(() => {
     const unsub = onValue(ref(db, "career_team_management"), snap => {
       const d = snap.val() || {};
@@ -187,7 +191,6 @@ export default function LeagueTable({ league, season, teams = [], onEdit, onDele
     return () => unsub();
   }, []);
 
-  // Team links
   useEffect(() => {
     if (!league) return;
     const unsub = onValue(ref(db, `career_${league}_settings/teamLinks`), snap => {
@@ -196,7 +199,6 @@ export default function LeagueTable({ league, season, teams = [], onEdit, onDele
     return () => unsub();
   }, [league]);
 
-  // Zone config from Firebase (same path admin saves to)
   useEffect(() => {
     if (!league) return;
     const unsub = onValue(ref(db, `career_${league}_settings/zones`), snap => {
@@ -253,8 +255,8 @@ export default function LeagueTable({ league, season, teams = [], onEdit, onDele
     const ptsA = a.pts ?? a.points ?? 0;
     const ptsB = b.pts ?? b.points ?? 0;
     if (ptsB !== ptsA) return ptsB - ptsA;
-    const gdA = a.gd ?? ((a.gs ?? 0) - (a.gc ?? 0));
-    const gdB = b.gd ?? ((b.gs ?? 0) - (b.gc ?? 0));
+    const gdA = a.gd !== undefined ? a.gd : ((a.gs ?? 0) - (a.gc ?? 0));
+    const gdB = b.gd !== undefined ? b.gd : ((b.gs ?? 0) - (b.gc ?? 0));
     if (gdB !== gdA) return gdB - gdA;
     return (b.gs ?? 0) - (a.gs ?? 0);
   });
@@ -273,28 +275,28 @@ export default function LeagueTable({ league, season, teams = [], onEdit, onDele
 
   return (
     <div style={{ background: "rgba(255,255,255,0.03)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", border: "1px solid rgba(255,20,147,0.15)", borderRadius: 20, overflow: "hidden" }}>
-      {/* Horizontal scroll wrapper */}
       <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-        {/* Min-width ensures scroll kicks in on small screens */}
         <div style={{ minWidth: 900 }}>
 
           {/* ── HEADER ── */}
           <div style={{ display: "flex", alignItems: "stretch", background: "rgba(255,20,147,0.08)", borderBottom: "2px solid rgba(255,255,255,0.18)" }}>
-            {/* Sticky left header */}
+            {/* Sticky left header — must match row LEFT_W exactly */}
             <div style={{
               display: "flex", alignItems: "center", gap: 12,
-              paddingLeft: 10, paddingRight: 16,
-              minWidth: 340,
+              paddingLeft: 10, paddingRight: 0,
+              width: LEFT_W, minWidth: LEFT_W,
               position: "sticky", left: 0, zIndex: 3,
-              background: "rgba(10,0,20,0.95)",
+              background: "rgb(10,2,22)",
               flexShrink: 0,
+              boxSizing: "border-box",
             }}>
               <span style={{ color: "rgba(255,20,147,0.7)", fontSize: "1.2rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, width: 40, textAlign: "center" }}>#</span>
-              <span style={{ width: 64 }} />
+              <span style={{ width: 56 }} />
               <span style={{ color: "rgba(255,20,147,0.7)", fontSize: "1.2rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Club</span>
             </div>
 
-            <div style={DIVIDER} />
+            {/* Divider — same width as row divider */}
+            <div style={{ width: 3, minWidth: 3, background: "rgba(255,255,255,0.28)", flexShrink: 0, alignSelf: "stretch" }} />
 
             {/* Stat headers */}
             {STAT_HEADERS.map(h => (
@@ -340,7 +342,6 @@ export default function LeagueTable({ league, season, teams = [], onEdit, onDele
                     form={getForm(team.name)}
                     zoneColor={getZoneColor(rank)}
                   />
-                  {/* Dashed line after this position if configured */}
                   {isDashedAfter(rank) && (
                     <div style={{ borderTop: "2px dashed rgba(255,255,255,0.25)", margin: "0 8px", position: "relative" }}>
                       {dashedLines.filter(d => d.afterPosition === rank).map((d, di) => (
