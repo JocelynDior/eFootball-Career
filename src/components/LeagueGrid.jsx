@@ -1,30 +1,17 @@
-import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { db, PATHS } from "../firebase";
-import { ref, onValue } from "firebase/database";
+import { useState } from "react";
 
 const leagues = [
-  { id: "premier", name: "Premier League", path: "/premier-league", emoji: "🏴󠁧󠁢󠁥󠁮󠁧󠁿" },
-  { id: "laliga", name: "La Liga", path: "/la-liga", emoji: "🇪🇸" },
-  { id: "seriea", name: "Serie A", path: "/serie-a", emoji: "🇮🇹" },
-  { id: "bundesliga", name: "Bundesliga", path: "/bundesliga", emoji: "🇩🇪" },
-  { id: "ligue1", name: "Ligue 1", path: "/ligue-1", emoji: "🇫🇷" },
-  { id: "ucl", name: "Champions League", path: "/champions-league", emoji: "⭐" },
-  { id: "uel", name: "Europa League", path: "/europa-league", emoji: "🟠" },
-  { id: "cwc", name: "Club World Cup", path: "/club-world-cup", emoji: "🌍" },
-  { id: "sc", name: "UEFA Super Cup", path: "/super-cup", emoji: "🥇" },
-  { id: "tokyo", name: "Tokyo Off Season", path: "/tokyo", emoji: "🗼" },
+  { id: "premier", name: "Premier League", path: "/premier-league", img: "/images/leagues/Chat-GPT-Image-Aug-16-2026-01-49-28-AM.png" },
+  { id: "laliga", name: "La Liga", path: "/la-liga", img: "/images/leagues/Chat-GPT-Image-Aug-16-2026-01-57-59-AM.png" },
+  { id: "seriea", name: "Serie A", path: "/serie-a", img: "/images/leagues/69132ef8-dee8-4910-baa6-21d60a54db45 (1).png" },
+  { id: "bundesliga", name: "Bundesliga", path: "/bundesliga", img: "/images/leagues/Chat-GPT-Image-Aug-17-2026-01-09-40-AM-1.png" },
+  { id: "ligue1", name: "Ligue 1", path: "/ligue-1", img: "/images/leagues/Chat-GPT-Image-Aug-17-2026-01-05-16-AM.png" },
+  { id: "ucl", name: "Champions League", path: "/champions-league", img: "/images/leagues/Chat-GPT-Image-Aug-16-2026-01-59-24-AM.png" },
+  { id: "uel", name: "Europa League", path: "/europa-league", img: "/images/leagues/Gemini-Generated-Image-2gc5l72gc5l72gc5.jpg" },
+  { id: "cwc", name: "Club World Cup", path: "/club-world-cup", img: "/images/leagues/5ef5dd0d-4bf3-4e2d-a696-5627906c6977.jpg" },
+  { id: "sc", name: "UEFA Super Cup", path: "/super-cup", img: "/images/leagues/2c4467ee-57b6-4438-86cd-372a9928ab63.jpg" },
 ];
-
-const CACHE_KEY = "careerLeagueImages";
-
-function getCache() {
-  try { return JSON.parse(localStorage.getItem(CACHE_KEY) || "{}"); } catch { return {}; }
-}
-
-function saveCache(data) {
-  try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch {}
-}
 
 function getCirclePosition(index, total, radiusPx) {
   const angle = (index / total) * 2 * Math.PI - Math.PI / 2;
@@ -35,30 +22,13 @@ function getCirclePosition(index, total, radiusPx) {
 
 export default function LeagueGrid({ onClose }) {
   const navigate = useNavigate();
-  const [leagueImages, setLeagueImages] = useState(getCache);
   const [hoveredId, setHoveredId] = useState(null);
-
-  useEffect(() => {
-    const cached = getCache();
-    const unsub = onValue(ref(db, `${PATHS.globalSettings}/leagueImages`), snap => {
-      const data = snap.val();
-      if (!data) return;
-      const hasChanges = Object.entries(data).some(([k, v]) => cached[k] !== v);
-      if (hasChanges) {
-        const merged = { ...cached, ...data };
-        setLeagueImages(merged);
-        saveCache(merged);
-      }
-    });
-    return () => unsub();
-  }, []);
 
   function handleNav(path) {
     navigate(path);
     if (onClose) onClose();
   }
 
-  // 3× bigger: circleSize 240, radius 480
   const circleSize = 240;
   const radius = 480;
   const containerSize = (radius + circleSize) * 2 + 20;
@@ -99,37 +69,21 @@ export default function LeagueGrid({ onClose }) {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: "5rem",
               transition: "all 0.25s cubic-bezier(.4,0,.2,1)",
               transform: isHovered ? "scale(1.18)" : "scale(1)",
             }}
           >
-            {leagueImages[league.id] ? (
-              <img
-                src={leagueImages[league.id]}
-                alt={league.name}
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  objectFit: "cover",
-                  borderRadius: "50%"
-                }}
-              />
-            ) : (
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: "4.5rem", lineHeight: 1 }}>{league.emoji}</div>
-                <div style={{
-                  color: "rgba(255,255,255,0.7)", fontSize: "1rem",
-                  fontWeight: 700, marginTop: "8px",
-                  fontFamily: "'Bebas Neue', sans-serif",
-                  letterSpacing: "1px", textAlign: "center",
-                  padding: "0 8px"
-                }}>{league.name}</div>
-              </div>
-            )}
-
-            {/* Name tooltip on hover for image circles */}
-            {leagueImages[league.id] && isHovered && (
+            <img
+              src={league.img}
+              alt={league.name}
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+                borderRadius: "50%"
+              }}
+            />
+            {isHovered && (
               <div style={{
                 position: "absolute",
                 bottom: "10px",
