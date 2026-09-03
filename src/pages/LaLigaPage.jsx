@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { db, PATHS } from "../firebase";
 import { ref, onValue, remove, set, push, get } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
+import { useAutoNoContest } from "../hooks/useAutoNoContest";
 import Navbar from "../components/Navbar";
 import BackgroundVideo from "../components/BackgroundVideo";
 import TabBar from "../components/TabBar";
@@ -140,6 +141,7 @@ function Countdown({ title, startMs, durationMs, accent = "#FF1493", matchday })
 export default function LaLigaPage() {
   const { isAdmin } = useAdmin();
   const [season, setSeason] = useState("1");
+  useAutoNoContest(LEAGUE, season);
   const [seasons, setSeasons] = useState(["1"]);
   const [tab, setTab] = useState("main");
   const [teams, setTeams] = useState([]);
