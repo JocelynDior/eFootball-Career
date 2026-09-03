@@ -428,6 +428,45 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
   const [matchday,   setMatchday]   = useState("");
   const [date,       setDate]       = useState(getSASTToday());
 
+  // Auto-detect matchday from today/yesterday calendar fixtures when opponent changes
+  useEffect(() => {
+    if (!opponent || !myTeam) { setMatchday(""); return; }
+
+    async function detectMatchday() {
+      const tournamentName = LEAGUE_TOURNAMENT[league] || "";
+      const snap = await get(ref(db, "career_calendarEvents"));
+      const calData = snap.val() || {};
+
+      // Check today and yesterday only (same window as countdowns)
+      const today = new Date(Date.now() + 2 * 3600000);
+      const todayStr = today.toISOString().slice(0, 10);
+      const yesterday = new Date(Date.now() + 2 * 3600000 - 24 * 3600000);
+      const yesterdayStr = yesterday.toISOString().slice(0, 10);
+
+      for (const dateStr of [todayStr, yesterdayStr]) {
+        const dayData = calData[dateStr];
+        if (!dayData?.tournaments) continue;
+        for (const tourn of Object.values(dayData.tournaments)) {
+          if (!tourn?.name) continue;
+          if (tourn.name.trim().toLowerCase() !== tournamentName.trim().toLowerCase()) continue;
+          for (const fix of Object.values(tourn.fixtures || {})) {
+            const teamsMatch =
+              (fix.home?.toLowerCase() === myTeam.toLowerCase() && fix.away?.toLowerCase() === opponent.toLowerCase()) ||
+              (fix.home?.toLowerCase() === opponent.toLowerCase() && fix.away?.toLowerCase() === myTeam.toLowerCase());
+            if (teamsMatch && fix.md) {
+              setMatchday(String(fix.md));
+              return;
+            }
+          }
+        }
+      }
+      // Not found — leave blank, not mandatory
+      setMatchday("");
+    }
+
+    detectMatchday();
+  }, [opponent, myTeam, league]);
+
   // Scorers & assists
   const [scorers,  setScorers]  = useState([]);
   const [assists,  setAssists]  = useState([]);
@@ -544,7 +583,6 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
 
   function handleSubmitClick() {
     if (!opponent) { setStatus("Please select an opponent."); return; }
-    if (!matchday) { setStatus("Matchday is required."); return; }
     if (!matchImage) { setStatus("A match image is required."); return; }
     setStatus(""); setConfirming(true);
   }
@@ -791,8 +829,11 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
           <option value="">— Select opponent —</option>
           {others.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
-        <label style={labelStyle}>Matchday <span style={{ color: "#FF1493" }}>*</span></label>
-        <input type="number" min={1} value={matchday} onChange={e => setMatchday(e.target.value)} placeholder="e.g. 5" style={inputStyle} />
+        {matchday ? (
+          <div style={{ background: "rgba(255,20,147,0.08)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: "0.85rem", color: "rgba(255,255,255,0.7)" }}>
+            📅 Matchday <strong style={{ color: "#FF1493" }}>{matchday}</strong> — auto-detected from fixtures
+          </div>
+        ) : null}
         <label style={labelStyle}>Date</label>
         <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} />
         <div style={{ border: "2px dashed rgba(255,20,147,0.5)", borderRadius: 14, padding: "16px", marginBottom: 16, background: "rgba(255,20,147,0.05)" }}>
@@ -813,7 +854,6 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
         <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
           <button onClick={() => {
             if (!opponent) { setStatus("Please select an opponent."); return; }
-            if (!matchday) { setStatus("Matchday is required."); return; }
             if (!matchImage) { setStatus("A match image is required."); return; }
             setStatus(""); setConfirming(true);
           }} style={{ flex: 1, padding: 14, background: "#FF1493", border: "none", borderRadius: 12, color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem" }}>Submit Forfeit</button>
@@ -879,8 +919,11 @@ export default function SubmitResultModal({ league, season, teams, onClose }) {
         </div>
       </div>
 
-      <label style={labelStyle}>Matchday <span style={{ color: "#FF1493" }}>*</span></label>
-      <input type="number" min={1} value={matchday} onChange={e => setMatchday(e.target.value)} placeholder="e.g. 5" style={inputStyle} />
+      {matchday ? (
+        <div style={{ background: "rgba(255,20,147,0.08)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: "0.85rem", color: "rgba(255,255,255,0.7)" }}>
+          📅 Matchday <strong style={{ color: "#FF1493" }}>{matchday}</strong> — auto-detected from fixtures
+        </div>
+      ) : null}
 
       <label style={labelStyle}>Date</label>
       <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} />
