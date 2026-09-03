@@ -15,7 +15,6 @@ import ChampionsLeaguePage from "./pages/ChampionsLeaguePage";
 import EuropaLeaguePage from "./pages/EuropaLeaguePage";
 import ClubWorldCupPage from "./pages/ClubWorldCupPage";
 import SuperCupPage from "./pages/SuperCupPage";
-import TokyoPage from "./pages/TokyoPage";
 import CreateAccountPage from "./pages/CreateAccountPage";
 import TransferMarketPage from "./pages/TransferMarketPage";
 import TeamManagementPage from "./pages/TeamManagementPage";
@@ -113,7 +112,6 @@ function AppInner() {
         <Route path="/europa-league" element={<EuropaLeaguePage />} />
         <Route path="/club-world-cup" element={<ClubWorldCupPage />} />
         <Route path="/super-cup" element={<SuperCupPage />} />
-        <Route path="/tokyo" element={<TokyoPage />} />
         <Route path="/create-account" element={<CreateAccountPage />} />
         <Route path="/transfer-market" element={<TransferMarketPage />} />
         <Route path="/team-management" element={<TeamManagementPage />} />
