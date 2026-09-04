@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { db, PATHS } from "../firebase";
 import { ref, push, set, onValue } from "firebase/database";
+import { getTeamIcon } from "../utils/teamIcons";
 
 const inputStyle = {
   width: "100%", padding: "10px 14px",
@@ -21,7 +22,6 @@ export default function AddTeamModal({ league, season, team = null, onClose }) {
   const [clubs, setClubs] = useState([]);
   const [form, setForm] = useState({
     name: team?.name || "",
-    // Read p/w/d/l/gs/gc/gd/pts — fall back to legacy field names if needed
     p:   team?.p   ?? team?.played        ?? 0,
     w:   team?.w   ?? team?.won           ?? 0,
     d:   team?.d   ?? team?.drawn         ?? 0,
@@ -37,10 +37,9 @@ export default function AddTeamModal({ league, season, team = null, onClose }) {
   useEffect(() => {
     const unsub = onValue(ref(db, "career_team_management"), snap => {
       const d = snap.val() || {};
-      const list = Object.entries(d).map(([name, val]) => ({
-        name,
-        badge: val?.info?.badge || null,
-      })).sort((a, b) => a.name.localeCompare(b.name));
+      const list = Object.keys(d)
+        .map(name => ({ name }))
+        .sort((a, b) => a.name.localeCompare(b.name));
       setClubs(list);
     });
     return () => unsub();
@@ -74,7 +73,7 @@ export default function AddTeamModal({ league, season, team = null, onClose }) {
     setSaving(false);
   }
 
-  const selectedClub = clubs.find(c => c.name === form.name);
+  const selectedIcon = getTeamIcon(form.name);
   const statFields = [
     ["p", "Played"], ["w", "Wins"], ["d", "Draws"], ["l", "Losses"],
     ["gs", "Goals Scored"], ["gc", "Goals Conceded"], ["gd", "Goal Difference"], ["pts", "Points"],
@@ -89,14 +88,14 @@ export default function AddTeamModal({ league, season, team = null, onClose }) {
       {/* Team dropdown */}
       <label style={labelStyle}>Team</label>
       <div style={{ position: "relative", marginBottom: 16 }}>
-        {selectedClub?.badge && (
-          <img src={selectedClub.badge} alt="" style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", width: 28, height: 28, objectFit: "contain", zIndex: 2, pointerEvents: "none" }} />
+        {selectedIcon && (
+          <img src={selectedIcon} alt="" style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", width: 28, height: 28, objectFit: "contain", zIndex: 2, pointerEvents: "none" }} />
         )}
         <select
           value={form.name}
           onChange={e => handleChange("name", e.target.value)}
           disabled={isEdit}
-          style={{ ...inputStyle, paddingLeft: selectedClub?.badge ? 48 : 14, cursor: isEdit ? "not-allowed" : "pointer", opacity: isEdit ? 0.7 : 1 }}
+          style={{ ...inputStyle, paddingLeft: selectedIcon ? 48 : 14, cursor: isEdit ? "not-allowed" : "pointer", opacity: isEdit ? 0.7 : 1 }}
         >
           <option value="">— Select a team —</option>
           {clubs.map(c => (
