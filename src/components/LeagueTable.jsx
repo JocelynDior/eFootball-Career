@@ -2,6 +2,7 @@ import { useAdmin } from "../context/AdminContext";
 import { db } from "../firebase";
 import { ref, onValue } from "firebase/database";
 import { useState, useEffect } from "react";
+import { getTeamIcon } from "../utils/teamIcons";
 
 const PINK = "#FF1493";
 
@@ -54,7 +55,6 @@ function TeamRow({ team, rank, onEdit, onDelete, iconUrl, form, zoneColor }) {
   const l   = team.l   ?? team.lost   ?? 0;
   const gs  = team.gs  ?? team.goalsFor     ?? 0;
   const gc  = team.gc  ?? team.goalsAgainst ?? 0;
-  // Always use the stored gd field (accumulated delta). Only fall back to gs-gc if gd is absent.
   const gd  = team.gd !== undefined ? team.gd : (gs - gc);
   const pts = team.pts ?? team.points ?? 0;
   const gdStr = gd > 0 ? `+${gd}` : String(gd);
@@ -82,7 +82,6 @@ function TeamRow({ team, rank, onEdit, onDelete, iconUrl, form, zoneColor }) {
         paddingLeft: 10, paddingRight: 0,
         width: LEFT_W, minWidth: LEFT_W,
         position: "sticky", left: 0, zIndex: 2,
-        // Solid background so it doesn't bleed through the divider
         background: rank % 2 === 0 ? "rgb(14,4,28)" : "rgb(10,2,22)",
         flexShrink: 0,
         boxSizing: "border-box",
@@ -112,7 +111,7 @@ function TeamRow({ team, rank, onEdit, onDelete, iconUrl, form, zoneColor }) {
           }
         </div>
 
-        {/* Full name — no truncation, no ellipsis */}
+        {/* Full name */}
         <span style={{
           color: "#fff",
           fontWeight: 400,
@@ -133,7 +132,6 @@ function TeamRow({ team, rank, onEdit, onDelete, iconUrl, form, zoneColor }) {
         minWidth: 3,
         background: "rgba(255,255,255,0.28)",
         flexShrink: 0,
-        // stretch to full row height via align-self on flex child
         alignSelf: "stretch",
       }} />
 
@@ -173,23 +171,9 @@ function TeamRow({ team, rank, onEdit, onDelete, iconUrl, form, zoneColor }) {
 }
 
 export default function LeagueTable({ league, season, teams = [], onEdit, onDelete, results = [] }) {
-  const { teamIconsCache } = useAdmin();
-  const [badges, setBadges]       = useState({});
   const [teamLinks, setTeamLinks] = useState({});
   const [zones, setZones]         = useState([]);
   const [dashedLines, setDashedLines] = useState([]);
-
-  useEffect(() => {
-    const unsub = onValue(ref(db, "career_team_management"), snap => {
-      const d = snap.val() || {};
-      const map = {};
-      Object.entries(d).forEach(([teamName, val]) => {
-        if (val?.info?.badge) map[teamName] = val.info.badge;
-      });
-      setBadges(map);
-    });
-    return () => unsub();
-  }, []);
 
   useEffect(() => {
     if (!league) return;
@@ -209,18 +193,14 @@ export default function LeagueTable({ league, season, teams = [], onEdit, onDele
     return () => unsub();
   }, [league]);
 
-  const combined = { ...teamIconsCache, ...badges };
-
   function getIcon(teamName) {
     if (!teamName) return null;
-    const lower = teamName.toLowerCase();
-    const direct = Object.keys(combined).find(k => k.toLowerCase() === lower);
-    if (direct) return combined[direct];
+    // Try direct local lookup first
+    const direct = getTeamIcon(teamName);
+    if (direct) return direct;
+    // Try via teamLinks (e.g. table name differs from fixture name)
     const linked = teamLinks[teamName];
-    if (linked) {
-      const lk = Object.keys(combined).find(k => k.toLowerCase() === linked.toLowerCase());
-      if (lk) return combined[lk];
-    }
+    if (linked) return getTeamIcon(linked);
     return null;
   }
 
@@ -280,7 +260,6 @@ export default function LeagueTable({ league, season, teams = [], onEdit, onDele
 
           {/* ── HEADER ── */}
           <div style={{ display: "flex", alignItems: "stretch", background: "rgba(255,20,147,0.08)", borderBottom: "2px solid rgba(255,255,255,0.18)" }}>
-            {/* Sticky left header — must match row LEFT_W exactly */}
             <div style={{
               display: "flex", alignItems: "center", gap: 12,
               paddingLeft: 10, paddingRight: 0,
@@ -295,10 +274,8 @@ export default function LeagueTable({ league, season, teams = [], onEdit, onDele
               <span style={{ color: "rgba(255,20,147,0.7)", fontSize: "1.2rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Club</span>
             </div>
 
-            {/* Divider — same width as row divider */}
             <div style={{ width: 3, minWidth: 3, background: "rgba(255,255,255,0.28)", flexShrink: 0, alignSelf: "stretch" }} />
 
-            {/* Stat headers */}
             {STAT_HEADERS.map(h => (
               <div key={h} style={{
                 width: COL_W, minWidth: COL_W,
@@ -313,7 +290,6 @@ export default function LeagueTable({ league, season, teams = [], onEdit, onDele
               </div>
             ))}
 
-            {/* Last 5 header */}
             <div style={{
               minWidth: 170, width: 170,
               textAlign: "center", color: "rgba(255,20,147,0.7)",
