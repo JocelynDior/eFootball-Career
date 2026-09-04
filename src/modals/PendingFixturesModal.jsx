@@ -22,11 +22,16 @@ function getSASTMidnightMs(offsetDays = 0) {
     ).getTime()
   );
 }
+// Returns deadline ms for any date string "YYYY-MM-DD"
+function deadlineMsForDate(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return Date.UTC(y, m - 1, d, 0, 0, 0) - 2 * 3600000 + 48 * 3600000;
+}
 
 // Map LEAGUE constant → tournament name substring in calendar
 const LEAGUE_NAME_MAP = {
-  laliga: "la liga",
-  seriea: "serie a",
+  laliga:  "la liga",
+  seriea:  "serie a",
   premier: "premier league",
 };
 
@@ -57,7 +62,7 @@ function FixtureCountdown({ deadlineMs, accent = "#FF1493" }) {
   );
 }
 
-// ── Single fixture card (calendar fixture not yet uploaded) ───────────────────
+// ── Calendar fixture card (not yet uploaded) ──────────────────────────────────
 function CalendarFixtureCard({ fixture, deadlineMs, onNoContest, declaring }) {
   const remaining = useCountdown(deadlineMs);
   const expired = remaining === 0;
@@ -98,7 +103,44 @@ function CalendarFixtureCard({ fixture, deadlineMs, onNoContest, declaring }) {
   );
 }
 
-// ── Pending submission card (manager submitted, awaiting admin approval) ──────
+// ── Expired fixture card (deadline long passed, no result) ────────────────────
+function ExpiredFixtureCard({ fixture, onNoContest, declaring }) {
+  return (
+    <div style={{
+      background: "rgba(255,68,68,0.05)",
+      border: "1px solid rgba(255,68,68,0.25)",
+      borderRadius: 16, padding: "16px 20px", marginBottom: 12,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+        <div>
+          <div style={{ color: "#fff", fontWeight: 800, fontSize: "1.05rem", fontFamily: "'Bebas Neue', sans-serif", letterSpacing: 1 }}>
+            {fixture.home} <span style={{ color: "#ff4444" }}>vs</span> {fixture.away}
+          </div>
+          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.78rem", marginTop: 3 }}>
+            {fixture.date} {fixture.md ? `· MD ${fixture.md}` : ""}
+          </div>
+        </div>
+        <span style={{ color: "#ff4444", fontFamily: "monospace", fontWeight: 700, fontSize: "0.85rem" }}>⌛ EXPIRED</span>
+      </div>
+      <button
+        onClick={() => onNoContest(fixture)}
+        disabled={declaring === fixture.key}
+        style={{
+          width: "100%", padding: "9px 0",
+          background: "rgba(220,50,50,0.15)", border: "1px solid rgba(220,50,50,0.3)",
+          borderRadius: 10, color: "#ffaaaa", fontWeight: 700,
+          cursor: declaring === fixture.key ? "not-allowed" : "pointer",
+          fontSize: "0.85rem", opacity: declaring === fixture.key ? 0.6 : 1,
+          fontFamily: "inherit",
+        }}
+      >
+        {declaring === fixture.key ? "Declaring..." : "🚫 Declare No Contest"}
+      </button>
+    </div>
+  );
+}
+
+// ── Pending submission card ───────────────────────────────────────────────────
 function PendingSubmissionCard({ item, deadlineMs, onApprove, onNoContest, onReject }) {
   const remaining = useCountdown(deadlineMs);
   const expired = remaining === 0;
@@ -133,7 +175,7 @@ function PendingSubmissionCard({ item, deadlineMs, onApprove, onNoContest, onRej
 }
 
 // ── Section label ─────────────────────────────────────────────────────────────
-function SectionLabel({ children, badge }) {
+function SectionLabel({ children, badge, color = "#FF1493" }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
       <div style={{
@@ -143,10 +185,19 @@ function SectionLabel({ children, badge }) {
         color: "#fff", fontWeight: 700, fontSize: "0.82rem", letterSpacing: 1,
         textTransform: "uppercase",
       }}>{children}</div>
-      {badge !== undefined && (
-        <div style={{ background: "#FF1493", borderRadius: "50%", width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: "0.75rem" }}>{badge}</div>
+      {badge !== undefined && badge > 0 && (
+        <div style={{ background: color, borderRadius: "50%", width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: "0.75rem" }}>{badge}</div>
       )}
     </div>
+  );
+}
+
+// ── Symmetric team pair check ─────────────────────────────────────────────────
+function teamsMatch(a, b, c, d) {
+  // (a vs b) matches (c vs d) regardless of home/away order
+  return (
+    (a.toLowerCase() === c.toLowerCase() && b.toLowerCase() === d.toLowerCase()) ||
+    (a.toLowerCase() === d.toLowerCase() && b.toLowerCase() === c.toLowerCase())
   );
 }
 
@@ -158,14 +209,14 @@ export default function PendingFixturesModal({ league, season, onClose }) {
   const [autoNoContest, setAutoNoContest] = useState(false);
   const [loading, setLoading] = useState(true);
   const [declaring, setDeclaring] = useState(null);
-  const autoFiredRef = useRef(new Set()); // track which fixtures we've already auto-fired
+  const autoFiredRef = useRef(new Set());
 
-  const todayStr = getSASTDateStr(0);
+  const todayStr     = getSASTDateStr(0);
   const yesterdayStr = getSASTDateStr(-1);
-  const todayDeadlineMs = getSASTMidnightMs(0) + 48 * 3600000;
+  const todayDeadlineMs     = getSASTMidnightMs(0)  + 48 * 3600000;
   const yesterdayDeadlineMs = getSASTMidnightMs(-1) + 48 * 3600000;
+  const nowMs = Date.now();
 
-  // Load everything
   useEffect(() => {
     const unsubs = [
       onValue(ref(db, "career_calendarEvents"), snap => {
@@ -185,9 +236,9 @@ export default function PendingFixturesModal({ league, season, onClose }) {
     return () => unsubs.forEach(u => u());
   }, [league, season]);
 
-  // ── Parse calendar fixtures for this league (today + yesterday only) ────────
   const tournamentKey = LEAGUE_NAME_MAP[league] || league.replace(/_/g, " ");
 
+  // Get calendar fixtures for a specific date string
   function getCalendarFixturesForDate(dateStr) {
     const dayData = calendarData[dateStr];
     if (!dayData?.tournaments) return [];
@@ -204,27 +255,23 @@ export default function PendingFixturesModal({ league, season, onClose }) {
     return fixtures;
   }
 
-  // ── Check if result already uploaded (home + away + date) ───────────────────
+  // Symmetric check: result already in results list for this date
   function resultExists(home, away, date) {
     return results.some(r => {
       const rDate = r.date ? String(r.date).slice(0, 10) : "";
-      return rDate === date &&
-        ((r.homeTeam === home && r.awayTeam === away) ||
-         (r.homeTeam === away && r.awayTeam === home));
+      return rDate === date && teamsMatch(r.homeTeam, r.awayTeam, home, away);
     });
   }
 
-  // ── Check if pending submission exists for a calendar fixture ────────────────
+  // Symmetric check: pending submission exists for this date
   function pendingSubmissionExists(home, away, date) {
     return pendingSubmissions.some(p => {
       const pDate = p.date ? String(p.date).slice(0, 10) : "";
-      return pDate === date &&
-        ((p.homeTeam === home && p.awayTeam === away) ||
-         (p.homeTeam === away && p.awayTeam === home));
+      return pDate === date && teamsMatch(p.homeTeam, p.awayTeam, home, away);
     });
   }
 
-  // ── Calendar fixtures that still need action ─────────────────────────────────
+  // Today / yesterday calendar fixtures still needing action
   const calendarToday = getCalendarFixturesForDate(todayStr).filter(
     f => !resultExists(f.home, f.away, f.date) && !pendingSubmissionExists(f.home, f.away, f.date)
   );
@@ -232,44 +279,63 @@ export default function PendingFixturesModal({ league, season, onClose }) {
     f => !resultExists(f.home, f.away, f.date) && !pendingSubmissionExists(f.home, f.away, f.date)
   );
 
-  // ── Pending submissions grouped by date ──────────────────────────────────────
+  // Expired: ALL dates older than yesterday whose 48hr deadline has passed, no result/pending
+  const expiredFixtures = [];
+  for (const [dateStr, dayData] of Object.entries(calendarData)) {
+    // Skip today and yesterday — they're in the sections above
+    if (dateStr === todayStr || dateStr === yesterdayStr) continue;
+    const dl = deadlineMsForDate(dateStr);
+    if (nowMs < dl) continue; // deadline not yet passed
+    if (!dayData?.tournaments) continue;
+    for (const tourn of Object.values(dayData.tournaments)) {
+      if (!(tourn?.name || "").toLowerCase().includes(tournamentKey)) continue;
+      for (const [fKey, f] of Object.entries(tourn?.fixtures || {})) {
+        if (!f?.home || !f?.away) continue;
+        if (resultExists(f.home, f.away, dateStr)) continue;
+        if (pendingSubmissionExists(f.home, f.away, dateStr)) continue;
+        expiredFixtures.push({ key: fKey, home: f.home, away: f.away, date: dateStr, md: f.md, deadlineMs: dl });
+      }
+    }
+  }
+  // Sort expired oldest first
+  expiredFixtures.sort((a, b) => a.date.localeCompare(b.date));
+
+  // Pending submissions grouped by date
   const submissionsToday = pendingSubmissions.filter(p => {
-    if (!p.submittedAt) return true;
-    return new Date(p.submittedAt + 2 * 3600000).toISOString().split("T")[0] === todayStr;
+    const pDate = p.date ? String(p.date).slice(0, 10) : "";
+    return pDate === todayStr;
   });
   const submissionsYesterday = pendingSubmissions.filter(p => {
-    if (!p.submittedAt) return false;
-    return new Date(p.submittedAt + 2 * 3600000).toISOString().split("T")[0] === yesterdayStr;
+    const pDate = p.date ? String(p.date).slice(0, 10) : "";
+    return pDate === yesterdayStr;
   });
 
-  // ── Stable refs so the auto no-contest interval never stale-closes over arrays ─
+  // Stable refs for auto no-contest interval
   const calendarTodayRef     = useRef([]);
   const calendarYesterdayRef = useRef([]);
+  const expiredFixturesRef   = useRef([]);
   calendarTodayRef.current     = calendarToday;
   calendarYesterdayRef.current = calendarYesterday;
+  expiredFixturesRef.current   = expiredFixtures;
 
-  // ── Auto no-contest logic ────────────────────────────────────────────────────
+  // ── Auto no-contest logic ─────────────────────────────────────────────────
   useEffect(() => {
     if (!autoNoContest) return;
 
-    async function fireNoContest(fixture, deadlineMs) {
+    async function fireNoContest(fixture, dl) {
       const fireKey = `${fixture.home}__${fixture.away}__${fixture.date}`;
       if (autoFiredRef.current.has(fireKey)) return;
-      if (Date.now() < deadlineMs) return;
-
-      // Mark immediately to prevent concurrent double-fires
+      if (Date.now() < dl) return;
       autoFiredRef.current.add(fireKey);
 
-      // Double-check against Firebase directly (source of truth)
+      // Double-check Firebase directly
       const snap = await get(ref(db, PATHS.results(league, season)));
       const existingResults = snap.val() ? Object.values(snap.val()) : [];
       const alreadyDone = existingResults.some(r => {
         const rDate = r.date ? String(r.date).slice(0, 10) : "";
-        return rDate === fixture.date &&
-          ((r.homeTeam === fixture.home && r.awayTeam === fixture.away) ||
-           (r.homeTeam === fixture.away && r.awayTeam === fixture.home));
+        return rDate === fixture.date && teamsMatch(r.homeTeam, r.awayTeam, fixture.home, fixture.away);
       });
-      if (alreadyDone) return; // already recorded, keep key in set to suppress future checks
+      if (alreadyDone) return;
 
       try {
         await push(ref(db, PATHS.results(league, season)), {
@@ -283,7 +349,6 @@ export default function PendingFixturesModal({ league, season, onClose }) {
         });
         await applyResultToTable(league, season, fixture.home, fixture.away, 0, 0, "no_contest");
       } catch (e) {
-        // Allow retry on next tick
         autoFiredRef.current.delete(fireKey);
         console.error("Auto no-contest failed:", e);
       }
@@ -292,16 +357,16 @@ export default function PendingFixturesModal({ league, season, onClose }) {
     function runChecks() {
       calendarTodayRef.current.forEach(f => fireNoContest(f, todayDeadlineMs));
       calendarYesterdayRef.current.forEach(f => fireNoContest(f, yesterdayDeadlineMs));
+      expiredFixturesRef.current.forEach(f => fireNoContest(f, f.deadlineMs));
     }
 
-    // Run immediately when enabled, then every 10 s
     runChecks();
     const interval = setInterval(runChecks, 10000);
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoNoContest, todayDeadlineMs, yesterdayDeadlineMs, league, season]);
 
-  // ── Handlers ─────────────────────────────────────────────────────────────────
+  // ── Handlers ──────────────────────────────────────────────────────────────
   async function handleNoContestCalendar(fixture) {
     if (!window.confirm(`Declare No Contest for ${fixture.home} vs ${fixture.away}?\n\nBoth teams receive a loss. This cannot be undone.`)) return;
     setDeclaring(fixture.key);
@@ -357,9 +422,9 @@ export default function PendingFixturesModal({ league, season, onClose }) {
     await set(ref(db, `career_${league}_settings/autoNoContest`), next);
   }
 
-  const totalToday = calendarToday.length + submissionsToday.length;
+  const totalToday     = calendarToday.length + submissionsToday.length;
   const totalYesterday = calendarYesterday.length + submissionsYesterday.length;
-  const hasAnything = totalToday > 0 || totalYesterday > 0;
+  const hasAnything    = totalToday > 0 || totalYesterday > 0 || expiredFixtures.length > 0;
 
   if (loading) return (
     <div>
@@ -375,7 +440,6 @@ export default function PendingFixturesModal({ league, season, onClose }) {
         <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", margin: 0 }}>
           ⏳ Pending Results
         </h3>
-        {/* Auto No-Contest Toggle */}
         <div
           onClick={toggleAutoNoContest}
           style={{
@@ -453,7 +517,7 @@ export default function PendingFixturesModal({ league, season, onClose }) {
 
       {/* ── YESTERDAY ── */}
       {totalYesterday > 0 && (
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 28 }}>
           <SectionLabel badge={totalYesterday}>📅 YESTERDAY — 24hr deadline</SectionLabel>
 
           {calendarYesterday.length > 0 && (
@@ -493,11 +557,29 @@ export default function PendingFixturesModal({ league, season, onClose }) {
         </div>
       )}
 
+      {/* ── EXPIRED ── */}
+      {expiredFixtures.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <SectionLabel badge={expiredFixtures.length} color="#ff4444">⌛ EXPIRED — No Result Uploaded</SectionLabel>
+          <div style={{ color: "rgba(255,100,100,0.6)", fontSize: "0.78rem", marginBottom: 12 }}>
+            These fixtures are from past matchdays whose 48hr deadline has passed with no result recorded.
+          </div>
+          {expiredFixtures.map(f => (
+            <ExpiredFixtureCard
+              key={f.key + f.date}
+              fixture={f}
+              onNoContest={handleNoContestCalendar}
+              declaring={declaring}
+            />
+          ))}
+        </div>
+      )}
+
       {!hasAnything && (
         <div style={{ textAlign: "center", padding: "60px 20px", color: "rgba(255,255,255,0.3)" }}>
           <div style={{ fontSize: "3rem", marginBottom: 12 }}>✅</div>
           <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", letterSpacing: 3 }}>All Clear</div>
-          <div style={{ fontSize: "0.85rem", marginTop: 8 }}>No pending fixtures or submissions for today or yesterday.</div>
+          <div style={{ fontSize: "0.85rem", marginTop: 8 }}>No pending fixtures or submissions.</div>
         </div>
       )}
 
