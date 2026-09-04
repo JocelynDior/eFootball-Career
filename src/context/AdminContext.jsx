@@ -7,10 +7,9 @@ const AdminContext = createContext();
 
 export function AdminProvider({ children }) {
   const [isAdmin, setIsAdmin] = useState(false);
-  const [teamIconsCache, setTeamIconsCache] = useState({});
 
   // Manager auth state
-  const [manager, setManager] = useState(null); // { uid, username, email, ... }
+  const [manager, setManager] = useState(null);
   const [managerLoading, setManagerLoading] = useState(true);
 
   useEffect(() => {
@@ -18,23 +17,17 @@ export function AdminProvider({ children }) {
     const saved = localStorage.getItem("careerAdminMode");
     if (saved === "true") setIsAdmin(true);
 
-    // Restore team icons
-    const icons = localStorage.getItem("careerTeamIcons");
-    if (icons) { try { setTeamIconsCache(JSON.parse(icons)); } catch (e) {} }
-
     // Restore manager session from LocalStorage
     const savedManager = localStorage.getItem("careerManagerSession");
     if (savedManager) {
       try {
         const parsed = JSON.parse(savedManager);
-        // Re-validate against Firebase
         const managerRef = ref(db, `${PATHS.accounts}/${parsed.uid}`);
         onValue(managerRef, snap => {
           const data = snap.val();
           if (data) {
             setManager({ uid: parsed.uid, ...data });
           } else {
-            // Account deleted — clear session
             localStorage.removeItem("careerManagerSession");
             setManager(null);
           }
@@ -57,7 +50,6 @@ export function AdminProvider({ children }) {
       if (data) {
         const updated = { uid: manager.uid, ...data };
         setManager(updated);
-        // Update LocalStorage mirror
         localStorage.setItem("careerManagerSession", JSON.stringify({ uid: manager.uid }));
       }
     });
@@ -81,7 +73,6 @@ export function AdminProvider({ children }) {
 
   /* ── Manager ── */
   async function registerManager({ email, password, username }) {
-    // Check username uniqueness
     const allRef = ref(db, PATHS.accounts);
     return new Promise(resolve => {
       onValue(allRef, snap => {
@@ -91,7 +82,6 @@ export function AdminProvider({ children }) {
         );
         if (taken) return resolve({ success: false, error: "Username already taken." });
 
-        // Generate uid
         const uid = "mgr_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7);
         const accountData = {
           username,
@@ -140,17 +130,9 @@ export function AdminProvider({ children }) {
     await update(ref(db, `${PATHS.accounts}/${uid}`), fields);
   }
 
-  /* ── Team icons ── */
-  function updateTeamIcon(teamName, url) {
-    const updated = { ...teamIconsCache, [teamName]: url };
-    setTeamIconsCache(updated);
-    localStorage.setItem("careerTeamIcons", JSON.stringify(updated));
-  }
-
   return (
     <AdminContext.Provider value={{
       isAdmin, loginAdmin, logoutAdmin,
-      teamIconsCache, updateTeamIcon,
       manager, managerLoading,
       registerManager, loginManager, logoutManager,
       updateManagerField,
