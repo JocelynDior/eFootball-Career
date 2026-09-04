@@ -403,7 +403,7 @@ export default function ManagerRankingsPage() {
 
   /* ── load accounts ── */
   useEffect(() => {
-    const unsub = onValue(ref(db, PATHS.accounts), snap => {
+    const unsub = onValue(ref(db, "career_accounts"), snap => {
       setAccounts(snap.val() || {});
     });
     return () => unsub();
@@ -419,13 +419,14 @@ export default function ManagerRankingsPage() {
 
   /* ── build managers list when accounts or rankData change ── */
   useEffect(() => {
+    const entries = Object.entries(accounts);
+    if (entries.length === 0) return;
     async function build() {
       setLoading(true);
       const list = [];
-      for (const [uid, acc] of Object.entries(accounts)) {
-        if (acc.role !== "manager") continue;
+      for (const [uid, acc] of entries) {
+        if (!acc || acc.role !== "manager") continue;
         const rd = rankData[uid] || {};
-        // fetch stats for their team
         let stats = rd.manualStats || null;
         if (!stats && acc.team) {
           try { stats = await fetchAllStats(acc.team); } catch { stats = null; }
@@ -446,7 +447,6 @@ export default function ManagerRankingsPage() {
           stats,
         });
       }
-      // sort by total score desc
       list.sort((a, b) => {
         const sa = totalScore(a), sb = totalScore(b);
         if (sa !== sb) return sb - sa;
@@ -457,8 +457,7 @@ export default function ManagerRankingsPage() {
       setManagers(list);
       setLoading(false);
     }
-    if (Object.keys(accounts).length > 0 || !loading) build();
-    else if (Object.keys(accounts).length === 0 && !loading) { setManagers([]); setLoading(false); }
+    build();
   }, [accounts, rankData]);
 
   // initial load guard
