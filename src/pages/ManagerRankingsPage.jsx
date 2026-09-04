@@ -425,7 +425,7 @@ export default function ManagerRankingsPage() {
       setLoading(true);
       const list = [];
       for (const [uid, acc] of entries) {
-        if (!acc || acc.role !== "manager") continue;
+        if (!acc || (acc.role && acc.role !== "manager")) continue;
         const rd = rankData[uid] || {};
         let stats = rd.manualStats || null;
         if (!stats && acc.team) {
