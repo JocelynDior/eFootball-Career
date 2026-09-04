@@ -2,8 +2,22 @@ import { createContext, useContext, useState, useEffect } from "react";
 import { verifyAdminKey } from "../utils/adminKey";
 import { db, PATHS } from "../firebase";
 import { ref, onValue, set, update } from "firebase/database";
+import { getTeamIcon } from "../utils/teamIcons";
 
 const AdminContext = createContext();
+
+// Proxy object: looks up local hardcoded icons by team name, case-insensitively.
+// Any component that does teamIconsCache["Arsenal"] or teamIconsCache[teamName]
+// will now get the local image path instead of a Firebase/imgbb URL.
+const localIconsProxy = new Proxy({}, {
+  get(_, teamName) {
+    if (typeof teamName !== "string") return undefined;
+    return getTeamIcon(teamName) || undefined;
+  },
+  has(_, teamName) {
+    return !!getTeamIcon(teamName);
+  },
+});
 
 export function AdminProvider({ children }) {
   const [isAdmin, setIsAdmin] = useState(false);
@@ -130,9 +144,14 @@ export function AdminProvider({ children }) {
     await update(ref(db, `${PATHS.accounts}/${uid}`), fields);
   }
 
+  // No-op: kept so components that call updateTeamIcon don't crash
+  function updateTeamIcon() {}
+
   return (
     <AdminContext.Provider value={{
       isAdmin, loginAdmin, logoutAdmin,
+      teamIconsCache: localIconsProxy,
+      updateTeamIcon,
       manager, managerLoading,
       registerManager, loginManager, logoutManager,
       updateManagerField,
