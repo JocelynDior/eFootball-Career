@@ -583,16 +583,13 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
     setCheckingDuplicate(true);
     findExistingResult(league, season, myTeam, opponent, matchday).then(existing => {
       if (cancelled) return;
-      if (existing && existing.submittedBy !== (manager?.uid || myTeam)) {
+      if (existing) {
         setExistingResult(existing);
         setIsSecondManager(true);
-        // Use already-detected home/away to fill scores correctly
-        detectHomeAway(league, myTeam, opponent).then(homeAway => {
-          if (cancelled) return;
-          const iAmHome = homeAway.homeTeam.toLowerCase() === myTeam.toLowerCase();
-          setMyScore(iAmHome ? (existing.homeScore ?? 0) : (existing.awayScore ?? 0));
-          setOppScore(iAmHome ? (existing.awayScore ?? 0) : (existing.homeScore ?? 0));
-        });
+        // Use already-set detectedHome/Away to fill scores correctly
+        const iAmHome = (detectedHome || "").toLowerCase() === myTeam.toLowerCase();
+        setMyScore(iAmHome ? (existing.homeScore ?? 0) : (existing.awayScore ?? 0));
+        setOppScore(iAmHome ? (existing.awayScore ?? 0) : (existing.homeScore ?? 0));
       } else {
         setExistingResult(null);
         setIsSecondManager(false);
@@ -600,7 +597,7 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
       setCheckingDuplicate(false);
     });
     return () => { cancelled = true; };
-  }, [opponent, matchday, matchType, league, season, myTeam, manager]);
+  }, [opponent, matchday, matchType, league, season, myTeam, detectedHome]);
 
   function handleMatchImageChange(e) {
     const f = e.target.files[0]; if (!f) return;
@@ -667,12 +664,13 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
   async function handleConfirmSubmit() {
     setSaving(true);
     try {
+      // Fresh Firebase check at submit time to catch race conditions
       const existingNow = await findExistingResult(league, season, myTeam, opponent, matchday);
-      const isSecondNow = existingNow && existingNow.submittedBy !== (manager?.uid || myTeam);
+      const isSecondNow = !!existingNow;
 
-      const homeAway = await detectHomeAway(league, myTeam, opponent);
-      const homeTeam = homeAway.homeTeam;
-      const awayTeam = homeAway.awayTeam;
+      // Use fixture-card-detected home/away — no extra calendar fetch needed
+      const homeTeam = detectedHome || myTeam;
+      const awayTeam = detectedAway || opponent;
       const iAmHome  = homeTeam.toLowerCase() === myTeam.toLowerCase();
 
       const isForfeit  = matchType === "forfeit";
@@ -695,6 +693,7 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
       const assistsData = assists.map(a => ({ player: a.player, assists: a.assists, team: myTeam }));
 
       if (isSecondNow && existingNow) {
+        // Second manager — only update scorers/assists and image, never touch score or table
         setStatus("Adding your scorers to match result...");
         const side = iAmHome ? "home" : "away";
         const existingGoalScorers = existingNow.goalScorers || { home: [], away: [] };
@@ -710,6 +709,7 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
         for (const s of scorersData) await updateTopStat(league, season, "top_scorers",    s.player, s.goals,   myTeam);
         for (const a of assistsData) await updateTopStat(league, season, "top_assistants", a.player, a.assists, myTeam);
       } else {
+        // First manager — write the full result
         setStatus("Saving result...");
         await push(ref(db, PATHS.results(league, season)), {
           homeTeam, awayTeam, homeScore, awayScore,
@@ -1042,7 +1042,7 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
       )}
       {isSecondManager && existingResult && (
         <div style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.4)", borderRadius: 12, padding: "12px 16px", marginBottom: 16, color: "#22c55e", fontSize: "0.9rem", fontWeight: 600 }}>
-          ✅ Opponent already submitted. Score auto-filled — you can only add your scorers & assists. Table will not be updated again.
+          ✅ Your opponent already submitted this result. Score is locked — just add your goal scorers & assists. Table will not be updated again.
         </div>
       )}
 
