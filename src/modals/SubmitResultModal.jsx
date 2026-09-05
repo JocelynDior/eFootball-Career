@@ -476,6 +476,10 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
   const [matchday,   setMatchday]   = useState("");
   const [date,       setDate]       = useState(getSASTToday());
 
+  // Fixtures from pending sections (today + yesterday) for opponent card selection
+  const [myFixtures, setMyFixtures] = useState([]); // [{opponent, home, away, date, matchday, slot}]
+  const [fixturesLoading, setFixturesLoading] = useState(true);
+
   const [scorers,  setScorers]  = useState([]);
   const [assists,  setAssists]  = useState([]);
 
@@ -513,6 +517,43 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
       setExistingAssists(Object.entries(d).map(([k, v]) => ({ key: k, ...v })));
     });
   }, [league, season]);
+
+  // Load fixtures from today + yesterday where myTeam appears
+  useEffect(() => {
+    if (!myTeam || !league) return;
+    const tournamentName = LEAGUE_TOURNAMENT[league] || "";
+    const todayStr     = getSASTDateStr(0);
+    const yesterdayStr = getSASTDateStr(-1);
+
+    const unsub = onValue(ref(db, "career_calendarEvents"), snap => {
+      const data = snap.val() || {};
+      const found = [];
+
+      for (const [slot, dateStr] of [["current", todayStr], ["previous", yesterdayStr]]) {
+        const dayData = data[dateStr];
+        if (!dayData?.tournaments) continue;
+        for (const tourn of Object.values(dayData.tournaments)) {
+          if (!(tourn?.name || "").toLowerCase().includes(tournamentName)) continue;
+          for (const fix of Object.values(tourn?.fixtures || {})) {
+            if (!fix?.home || !fix?.away) continue;
+            const isHome = fix.home.toLowerCase() === myTeam.toLowerCase();
+            const isAway = fix.away.toLowerCase() === myTeam.toLowerCase();
+            if (!isHome && !isAway) continue;
+            found.push({
+              opponent: isHome ? fix.away : fix.home,
+              home: fix.home,
+              away: fix.away,
+              date: dateStr,
+              slot, // "current" or "previous"
+            });
+          }
+        }
+      }
+      setMyFixtures(found);
+      setFixturesLoading(false);
+    });
+    return () => unsub();
+  }, [myTeam, league]);
 
   // Detect home/away as soon as opponent is selected — does NOT wait for matchday
   useEffect(() => {
@@ -604,6 +645,17 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
   }
   function removeScorer(i) { setScorers(prev => prev.filter((_, idx) => idx !== i)); }
   function removeAssist(i) { setAssists(prev => prev.filter((_, idx) => idx !== i)); }
+
+  function handleFixtureSelect(fix) {
+    setOpponent(fix.opponent);
+    setDetectedHome(fix.home);
+    setDetectedAway(fix.away);
+    setDate(fix.date);
+    setMatchday(fix.slot === "current"
+      ? (currMatchday != null ? String(currMatchday) : "")
+      : (prevMatchday != null ? String(prevMatchday) : "")
+    );
+  }
 
   function handleSubmitClick() {
     if (!opponent)  { setStatus("Please select an opponent."); return; }
@@ -840,23 +892,52 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
         <div style={{ background: "rgba(255,20,147,0.1)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, padding: "12px 16px", marginBottom: 16, color: "#FF1493", fontWeight: 700 }}>
           Your Team: {myTeam}
         </div>
-        <label style={labelStyle}>Opponent</label>
-        <select value={opponent} onChange={e => setOpponent(e.target.value)} style={inputStyle}>
-          <option value="">— Select opponent —</option>
-          {others.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
-
-        {detectedHome && (
-          <div style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: "0.85rem", color: "rgba(255,255,255,0.6)" }}>
-            🏟️ <strong style={{ color: "#fff" }}>{detectedHome}</strong> (Home) vs <strong style={{ color: "#fff" }}>{detectedAway}</strong> (Away)
-            <span style={{ color: "rgba(255,255,255,0.35)", marginLeft: 8, fontSize: "0.75rem" }}>Detected from fixtures</span>
+        {/* Fixture cards — opponent selection */}
+        <label style={labelStyle}>Select Your Fixture</label>
+        {fixturesLoading ? (
+          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.85rem", marginBottom: 14 }}>Loading fixtures...</div>
+        ) : myFixtures.length === 0 ? (
+          <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, padding: "16px", marginBottom: 14, color: "rgba(255,255,255,0.4)", fontSize: "0.85rem", textAlign: "center" }}>
+            No scheduled fixtures found for your team in the current or previous matchday.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
+            {myFixtures.map((fix, i) => {
+              const isSelected = opponent === fix.opponent && date === fix.date;
+              const mdNum = fix.slot === "current" ? currMatchday : prevMatchday;
+              const slotLabel = fix.slot === "current" ? "📅 Current Matchday" : "⏮ Previous Matchday";
+              return (
+                <button
+                  key={i}
+                  onClick={() => handleFixtureSelect(fix)}
+                  style={{
+                    width: "100%", padding: "14px 18px", borderRadius: 14, cursor: "pointer",
+                    border: `2px solid ${isSelected ? "#FF1493" : "rgba(255,20,147,0.25)"}`,
+                    background: isSelected ? "rgba(255,20,147,0.15)" : "rgba(255,255,255,0.04)",
+                    textAlign: "left", color: "#fff", fontFamily: "inherit",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  <div style={{ color: isSelected ? "#FF1493" : "rgba(255,255,255,0.45)", fontSize: "0.72rem", fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>
+                    {slotLabel}{mdNum != null ? ` — MD ${mdNum}` : ""}
+                  </div>
+                  <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.2rem", letterSpacing: 1 }}>
+                    {fix.home} <span style={{ color: "#FF1493" }}>vs</span> {fix.away}
+                  </div>
+                  <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "0.75rem", marginTop: 4 }}>{fix.date}</div>
+                </button>
+              );
+            })}
           </div>
         )}
 
-        <MatchdayPicker matchday={matchday} setMatchday={setMatchday} prevMatchday={prevMatchday} currMatchday={currMatchday} />
-
-        <label style={labelStyle}>Date</label>
-        <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} />
+        {/* Static matchday label */}
+        {matchday && (
+          <div style={{ background: "rgba(255,20,147,0.08)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 10, padding: "10px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: 1 }}>Matchday</span>
+            <span style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: 1 }}>{matchday}</span>
+          </div>
+        )}
 
         <div style={{ border: "2px dashed rgba(255,20,147,0.5)", borderRadius: 14, padding: "16px", marginBottom: 16, background: "rgba(255,20,147,0.05)" }}>
           <div style={{ color: "#FF1493", fontWeight: 700, fontSize: "0.9rem", marginBottom: 8 }}>📸 Match Image <span style={{ color: "#ff6b6b" }}>* Required</span></div>
@@ -909,16 +990,50 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
         Your Team: {myTeam}
       </div>
 
-      <label style={labelStyle}>Opponent</label>
-      <select value={opponent} onChange={e => setOpponent(e.target.value)} style={inputStyle}>
-        <option value="">— Select opponent —</option>
-        {others.map(t => <option key={t} value={t}>{t}</option>)}
-      </select>
+      {/* Fixture cards — opponent selection */}
+      <label style={labelStyle}>Select Your Fixture</label>
+      {fixturesLoading ? (
+        <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.85rem", marginBottom: 14 }}>Loading fixtures...</div>
+      ) : myFixtures.length === 0 ? (
+        <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, padding: "16px", marginBottom: 14, color: "rgba(255,255,255,0.4)", fontSize: "0.85rem", textAlign: "center" }}>
+          No scheduled fixtures found for your team in the current or previous matchday.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
+          {myFixtures.map((fix, i) => {
+            const isSelected = opponent === fix.opponent && date === fix.date;
+            const mdNum = fix.slot === "current" ? currMatchday : prevMatchday;
+            const slotLabel = fix.slot === "current" ? "📅 Current Matchday" : "⏮ Previous Matchday";
+            return (
+              <button
+                key={i}
+                onClick={() => handleFixtureSelect(fix)}
+                style={{
+                  width: "100%", padding: "14px 18px", borderRadius: 14, cursor: "pointer",
+                  border: `2px solid ${isSelected ? "#FF1493" : "rgba(255,20,147,0.25)"}`,
+                  background: isSelected ? "rgba(255,20,147,0.15)" : "rgba(255,255,255,0.04)",
+                  textAlign: "left", color: "#fff", fontFamily: "inherit",
+                  transition: "all 0.15s",
+                }}
+              >
+                <div style={{ color: isSelected ? "#FF1493" : "rgba(255,255,255,0.45)", fontSize: "0.72rem", fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>
+                  {slotLabel}{mdNum != null ? ` — MD ${mdNum}` : ""}
+                </div>
+                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.2rem", letterSpacing: 1 }}>
+                  {fix.home} <span style={{ color: "#FF1493" }}>vs</span> {fix.away}
+                </div>
+                <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "0.75rem", marginTop: 4 }}>{fix.date}</div>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
-      {detectedHome && (
-        <div style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: "0.85rem", color: "rgba(255,255,255,0.6)" }}>
-          🏟️ <strong style={{ color: "#fff" }}>{detectedHome}</strong> (Home) vs <strong style={{ color: "#fff" }}>{detectedAway}</strong> (Away)
-          <span style={{ color: "rgba(255,255,255,0.35)", marginLeft: 8, fontSize: "0.75rem" }}>Detected from fixtures</span>
+      {/* Static matchday label */}
+      {matchday && (
+        <div style={{ background: "rgba(255,20,147,0.08)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 10, padding: "10px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: 1 }}>Matchday</span>
+          <span style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: 1 }}>{matchday}</span>
         </div>
       )}
 
@@ -941,11 +1056,6 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
           <input type="number" min={0} value={oppScore} onChange={e => setOppScore(e.target.value)} style={{ ...inputStyle, opacity: isSecondManager ? 0.5 : 1 }} disabled={isSecondManager} />
         </div>
       </div>
-
-      <MatchdayPicker matchday={matchday} setMatchday={setMatchday} prevMatchday={prevMatchday} currMatchday={currMatchday} />
-
-      <label style={labelStyle}>Date</label>
-      <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} />
 
       <div style={{ border: "2px dashed rgba(255,20,147,0.5)", borderRadius: 14, padding: "16px", marginBottom: 20, background: "rgba(255,20,147,0.05)" }}>
         <div style={{ color: "#FF1493", fontWeight: 700, fontSize: "0.9rem", marginBottom: 8 }}>📸 Match Image <span style={{ color: "#ff6b6b" }}>* Required</span></div>
