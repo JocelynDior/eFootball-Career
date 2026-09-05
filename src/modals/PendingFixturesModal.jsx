@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { db, PATHS } from "../firebase";
-import { ref, onValue, remove, push, set, get } from "firebase/database";
+import { ref, onValue, remove, push, set } from "firebase/database";
 import { applyResultToTable } from "../utils/tableLogic";
 
 // SAST helpers
@@ -206,10 +206,8 @@ export default function PendingFixturesModal({ league, season, onClose }) {
   const [calendarData, setCalendarData] = useState({});
   const [results, setResults] = useState([]);
   const [pendingSubmissions, setPendingSubmissions] = useState([]);
-  const [autoNoContest, setAutoNoContest] = useState(false);
   const [loading, setLoading] = useState(true);
   const [declaring, setDeclaring] = useState(null);
-  const autoFiredRef = useRef(new Set());
 
   const todayStr     = getSASTDateStr(0);
   const yesterdayStr = getSASTDateStr(-1);
@@ -228,9 +226,6 @@ export default function PendingFixturesModal({ league, season, onClose }) {
       onValue(ref(db, PATHS.pendingResults(league, season)), snap => {
         setPendingSubmissions(snap.val() ? Object.entries(snap.val()).map(([k, v]) => ({ key: k, ...v })) : []);
         setLoading(false);
-      }),
-      onValue(ref(db, `career_${league}_settings/autoNoContest`), snap => {
-        setAutoNoContest(snap.val() === true);
       }),
     ];
     return () => unsubs.forEach(u => u());
@@ -310,61 +305,7 @@ export default function PendingFixturesModal({ league, season, onClose }) {
     return pDate === yesterdayStr;
   });
 
-  // Stable refs for auto no-contest interval
-  const calendarTodayRef     = useRef([]);
-  const calendarYesterdayRef = useRef([]);
-  const expiredFixturesRef   = useRef([]);
-  calendarTodayRef.current     = calendarToday;
-  calendarYesterdayRef.current = calendarYesterday;
-  expiredFixturesRef.current   = expiredFixtures;
 
-  // ── Auto no-contest logic ─────────────────────────────────────────────────
-  useEffect(() => {
-    if (!autoNoContest) return;
-
-    async function fireNoContest(fixture, dl) {
-      const fireKey = `${fixture.home}__${fixture.away}__${fixture.date}`;
-      if (autoFiredRef.current.has(fireKey)) return;
-      if (Date.now() < dl) return;
-      autoFiredRef.current.add(fireKey);
-
-      // Double-check Firebase directly
-      const snap = await get(ref(db, PATHS.results(league, season)));
-      const existingResults = snap.val() ? Object.values(snap.val()) : [];
-      const alreadyDone = existingResults.some(r => {
-        const rDate = r.date ? String(r.date).slice(0, 10) : "";
-        return rDate === fixture.date && teamsMatch(r.homeTeam, r.awayTeam, fixture.home, fixture.away);
-      });
-      if (alreadyDone) return;
-
-      try {
-        await push(ref(db, PATHS.results(league, season)), {
-          homeTeam: fixture.home, awayTeam: fixture.away,
-          homeScore: 0, awayScore: 0,
-          forfeitType: "no_contest", matchType: "No Contest",
-          md: fixture.md || 0, date: fixture.date,
-          goalScorers: { home: [], away: [] }, assists: { home: [], away: [] },
-          submittedAt: Date.now(), status: "approved", approvedAt: Date.now(),
-          autoFired: true,
-        });
-        await applyResultToTable(league, season, fixture.home, fixture.away, 0, 0, "no_contest");
-      } catch (e) {
-        autoFiredRef.current.delete(fireKey);
-        console.error("Auto no-contest failed:", e);
-      }
-    }
-
-    function runChecks() {
-      calendarTodayRef.current.forEach(f => fireNoContest(f, todayDeadlineMs));
-      calendarYesterdayRef.current.forEach(f => fireNoContest(f, yesterdayDeadlineMs));
-      expiredFixturesRef.current.forEach(f => fireNoContest(f, f.deadlineMs));
-    }
-
-    runChecks();
-    const interval = setInterval(runChecks, 10000);
-    return () => clearInterval(interval);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoNoContest, todayDeadlineMs, yesterdayDeadlineMs, league, season]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   async function handleNoContestCalendar(fixture) {
@@ -416,12 +357,6 @@ export default function PendingFixturesModal({ league, season, onClose }) {
     catch (e) { alert("Error: " + e.message); }
   }
 
-  async function toggleAutoNoContest() {
-    const next = !autoNoContest;
-    setAutoNoContest(next);
-    await set(ref(db, `career_${league}_settings/autoNoContest`), next);
-  }
-
   const totalToday     = calendarToday.length + submissionsToday.length;
   const totalYesterday = calendarYesterday.length + submissionsYesterday.length;
   const hasAnything    = totalToday > 0 || totalYesterday > 0 || expiredFixtures.length > 0;
@@ -436,42 +371,11 @@ export default function PendingFixturesModal({ league, season, onClose }) {
   return (
     <div>
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
+      <div style={{ marginBottom: 20 }}>
         <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", margin: 0 }}>
           ⏳ Pending Results
         </h3>
-        <div
-          onClick={toggleAutoNoContest}
-          style={{
-            display: "flex", alignItems: "center", gap: 10, cursor: "pointer",
-            background: autoNoContest ? "rgba(255,20,147,0.12)" : "rgba(255,255,255,0.05)",
-            border: `1px solid ${autoNoContest ? "rgba(255,20,147,0.5)" : "rgba(255,255,255,0.15)"}`,
-            borderRadius: 30, padding: "8px 16px", transition: "all 0.2s",
-          }}
-        >
-          <div style={{
-            width: 38, height: 20, borderRadius: 10,
-            background: autoNoContest ? "#FF1493" : "rgba(255,255,255,0.15)",
-            position: "relative", transition: "background 0.2s", flexShrink: 0,
-          }}>
-            <div style={{
-              position: "absolute", top: 2,
-              left: autoNoContest ? 20 : 2,
-              width: 16, height: 16, borderRadius: "50%",
-              background: "#fff", transition: "left 0.2s",
-            }} />
-          </div>
-          <span style={{ color: autoNoContest ? "#FF1493" : "rgba(255,255,255,0.5)", fontSize: "0.8rem", fontWeight: 700, whiteSpace: "nowrap" }}>
-            Auto No-Contest {autoNoContest ? "ON" : "OFF"}
-          </span>
-        </div>
       </div>
-
-      {autoNoContest && (
-        <div style={{ background: "rgba(255,20,147,0.08)", border: "1px solid rgba(255,20,147,0.25)", borderRadius: 12, padding: "10px 14px", marginBottom: 16, color: "rgba(255,255,255,0.6)", fontSize: "0.8rem" }}>
-          ⚡ Auto mode is <strong style={{ color: "#FF1493" }}>ON</strong> — any fixture whose 48hr deadline expires will automatically receive a No Contest result.
-        </div>
-      )}
 
       {/* ── TODAY ── */}
       {totalToday > 0 && (
