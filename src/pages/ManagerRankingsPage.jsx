@@ -364,7 +364,9 @@ export default function ManagerRankingsPage() {
   const [accounts, setAccounts]   = useState({});
   const [rankData, setRankData]   = useState({});   // career_rankings per uid
   const [managers, setManagers]   = useState([]);
-  const [loading, setLoading]     = useState(true);
+  const [loading, setLoading]         = useState(true);
+  const [loadingPhase, setLoadingPhase] = useState("Connecting to database...");
+  const [loadingPct, setLoadingPct]   = useState(0);
   const [statsLoading, setStatsLoading] = useState(false);
 
   // ui
@@ -423,15 +425,31 @@ export default function ManagerRankingsPage() {
     if (entries.length === 0) return;
     async function build() {
       setLoading(true);
+      setLoadingPct(5);
+      setLoadingPhase("Loading manager profiles...");
+
+      const validEntries = entries.filter(([, acc]) => acc && (!acc.role || acc.role === "manager"));
+      const total = validEntries.length;
       const list = [];
-      for (const [uid, acc] of entries) {
-        if (!acc || (acc.role && acc.role !== "manager")) continue;
+
+      for (let i = 0; i < validEntries.length; i++) {
+        const [uid, acc] = validEntries[i];
         const rd = rankData[uid] || {};
+
+        const pct = Math.round(10 + ((i / Math.max(total, 1)) * 70));
+        setLoadingPct(pct);
+        setLoadingPhase(
+          acc.team
+            ? `Calculating stats for ${acc.username || "manager"} (${acc.team})...`
+            : `Loading ${acc.username || "manager"}...`
+        );
+
         let stats = rd.manualStats || null;
         if (!stats && acc.team) {
           try { stats = await fetchAllStats(acc.team); } catch { stats = null; }
         }
         if (!stats) stats = { w:0,d:0,l:0,gs:0,gc:0,gd:0,fw:0,fl:0,mp:0,winRate:0,lossRate:0,matchHistory:[] };
+
         list.push({
           uid,
           username:  acc.username || "Unknown",
@@ -447,6 +465,11 @@ export default function ManagerRankingsPage() {
           stats,
         });
       }
+
+      setLoadingPct(85);
+      setLoadingPhase("Calculating manager ranks...");
+      await new Promise(r => setTimeout(r, 120));
+
       list.sort((a, b) => {
         const sa = totalScore(a), sb = totalScore(b);
         if (sa !== sb) return sb - sa;
@@ -454,7 +477,14 @@ export default function ManagerRankingsPage() {
         if (a.stats.w !== b.stats.w) return b.stats.w - a.stats.w;
         return (b.stats.gd||0) - (a.stats.gd||0);
       });
+
+      setLoadingPct(95);
+      setLoadingPhase("Finalising leaderboard...");
+      await new Promise(r => setTimeout(r, 80));
+
       setManagers(list);
+      setLoadingPct(100);
+      setLoadingPhase("Done!");
       setLoading(false);
     }
     build();
@@ -565,9 +595,30 @@ export default function ManagerRankingsPage() {
 
           {/* CARDS */}
           {loading ? (
-            <div style={{ textAlign: "center", color: T.muted, padding: "80px 20px" }}>
-              <div style={{ fontSize: "2rem", marginBottom: 16 }}>⏳</div>
-              Loading managers...
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 20px", gap: 20 }}>
+              {/* Spinner */}
+              <div style={{ width: 56, height: 56, borderRadius: "50%", border: `3px solid ${T.bg4}`, borderTop: `3px solid ${T.pink}`, animation: "rmrSpin 0.9s linear infinite" }} />
+              <style>{`@keyframes rmrSpin { to { transform: rotate(360deg); } }`}</style>
+
+              {/* Phase label */}
+              <div style={{ color: T.text, fontSize: "0.95rem", fontWeight: 600, textAlign: "center", maxWidth: 260 }}>
+                {loadingPhase}
+              </div>
+
+              {/* Progress bar */}
+              <div style={{ width: "100%", maxWidth: 280, background: T.bg4, borderRadius: 99, height: 8, overflow: "hidden" }}>
+                <div style={{
+                  height: "100%", borderRadius: 99,
+                  background: `linear-gradient(90deg, ${T.pink}, ${T.pinkDark})`,
+                  width: `${loadingPct}%`,
+                  transition: "width 0.35s ease",
+                }} />
+              </div>
+
+              {/* Percentage */}
+              <div style={{ color: T.pink, fontSize: "0.8rem", fontWeight: 700, fontFamily: "'Bebas Neue', sans-serif", letterSpacing: 1 }}>
+                {loadingPct}%
+              </div>
             </div>
           ) : !filtered.length ? (
             <div style={{ textAlign: "center", color: T.dim, padding: "60px 20px" }}>No managers found.</div>
