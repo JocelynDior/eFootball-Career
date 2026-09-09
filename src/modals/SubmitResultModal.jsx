@@ -675,9 +675,10 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
       const matchImageUrl = await uploadToImgBB(matchImage);
 
       if (isSecondNow && existingNow) {
-        // ── SECOND MANAGER ────────────────────────────────────────────────────
-        // iAmHome derived from the STORED result's homeTeam — not from local
-        // detectedHome state, which may differ for the 2nd manager.
+        // ── SECOND MANAGER ───────────────────────────────────────────────────
+        // iAmHome derived from the STORED result's homeTeam — never from local
+        // detectedHome state which may differ for the 2nd manager.
+        // Table is NOT updated again.
         const iAmHome = existingNow.homeTeam?.toLowerCase() === myTeam.toLowerCase();
         const side = iAmHome ? "home" : "away";
 
@@ -706,18 +707,18 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
           secondManagerSubmittedBy: manager?.uid || myTeam,
           secondManagerSubmittedAt: Date.now(),
         });
-        // Table NOT updated again — already done by first manager
         setStatus("Updating stats...");
         for (const s of scorersData) await updateTopStat(league, season, "top_scorers",    s.player, s.goals,   myTeam);
         for (const a of assistsData) await updateTopStat(league, season, "top_assistants", a.player, a.assists, myTeam);
 
       } else {
-        // ── FIRST MANAGER ─────────────────────────────────────────────────────
+        // ── FIRST MANAGER ────────────────────────────────────────────────────
         const homeTeam = detectedHome || myTeam;
         const awayTeam = detectedAway || opponent;
         const iAmHome  = homeTeam.toLowerCase() === myTeam.toLowerCase();
         const isForfeit = matchType === "forfeit";
 
+        // Forfeit: uploader always wins — score depends on which side they are
         const homeScore = isForfeit ? (iAmHome ? 3 : 0) : (iAmHome ? +myScore : +oppScore);
         const awayScore = isForfeit ? (iAmHome ? 0 : 3) : (iAmHome ? +oppScore : +myScore);
 
