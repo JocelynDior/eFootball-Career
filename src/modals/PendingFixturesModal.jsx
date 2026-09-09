@@ -147,7 +147,7 @@ function ExpiredFixtureCard({ fixture, onNoContest, onDelete, declaring }) {
             fontFamily: "inherit",
           }}
         >
-          🗑️ Delete Expired
+          🗑️ Delete
         </button>
       </div>
     </div>
@@ -313,7 +313,7 @@ export default function PendingFixturesModal({ league, season, onClose }) {
   // Sort expired oldest first
   expiredFixtures.sort((a, b) => a.date.localeCompare(b.date));
 
-  // Filter out admin-dismissed expired fixtures
+  // Filter out dismissed expired fixtures
   const visibleExpiredFixtures = expiredFixtures.filter(f => {
     const key = `${f.date}_${f.home}_${f.away}`.replace(/[^a-zA-Z0-9_]/g, "_");
     return !dismissedExpired[key];
@@ -333,13 +333,7 @@ export default function PendingFixturesModal({ league, season, onClose }) {
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   async function handleDeleteExpired(fixture) {
-    if (!window.confirm(`Delete expired fixture ${fixture.home} vs ${fixture.away} from the pending list?
-
-This only removes it from pending — the calendar fixture is kept.`)) return;
-    // Expired calendar fixtures are not stored in Firebase pending list —
-    // they come from calendarEvents which we never delete.
-    // So "delete" here just means we mark it dismissed in a local dismissed set.
-    // We store dismissals in career_{league}_settings/dismissedExpired
+    if (!window.confirm(`Remove ${fixture.home} vs ${fixture.away} from the expired list?\n\nThe calendar fixture is kept. This only hides it from pending.`)) return;
     const key = `${fixture.date}_${fixture.home}_${fixture.away}`.replace(/[^a-zA-Z0-9_]/g, "_");
     try {
       await set(ref(db, `career_${league}_settings/dismissedExpired/${key}`), true);
