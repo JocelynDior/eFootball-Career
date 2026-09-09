@@ -1,145 +1,107 @@
 import { db, PATHS } from '../firebase';
 import { ref, get, set } from 'firebase/database';
 
-export async function applyResultToTable(league, season, homeTeam, awayTeam, homeScore, awayScore, forfeitType) {
-  const tableRef = ref(db, PATHS.table(league, season));
-  const snap = await get(tableRef);
-  const tableVal = snap.val() || {};
+// ── Recalculate the entire table from scratch from all results ────────────────
+// This is called every time a result is submitted or deleted.
+// The table is always a direct reflection of the results — nothing can drift.
+//
+// Rules:
+//  - normal match:   gs, gc, gd, w/d/l, pts all count normally
+//  - forfeit_win:    w/l and pts count, but gs/gc/gd do NOT (forfeit goals don't count)
+//  - no_contest:     l for both, no pts, no gs/gc/gd
 
-  function findTeam(name) {
-    for (const [key, val] of Object.entries(tableVal)) {
-      if (val.name === name) return { key, data: { ...val } };
-    }
-    return null;
+export async function recalculateTable(league, season) {
+  // Load current table entries (to get team names and preserve non-stat fields like icon)
+  const tableSnap = await get(ref(db, PATHS.table(league, season)));
+  const tableVal  = tableSnap.val() || {};
+
+  // Load all approved results
+  const resultsSnap = await get(ref(db, PATHS.results(league, season)));
+  const resultsVal  = resultsSnap.val() || {};
+
+  // Build a map of teamName → tableKey + base data
+  const teamMap = {};
+  for (const [key, val] of Object.entries(tableVal)) {
+    if (!val?.name) continue;
+    teamMap[val.name] = {
+      key,
+      // Preserve non-stat fields
+      name:  val.name,
+      icon:  val.icon  || '',
+      color: val.color || '',
+      // Zero out all stats — will be recalculated
+      p: 0, w: 0, d: 0, l: 0,
+      gs: 0, gc: 0, gd: 0, pts: 0,
+    };
   }
 
-  const homeEntry = findTeam(homeTeam);
-  const awayEntry = findTeam(awayTeam);
-  if (!homeEntry || !awayEntry) return;
+  // Walk every result and accumulate stats
+  for (const result of Object.values(resultsVal)) {
+    if (!result?.homeTeam || !result?.awayTeam) continue;
+    if (result.status && result.status !== 'approved') continue;
 
-  const hd = homeEntry.data;
-  const ad = awayEntry.data;
+    const home = teamMap[result.homeTeam];
+    const away = teamMap[result.awayTeam];
+    if (!home || !away) continue;
 
-  if (forfeitType === 'no_contest') {
-    hd.p   = (hd.p  || 0) + 1;
-    hd.l   = (hd.l  || 0) + 1;
-    ad.p   = (ad.p  || 0) + 1;
-    ad.l   = (ad.l  || 0) + 1;
-    // GS / GC / GD unchanged — no goals scored in a no-contest
-  } else if (forfeitType === 'forfeit_win') {
-    // homeTeam is always the forfeit winner (caller must pass winner as homeTeam)
-    hd.p   = (hd.p   || 0) + 1;
-    hd.w   = (hd.w   || 0) + 1;
-    hd.pts = (hd.pts  || 0) + 3;
-    hd.gs  = (hd.gs   || 0) + 3;
-    // gc unchanged — winner concedes 0
-    hd.gd  = (hd.gd   || 0) + 3;
+    const ft = result.forfeitType || 'none';
 
-    ad.p   = (ad.p   || 0) + 1;
-    ad.l   = (ad.l   || 0) + 1;
-    ad.gc  = (ad.gc   || 0) + 3;
-    // gs unchanged — loser scores 0
-    ad.gd  = (ad.gd   || 0) - 3;
-  } else {
-    // Normal match
-    const hScore = Number(homeScore);
-    const aScore = Number(awayScore);
+    if (ft === 'no_contest') {
+      // Both teams get a loss, no goals, no pts
+      home.p += 1; home.l += 1;
+      away.p += 1; away.l += 1;
 
-    hd.p   = (hd.p  || 0) + 1;
-    hd.gs  = (hd.gs  || 0) + hScore;
-    hd.gc  = (hd.gc  || 0) + aScore;
-    hd.gd  = (hd.gd  || 0) + (hScore - aScore);
+    } else if (ft === 'forfeit_win') {
+      // homeTeam stored as winner — winner gets W+3pts, loser gets L
+      // Forfeit goals do NOT count toward gs/gc/gd
+      home.p += 1; home.w += 1; home.pts += 3;
+      away.p += 1; away.l += 1;
 
-    ad.p   = (ad.p  || 0) + 1;
-    ad.gs  = (ad.gs  || 0) + aScore;
-    ad.gc  = (ad.gc  || 0) + hScore;
-    ad.gd  = (ad.gd  || 0) + (aScore - hScore);
-
-    if (hScore > aScore) {
-      hd.w   = (hd.w  || 0) + 1;
-      hd.pts = (hd.pts || 0) + 3;
-      ad.l   = (ad.l  || 0) + 1;
-    } else if (hScore < aScore) {
-      ad.w   = (ad.w  || 0) + 1;
-      ad.pts = (ad.pts || 0) + 3;
-      hd.l   = (hd.l  || 0) + 1;
     } else {
-      hd.d   = (hd.d  || 0) + 1;
-      hd.pts = (hd.pts || 0) + 1;
-      ad.d   = (ad.d  || 0) + 1;
-      ad.pts = (ad.pts || 0) + 1;
+      // Normal match
+      const hs = Number(result.homeScore) || 0;
+      const as = Number(result.awayScore) || 0;
+
+      home.p  += 1;
+      home.gs += hs;
+      home.gc += as;
+      home.gd += hs - as;
+
+      away.p  += 1;
+      away.gs += as;
+      away.gc += hs;
+      away.gd += as - hs;
+
+      if (hs > as) {
+        home.w   += 1; home.pts += 3;
+        away.l   += 1;
+      } else if (hs < as) {
+        away.w   += 1; away.pts += 3;
+        home.l   += 1;
+      } else {
+        home.d   += 1; home.pts += 1;
+        away.d   += 1; away.pts += 1;
+      }
     }
   }
 
-  await set(ref(db, `${PATHS.table(league, season)}/${homeEntry.key}`), hd);
-  await set(ref(db, `${PATHS.table(league, season)}/${awayEntry.key}`), ad);
+  // Write all teams back to Firebase
+  const writes = Object.values(teamMap).map(team => {
+    const { key, ...data } = team;
+    return set(ref(db, `${PATHS.table(league, season)}/${key}`), data);
+  });
+
+  await Promise.all(writes);
 }
 
-export async function reverseResultFromTable(league, season, homeTeam, awayTeam, homeScore, awayScore, forfeitType) {
-  const tableRef = ref(db, PATHS.table(league, season));
-  const snap = await get(tableRef);
-  const tableVal = snap.val() || {};
+// ── Convenience wrappers kept for backwards compatibility ─────────────────────
+// All callers (SubmitResultModal, PendingFixturesModal, league pages) can keep
+// calling applyResultToTable — it now just triggers a full recalculation.
 
-  function findTeam(name) {
-    for (const [key, val] of Object.entries(tableVal)) {
-      if (val.name === name) return { key, data: { ...val } };
-    }
-    return null;
-  }
+export async function applyResultToTable(league, season) {
+  await recalculateTable(league, season);
+}
 
-  const homeEntry = findTeam(homeTeam);
-  const awayEntry = findTeam(awayTeam);
-  if (!homeEntry || !awayEntry) return;
-
-  const hd = homeEntry.data;
-  const ad = awayEntry.data;
-
-  if (forfeitType === 'no_contest') {
-    hd.p = Math.max(0, (hd.p || 0) - 1);
-    hd.l = Math.max(0, (hd.l || 0) - 1);
-    ad.p = Math.max(0, (ad.p || 0) - 1);
-    ad.l = Math.max(0, (ad.l || 0) - 1);
-  } else if (forfeitType === 'forfeit_win') {
-    hd.p   = Math.max(0, (hd.p   || 0) - 1);
-    hd.w   = Math.max(0, (hd.w   || 0) - 1);
-    hd.pts = Math.max(0, (hd.pts  || 0) - 3);
-    hd.gs  = Math.max(0, (hd.gs   || 0) - 3);
-    hd.gd  = (hd.gd  || 0) - 3;
-
-    ad.p   = Math.max(0, (ad.p   || 0) - 1);
-    ad.l   = Math.max(0, (ad.l   || 0) - 1);
-    ad.gc  = Math.max(0, (ad.gc   || 0) - 3);
-    ad.gd  = (ad.gd  || 0) + 3;
-  } else {
-    const hScore = Number(homeScore);
-    const aScore = Number(awayScore);
-
-    hd.p   = Math.max(0, (hd.p  || 0) - 1);
-    hd.gs  = Math.max(0, (hd.gs  || 0) - hScore);
-    hd.gc  = Math.max(0, (hd.gc  || 0) - aScore);
-    hd.gd  = (hd.gd  || 0) - (hScore - aScore);
-
-    ad.p   = Math.max(0, (ad.p  || 0) - 1);
-    ad.gs  = Math.max(0, (ad.gs  || 0) - aScore);
-    ad.gc  = Math.max(0, (ad.gc  || 0) - hScore);
-    ad.gd  = (ad.gd  || 0) - (aScore - hScore);
-
-    if (hScore > aScore) {
-      hd.w   = Math.max(0, (hd.w  || 0) - 1);
-      hd.pts = Math.max(0, (hd.pts || 0) - 3);
-      ad.l   = Math.max(0, (ad.l  || 0) - 1);
-    } else if (hScore < aScore) {
-      ad.w   = Math.max(0, (ad.w  || 0) - 1);
-      ad.pts = Math.max(0, (ad.pts || 0) - 3);
-      hd.l   = Math.max(0, (hd.l  || 0) - 1);
-    } else {
-      hd.d   = Math.max(0, (hd.d  || 0) - 1);
-      hd.pts = Math.max(0, (hd.pts || 0) - 1);
-      ad.d   = Math.max(0, (ad.d  || 0) - 1);
-      ad.pts = Math.max(0, (ad.pts || 0) - 1);
-    }
-  }
-
-  await set(ref(db, `${PATHS.table(league, season)}/${homeEntry.key}`), hd);
-  await set(ref(db, `${PATHS.table(league, season)}/${awayEntry.key}`), ad);
+export async function reverseResultFromTable(league, season) {
+  await recalculateTable(league, season);
 }
