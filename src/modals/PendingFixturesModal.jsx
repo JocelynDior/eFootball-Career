@@ -104,7 +104,7 @@ function CalendarFixtureCard({ fixture, deadlineMs, onNoContest, declaring }) {
 }
 
 // ── Expired fixture card (deadline long passed, no result) ────────────────────
-function ExpiredFixtureCard({ fixture, onNoContest, declaring }) {
+function ExpiredFixtureCard({ fixture, onNoContest, onDelete, declaring }) {
   return (
     <div style={{
       background: "rgba(255,68,68,0.05)",
@@ -122,20 +122,34 @@ function ExpiredFixtureCard({ fixture, onNoContest, declaring }) {
         </div>
         <span style={{ color: "#ff4444", fontFamily: "monospace", fontWeight: 700, fontSize: "0.85rem" }}>⌛ EXPIRED</span>
       </div>
-      <button
-        onClick={() => onNoContest(fixture)}
-        disabled={declaring === fixture.key}
-        style={{
-          width: "100%", padding: "9px 0",
-          background: "rgba(220,50,50,0.15)", border: "1px solid rgba(220,50,50,0.3)",
-          borderRadius: 10, color: "#ffaaaa", fontWeight: 700,
-          cursor: declaring === fixture.key ? "not-allowed" : "pointer",
-          fontSize: "0.85rem", opacity: declaring === fixture.key ? 0.6 : 1,
-          fontFamily: "inherit",
-        }}
-      >
-        {declaring === fixture.key ? "Declaring..." : "🚫 Declare No Contest"}
-      </button>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button
+          onClick={() => onNoContest(fixture)}
+          disabled={declaring === fixture.key}
+          style={{
+            flex: 1, padding: "9px 0",
+            background: "rgba(220,50,50,0.15)", border: "1px solid rgba(220,50,50,0.3)",
+            borderRadius: 10, color: "#ffaaaa", fontWeight: 700,
+            cursor: declaring === fixture.key ? "not-allowed" : "pointer",
+            fontSize: "0.85rem", opacity: declaring === fixture.key ? 0.6 : 1,
+            fontFamily: "inherit",
+          }}
+        >
+          {declaring === fixture.key ? "Declaring..." : "🚫 Declare No Contest"}
+        </button>
+        <button
+          onClick={() => onDelete(fixture)}
+          style={{
+            flex: 1, padding: "9px 0",
+            background: "rgba(255,100,0,0.12)", border: "1px solid rgba(255,100,0,0.3)",
+            borderRadius: 10, color: "#ffaa66", fontWeight: 700,
+            cursor: "pointer", fontSize: "0.85rem",
+            fontFamily: "inherit",
+          }}
+        >
+          🗑️ Delete Expired
+        </button>
+      </div>
     </div>
   );
 }
@@ -194,14 +208,12 @@ function SectionLabel({ children, badge, color = "#FF1493" }) {
 
 // ── Symmetric team pair check ─────────────────────────────────────────────────
 function teamsMatch(a, b, c, d) {
+  // (a vs b) matches (c vs d) regardless of home/away order
   return (
     (a.toLowerCase() === c.toLowerCase() && b.toLowerCase() === d.toLowerCase()) ||
     (a.toLowerCase() === d.toLowerCase() && b.toLowerCase() === c.toLowerCase())
   );
 }
-
-// 24 hours in ms
-const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
 
 // ── Main Modal ────────────────────────────────────────────────────────────────
 export default function PendingFixturesModal({ league, season, onClose }) {
@@ -210,6 +222,7 @@ export default function PendingFixturesModal({ league, season, onClose }) {
   const [pendingSubmissions, setPendingSubmissions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [declaring, setDeclaring] = useState(null);
+  const [dismissedExpired, setDismissedExpired] = useState({});
 
   const todayStr     = getSASTDateStr(0);
   const yesterdayStr = getSASTDateStr(-1);
@@ -222,6 +235,9 @@ export default function PendingFixturesModal({ league, season, onClose }) {
       onValue(ref(db, "career_calendarEvents"), snap => {
         setCalendarData(snap.val() || {});
       }),
+      onValue(ref(db, `career_${league}_settings/dismissedExpired`), snap => {
+        setDismissedExpired(snap.val() || {});
+      }),
       onValue(ref(db, PATHS.results(league, season)), snap => {
         setResults(snap.val() ? Object.entries(snap.val()).map(([k, v]) => ({ key: k, ...v })) : []);
       }),
@@ -232,20 +248,6 @@ export default function PendingFixturesModal({ league, season, onClose }) {
     ];
     return () => unsubs.forEach(u => u());
   }, [league, season]);
-
-  // ── Auto-delete pending submissions older than 24 hours ───────────────────
-  // Runs whenever pendingSubmissions changes. Silently removes expired ones
-  // from the pending list — does NOT touch calendar fixtures or results.
-  useEffect(() => {
-    if (pendingSubmissions.length === 0) return;
-    const now = Date.now();
-    pendingSubmissions.forEach(item => {
-      const age = now - (item.submittedAt || 0);
-      if (age > PENDING_TTL_MS) {
-        remove(ref(db, `${PATHS.pendingResults(league, season)}/${item.key}`)).catch(() => {});
-      }
-    });
-  }, [pendingSubmissions, league, season]);
 
   const tournamentKey = LEAGUE_NAME_MAP[league] || league.replace(/_/g, " ");
 
@@ -266,6 +268,7 @@ export default function PendingFixturesModal({ league, season, onClose }) {
     return fixtures;
   }
 
+  // Symmetric check: result already in results list for this date
   function resultExists(home, away, date) {
     return results.some(r => {
       const rDate = r.date ? String(r.date).slice(0, 10) : "";
@@ -273,6 +276,7 @@ export default function PendingFixturesModal({ league, season, onClose }) {
     });
   }
 
+  // Symmetric check: pending submission exists for this date
   function pendingSubmissionExists(home, away, date) {
     return pendingSubmissions.some(p => {
       const pDate = p.date ? String(p.date).slice(0, 10) : "";
@@ -280,6 +284,7 @@ export default function PendingFixturesModal({ league, season, onClose }) {
     });
   }
 
+  // Today / yesterday calendar fixtures still needing action
   const calendarToday = getCalendarFixturesForDate(todayStr).filter(
     f => !resultExists(f.home, f.away, f.date) && !pendingSubmissionExists(f.home, f.away, f.date)
   );
@@ -287,12 +292,13 @@ export default function PendingFixturesModal({ league, season, onClose }) {
     f => !resultExists(f.home, f.away, f.date) && !pendingSubmissionExists(f.home, f.away, f.date)
   );
 
-  // Expired: past dates whose 48hr deadline passed, no result, no pending
+  // Expired: ALL dates older than yesterday whose 48hr deadline has passed, no result/pending
   const expiredFixtures = [];
   for (const [dateStr, dayData] of Object.entries(calendarData)) {
+    // Skip today and yesterday — they're in the sections above
     if (dateStr === todayStr || dateStr === yesterdayStr) continue;
     const dl = deadlineMsForDate(dateStr);
-    if (nowMs < dl) continue;
+    if (nowMs < dl) continue; // deadline not yet passed
     if (!dayData?.tournaments) continue;
     for (const tourn of Object.values(dayData.tournaments)) {
       if (!(tourn?.name || "").toLowerCase().includes(tournamentKey)) continue;
@@ -304,21 +310,42 @@ export default function PendingFixturesModal({ league, season, onClose }) {
       }
     }
   }
+  // Sort expired oldest first
   expiredFixtures.sort((a, b) => a.date.localeCompare(b.date));
 
-  // Pending submissions grouped by date — exclude any already auto-deleted (age > 24h)
+  // Filter out admin-dismissed expired fixtures
+  const visibleExpiredFixtures = expiredFixtures.filter(f => {
+    const key = `${f.date}_${f.home}_${f.away}`.replace(/[^a-zA-Z0-9_]/g, "_");
+    return !dismissedExpired[key];
+  });
+
+  // Pending submissions grouped by date
   const submissionsToday = pendingSubmissions.filter(p => {
     const pDate = p.date ? String(p.date).slice(0, 10) : "";
-    const age = nowMs - (p.submittedAt || 0);
-    return pDate === todayStr && age <= PENDING_TTL_MS;
+    return pDate === todayStr;
   });
   const submissionsYesterday = pendingSubmissions.filter(p => {
     const pDate = p.date ? String(p.date).slice(0, 10) : "";
-    const age = nowMs - (p.submittedAt || 0);
-    return pDate === yesterdayStr && age <= PENDING_TTL_MS;
+    return pDate === yesterdayStr;
   });
 
+
+
   // ── Handlers ──────────────────────────────────────────────────────────────
+  async function handleDeleteExpired(fixture) {
+    if (!window.confirm(`Delete expired fixture ${fixture.home} vs ${fixture.away} from the pending list?
+
+This only removes it from pending — the calendar fixture is kept.`)) return;
+    // Expired calendar fixtures are not stored in Firebase pending list —
+    // they come from calendarEvents which we never delete.
+    // So "delete" here just means we mark it dismissed in a local dismissed set.
+    // We store dismissals in career_{league}_settings/dismissedExpired
+    const key = `${fixture.date}_${fixture.home}_${fixture.away}`.replace(/[^a-zA-Z0-9_]/g, "_");
+    try {
+      await set(ref(db, `career_${league}_settings/dismissedExpired/${key}`), true);
+    } catch (e) { alert("Error: " + e.message); }
+  }
+
   async function handleNoContestCalendar(fixture) {
     if (!window.confirm(`Declare No Contest for ${fixture.home} vs ${fixture.away}?\n\nBoth teams receive a loss. This cannot be undone.`)) return;
     setDeclaring(fixture.key);
@@ -370,7 +397,7 @@ export default function PendingFixturesModal({ league, season, onClose }) {
 
   const totalToday     = calendarToday.length + submissionsToday.length;
   const totalYesterday = calendarYesterday.length + submissionsYesterday.length;
-  const hasAnything    = totalToday > 0 || totalYesterday > 0 || expiredFixtures.length > 0;
+  const hasAnything    = totalToday > 0 || totalYesterday > 0 || visibleExpiredFixtures.length > 0;
 
   if (loading) return (
     <div>
@@ -381,6 +408,7 @@ export default function PendingFixturesModal({ league, season, onClose }) {
 
   return (
     <div>
+      {/* Header */}
       <div style={{ marginBottom: 20 }}>
         <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", margin: 0 }}>
           ⏳ Pending Results
@@ -472,17 +500,18 @@ export default function PendingFixturesModal({ league, season, onClose }) {
       )}
 
       {/* ── EXPIRED ── */}
-      {expiredFixtures.length > 0 && (
+      {visibleExpiredFixtures.length > 0 && (
         <div style={{ marginBottom: 16 }}>
-          <SectionLabel badge={expiredFixtures.length} color="#ff4444">⌛ EXPIRED — No Result Uploaded</SectionLabel>
+          <SectionLabel badge={visibleExpiredFixtures.length} color="#ff4444">⌛ EXPIRED — No Result Uploaded</SectionLabel>
           <div style={{ color: "rgba(255,100,100,0.6)", fontSize: "0.78rem", marginBottom: 12 }}>
             These fixtures are from past matchdays whose 48hr deadline has passed with no result recorded.
           </div>
-          {expiredFixtures.map(f => (
+          {visibleExpiredFixtures.map(f => (
             <ExpiredFixtureCard
               key={f.key + f.date}
               fixture={f}
               onNoContest={handleNoContestCalendar}
+              onDelete={handleDeleteExpired}
               declaring={declaring}
             />
           ))}
