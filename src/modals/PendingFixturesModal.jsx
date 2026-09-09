@@ -194,12 +194,14 @@ function SectionLabel({ children, badge, color = "#FF1493" }) {
 
 // ── Symmetric team pair check ─────────────────────────────────────────────────
 function teamsMatch(a, b, c, d) {
-  // (a vs b) matches (c vs d) regardless of home/away order
   return (
     (a.toLowerCase() === c.toLowerCase() && b.toLowerCase() === d.toLowerCase()) ||
     (a.toLowerCase() === d.toLowerCase() && b.toLowerCase() === c.toLowerCase())
   );
 }
+
+// 24 hours in ms
+const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
 
 // ── Main Modal ────────────────────────────────────────────────────────────────
 export default function PendingFixturesModal({ league, season, onClose }) {
@@ -231,6 +233,20 @@ export default function PendingFixturesModal({ league, season, onClose }) {
     return () => unsubs.forEach(u => u());
   }, [league, season]);
 
+  // ── Auto-delete pending submissions older than 24 hours ───────────────────
+  // Runs whenever pendingSubmissions changes. Silently removes expired ones
+  // from the pending list — does NOT touch calendar fixtures or results.
+  useEffect(() => {
+    if (pendingSubmissions.length === 0) return;
+    const now = Date.now();
+    pendingSubmissions.forEach(item => {
+      const age = now - (item.submittedAt || 0);
+      if (age > PENDING_TTL_MS) {
+        remove(ref(db, `${PATHS.pendingResults(league, season)}/${item.key}`)).catch(() => {});
+      }
+    });
+  }, [pendingSubmissions, league, season]);
+
   const tournamentKey = LEAGUE_NAME_MAP[league] || league.replace(/_/g, " ");
 
   // Get calendar fixtures for a specific date string
@@ -250,7 +266,6 @@ export default function PendingFixturesModal({ league, season, onClose }) {
     return fixtures;
   }
 
-  // Symmetric check: result already in results list for this date
   function resultExists(home, away, date) {
     return results.some(r => {
       const rDate = r.date ? String(r.date).slice(0, 10) : "";
@@ -258,7 +273,6 @@ export default function PendingFixturesModal({ league, season, onClose }) {
     });
   }
 
-  // Symmetric check: pending submission exists for this date
   function pendingSubmissionExists(home, away, date) {
     return pendingSubmissions.some(p => {
       const pDate = p.date ? String(p.date).slice(0, 10) : "";
@@ -266,7 +280,6 @@ export default function PendingFixturesModal({ league, season, onClose }) {
     });
   }
 
-  // Today / yesterday calendar fixtures still needing action
   const calendarToday = getCalendarFixturesForDate(todayStr).filter(
     f => !resultExists(f.home, f.away, f.date) && !pendingSubmissionExists(f.home, f.away, f.date)
   );
@@ -274,13 +287,12 @@ export default function PendingFixturesModal({ league, season, onClose }) {
     f => !resultExists(f.home, f.away, f.date) && !pendingSubmissionExists(f.home, f.away, f.date)
   );
 
-  // Expired: ALL dates older than yesterday whose 48hr deadline has passed, no result/pending
+  // Expired: past dates whose 48hr deadline passed, no result, no pending
   const expiredFixtures = [];
   for (const [dateStr, dayData] of Object.entries(calendarData)) {
-    // Skip today and yesterday — they're in the sections above
     if (dateStr === todayStr || dateStr === yesterdayStr) continue;
     const dl = deadlineMsForDate(dateStr);
-    if (nowMs < dl) continue; // deadline not yet passed
+    if (nowMs < dl) continue;
     if (!dayData?.tournaments) continue;
     for (const tourn of Object.values(dayData.tournaments)) {
       if (!(tourn?.name || "").toLowerCase().includes(tournamentKey)) continue;
@@ -292,20 +304,19 @@ export default function PendingFixturesModal({ league, season, onClose }) {
       }
     }
   }
-  // Sort expired oldest first
   expiredFixtures.sort((a, b) => a.date.localeCompare(b.date));
 
-  // Pending submissions grouped by date
+  // Pending submissions grouped by date — exclude any already auto-deleted (age > 24h)
   const submissionsToday = pendingSubmissions.filter(p => {
     const pDate = p.date ? String(p.date).slice(0, 10) : "";
-    return pDate === todayStr;
+    const age = nowMs - (p.submittedAt || 0);
+    return pDate === todayStr && age <= PENDING_TTL_MS;
   });
   const submissionsYesterday = pendingSubmissions.filter(p => {
     const pDate = p.date ? String(p.date).slice(0, 10) : "";
-    return pDate === yesterdayStr;
+    const age = nowMs - (p.submittedAt || 0);
+    return pDate === yesterdayStr && age <= PENDING_TTL_MS;
   });
-
-
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   async function handleNoContestCalendar(fixture) {
@@ -370,7 +381,6 @@ export default function PendingFixturesModal({ league, season, onClose }) {
 
   return (
     <div>
-      {/* Header */}
       <div style={{ marginBottom: 20 }}>
         <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", margin: 0 }}>
           ⏳ Pending Results
