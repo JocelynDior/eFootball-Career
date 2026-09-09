@@ -15,6 +15,11 @@ import ChampionsLeaguePage from "./pages/ChampionsLeaguePage";
 import EuropaLeaguePage from "./pages/EuropaLeaguePage";
 import ClubWorldCupPage from "./pages/ClubWorldCupPage";
 import SuperCupPage from "./pages/SuperCupPage";
+import FACupPage from "./pages/FACupPage";
+import CopaDelReyPage from "./pages/CopaDelReyPage";
+import CoppaItaliaPage from "./pages/CoppaItaliaPage";
+import DFBPokalPage from "./pages/DFBPokalPage";
+import CoupeeDeFrancePage from "./pages/CoupesDeFrancePage";
 import CreateAccountPage from "./pages/CreateAccountPage";
 import TransferMarketPage from "./pages/TransferMarketPage";
 import TeamManagementPage from "./pages/TeamManagementPage";
@@ -43,27 +48,22 @@ const INACTIVE_FLAG_KEY = "careerInactiveAt";
 
 // ── Image preloader: warms browser cache from localStorage on app start ──────
 function preloadCachedImages() {
-  // League icons
   try {
     const icons = JSON.parse(localStorage.getItem("careerLeagueImages") || "{}");
     Object.values(icons).forEach(url => { if (url) { const img = new Image(); img.src = url; } });
   } catch {}
-
-  // Headline images
   try {
     const headlines = JSON.parse(localStorage.getItem("careerHeadlineImages") || "[]");
     headlines.forEach(url => { if (url) { const img = new Image(); img.src = url; } });
   } catch {}
 }
 
-// Run once immediately when the module loads
 preloadCachedImages();
 
 function InactivityWatcher() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Check if user was previously flagged as inactive — redirect them home
     const inactiveAt = localStorage.getItem(INACTIVE_FLAG_KEY);
     if (inactiveAt) {
       localStorage.removeItem(INACTIVE_FLAG_KEY);
@@ -73,22 +73,18 @@ function InactivityWatcher() {
 
   useEffect(() => {
     let timer;
-
     const reset = () => {
       clearTimeout(timer);
       timer = setTimeout(() => {
-        // Save the timestamp so next visit picks it up and redirects home
         localStorage.setItem(INACTIVE_FLAG_KEY, Date.now().toString());
       }, INACTIVITY_LIMIT);
     };
-
     const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "click"];
-    events.forEach((e) => window.addEventListener(e, reset));
+    events.forEach(e => window.addEventListener(e, reset));
     reset();
-
     return () => {
       clearTimeout(timer);
-      events.forEach((e) => window.removeEventListener(e, reset));
+      events.forEach(e => window.removeEventListener(e, reset));
     };
   }, []);
 
@@ -103,29 +99,42 @@ function AppInner() {
       <InactivityWatcher />
       <Routes>
         <Route path="/" element={<FeedPage />} />
+
+        {/* ── Domestic Leagues ── */}
         <Route path="/premier-league" element={<PremierLeaguePage />} />
-        <Route path="/la-liga" element={<LaLigaPage />} />
-        <Route path="/serie-a" element={<SerieAPage />} />
-        <Route path="/bundesliga" element={<BundesligaPage />} />
-        <Route path="/ligue-1" element={<Ligue1Page />} />
+        <Route path="/la-liga"        element={<LaLigaPage />} />
+        <Route path="/serie-a"        element={<SerieAPage />} />
+        <Route path="/bundesliga"     element={<BundesligaPage />} />
+        <Route path="/ligue-1"        element={<Ligue1Page />} />
+
+        {/* ── Domestic Cups ── */}
+        <Route path="/fa-cup"         element={<FACupPage />} />
+        <Route path="/copa-del-rey"   element={<CopaDelReyPage />} />
+        <Route path="/coppa-italia"   element={<CoppaItaliaPage />} />
+        <Route path="/dfb-pokal"      element={<DFBPokalPage />} />
+        <Route path="/coupe-de-france" element={<CoupeeDeFrancePage />} />
+
+        {/* ── European / Global ── */}
         <Route path="/champions-league" element={<ChampionsLeaguePage />} />
-        <Route path="/europa-league" element={<EuropaLeaguePage />} />
-        <Route path="/club-world-cup" element={<ClubWorldCupPage />} />
-        <Route path="/super-cup" element={<SuperCupPage />} />
-        <Route path="/create-account" element={<CreateAccountPage />} />
-        <Route path="/transfer-market" element={<TransferMarketPage />} />
-        <Route path="/team-management" element={<TeamManagementPage />} />
-        <Route path="/calendar" element={<CalendarPage />} />
-        <Route path="/manager-rankings" element={<ManagerRankingsPage />} />
-        <Route path="/terms" element={<TermsOfServicePage />} />
-        <Route path="/privacy" element={<PrivacyPolicyPage />} />
-        <Route path="/admin-calendar" element={<AdminCalendarPage />} />
-        <Route path="/manager-profile" element={<ManagerProfilePage />} />
-        <Route path="/admin-profile" element={<AdminProfilePage />} />
-        <Route path="/rivals-squads" element={<RivalsSquadPage />} />
-        <Route path="/squad" element={<SquadPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/rules-tutorials" element={<RulesAndTutorialsPage />} />
+        <Route path="/europa-league"    element={<EuropaLeaguePage />} />
+        <Route path="/club-world-cup"   element={<ClubWorldCupPage />} />
+        <Route path="/super-cup"        element={<SuperCupPage />} />
+
+        {/* ── Other Pages ── */}
+        <Route path="/create-account"    element={<CreateAccountPage />} />
+        <Route path="/transfer-market"   element={<TransferMarketPage />} />
+        <Route path="/team-management"   element={<TeamManagementPage />} />
+        <Route path="/calendar"          element={<CalendarPage />} />
+        <Route path="/manager-rankings"  element={<ManagerRankingsPage />} />
+        <Route path="/terms"             element={<TermsOfServicePage />} />
+        <Route path="/privacy"           element={<PrivacyPolicyPage />} />
+        <Route path="/admin-calendar"    element={<AdminCalendarPage />} />
+        <Route path="/manager-profile"   element={<ManagerProfilePage />} />
+        <Route path="/admin-profile"     element={<AdminProfilePage />} />
+        <Route path="/rivals-squads"     element={<RivalsSquadPage />} />
+        <Route path="/squad"             element={<SquadPage />} />
+        <Route path="/settings"          element={<SettingsPage />} />
+        <Route path="/rules-tutorials"   element={<RulesAndTutorialsPage />} />
       </Routes>
       <BottomNavBar />
     </>
