@@ -7,7 +7,6 @@ import { useAdmin } from "../context/AdminContext";
 import { uploadToImgBB } from "../utils/imgUpload";
 
 // ── League → tournament name mapping ──────────────────────────────────────────
-// Keys match the LEAGUE constants used in each page
 const LEAGUE_TOURNAMENT = {
   premier: "premier league",
   seriea:  "serie a",
@@ -78,35 +77,6 @@ async function updateTopStat(league, season, pathKey, playerName, count, team) {
   }
 }
 
-// ── Detect home/away from calendar fixtures (today + yesterday, SAST) ─────────
-// Returns { homeTeam, awayTeam } from the fixture record — pair order is truth.
-// Falls back to { homeTeam: myTeam, awayTeam: opponent } if no fixture found.
-async function detectHomeAway(league, myTeam, opponent) {
-  const tournamentName = LEAGUE_TOURNAMENT[league] || "";
-  const todayStr     = getSASTDateStr(0);
-  const yesterdayStr = getSASTDateStr(-1);
-
-  const snap = await get(ref(db, "career_calendarEvents"));
-  const data = snap.val() || {};
-
-  for (const dateStr of [todayStr, yesterdayStr]) {
-    const dateData = data[dateStr];
-    if (!dateData?.tournaments) continue;
-    for (const tourn of Object.values(dateData.tournaments)) {
-      if (!tourn?.name) continue;
-      if (!tourn.name.trim().toLowerCase().includes(tournamentName)) continue;
-      for (const fix of Object.values(tourn.fixtures || {})) {
-        if (!fix?.home || !fix?.away) continue;
-        const pair =
-          (fix.home.toLowerCase() === myTeam.toLowerCase() && fix.away.toLowerCase() === opponent.toLowerCase()) ||
-          (fix.home.toLowerCase() === opponent.toLowerCase() && fix.away.toLowerCase() === myTeam.toLowerCase());
-        if (pair) return { homeTeam: fix.home, awayTeam: fix.away };
-      }
-    }
-  }
-  return { homeTeam: myTeam, awayTeam: opponent };
-}
-
 // ── Check for existing result (symmetric team pair) ───────────────────────────
 async function findExistingResult(league, season, myTeam, opponent, matchday) {
   const snap = await get(ref(db, PATHS.results(league, season)));
@@ -114,8 +84,8 @@ async function findExistingResult(league, season, myTeam, opponent, matchday) {
   for (const [key, val] of Object.entries(data)) {
     if (String(val.md) !== String(matchday)) continue;
     const sameTeams =
-      (val.homeTeam === myTeam && val.awayTeam === opponent) ||
-      (val.homeTeam === opponent && val.awayTeam === myTeam);
+      (val.homeTeam?.toLowerCase() === myTeam.toLowerCase() && val.awayTeam?.toLowerCase() === opponent.toLowerCase()) ||
+      (val.homeTeam?.toLowerCase() === opponent.toLowerCase() && val.awayTeam?.toLowerCase() === myTeam.toLowerCase());
     if (sameTeams) return { key, ...val };
   }
   return null;
@@ -170,54 +140,6 @@ function CountPicker({ label, value, onChange }) {
       <button onClick={() => onChange(Math.max(1, value - 1))} style={{ width: 34, height: 34, borderRadius: "50%", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", fontSize: "1.2rem", cursor: "pointer" }}>−</button>
       <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", color: "#FF1493", minWidth: 30, textAlign: "center" }}>{value}</span>
       <button onClick={() => onChange(value + 1)} style={{ width: 34, height: 34, borderRadius: "50%", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", fontSize: "1.2rem", cursor: "pointer" }}>+</button>
-    </div>
-  );
-}
-
-// ── Matchday picker — two buttons driven by the page countdown numbers ─────────
-function MatchdayPicker({ matchday, setMatchday, prevMatchday, currMatchday }) {
-  return (
-    <div style={{ marginBottom: 14 }}>
-      <label style={labelStyle}>Matchday <span style={{ color: "#ff6b6b" }}>*</span></label>
-      <div style={{ display: "flex", gap: 10 }}>
-        <button
-          onClick={() => setMatchday(prevMatchday != null ? String(prevMatchday) : "")}
-          style={{
-            flex: 1, padding: "14px 10px", borderRadius: 12, cursor: "pointer",
-            border: `2px solid ${matchday === String(prevMatchday) ? "#FF1493" : "rgba(255,20,147,0.3)"}`,
-            background: matchday === String(prevMatchday) ? "rgba(255,20,147,0.18)" : "rgba(255,255,255,0.04)",
-            color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.1rem", letterSpacing: 1,
-            display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
-          }}
-        >
-          <span style={{ fontSize: "1.3rem" }}>⏮</span>
-          <span>PREVIOUS</span>
-          <span style={{ color: matchday === String(prevMatchday) ? "#FF1493" : "rgba(255,255,255,0.5)", fontSize: "1.4rem" }}>
-            {prevMatchday != null ? `MD ${prevMatchday}` : "—"}
-          </span>
-        </button>
-        <button
-          onClick={() => setMatchday(currMatchday != null ? String(currMatchday) : "")}
-          style={{
-            flex: 1, padding: "14px 10px", borderRadius: 12, cursor: "pointer",
-            border: `2px solid ${matchday === String(currMatchday) ? "#a855f7" : "rgba(168,85,247,0.3)"}`,
-            background: matchday === String(currMatchday) ? "rgba(168,85,247,0.18)" : "rgba(255,255,255,0.04)",
-            color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.1rem", letterSpacing: 1,
-            display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
-          }}
-        >
-          <span style={{ fontSize: "1.3rem" }}>📅</span>
-          <span>CURRENT</span>
-          <span style={{ color: matchday === String(currMatchday) ? "#a855f7" : "rgba(255,255,255,0.5)", fontSize: "1.4rem" }}>
-            {currMatchday != null ? `MD ${currMatchday}` : "—"}
-          </span>
-        </button>
-      </div>
-      {matchday && (
-        <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.78rem", marginTop: 6, textAlign: "center" }}>
-          Selected: <strong style={{ color: "#fff" }}>Matchday {matchday}</strong>
-        </div>
-      )}
     </div>
   );
 }
@@ -477,7 +399,7 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
   const [date,       setDate]       = useState(getSASTToday());
 
   // Fixtures from pending sections (today + yesterday) for opponent card selection
-  const [myFixtures, setMyFixtures] = useState([]); // [{opponent, home, away, date, matchday, slot}]
+  const [myFixtures, setMyFixtures] = useState([]);
   const [fixturesLoading, setFixturesLoading] = useState(true);
 
   const [scorers,  setScorers]  = useState([]);
@@ -502,8 +424,6 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
   const [saving,     setSaving]     = useState(false);
   const [status,     setStatus]     = useState("");
   const [confirming, setConfirming] = useState(false);
-
-  const others = teams.filter(t => t.name !== myTeam).map(t => t.name).sort();
 
   // Load existing scorers/assists for player picker
   useEffect(() => {
@@ -544,7 +464,7 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
               home: fix.home,
               away: fix.away,
               date: dateStr,
-              slot, // "current" or "previous"
+              slot,
             });
           }
         }
@@ -554,22 +474,6 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
     });
     return () => unsub();
   }, [myTeam, league]);
-
-  // Detect home/away as soon as opponent is selected — does NOT wait for matchday
-  useEffect(() => {
-    if (!opponent || !myTeam) {
-      setDetectedHome(null);
-      setDetectedAway(null);
-      return;
-    }
-    let cancelled = false;
-    detectHomeAway(league, myTeam, opponent).then(homeAway => {
-      if (cancelled) return;
-      setDetectedHome(homeAway.homeTeam);
-      setDetectedAway(homeAway.awayTeam);
-    });
-    return () => { cancelled = true; };
-  }, [opponent, myTeam, league]);
 
   // Check for duplicate / second manager once opponent AND matchday are both set
   useEffect(() => {
@@ -586,8 +490,8 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
       if (existing) {
         setExistingResult(existing);
         setIsSecondManager(true);
-        // Use already-set detectedHome/Away to fill scores correctly
-        const iAmHome = (detectedHome || "").toLowerCase() === myTeam.toLowerCase();
+        // Lock the score display using values from the existing result
+        const iAmHome = existing.homeTeam?.toLowerCase() === myTeam.toLowerCase();
         setMyScore(iAmHome ? (existing.homeScore ?? 0) : (existing.awayScore ?? 0));
         setOppScore(iAmHome ? (existing.awayScore ?? 0) : (existing.homeScore ?? 0));
       } else {
@@ -597,7 +501,7 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
       setCheckingDuplicate(false);
     });
     return () => { cancelled = true; };
-  }, [opponent, matchday, matchType, league, season, myTeam, detectedHome]);
+  }, [opponent, matchday, matchType, league, season, myTeam]);
 
   function handleMatchImageChange(e) {
     const f = e.target.files[0]; if (!f) return;
@@ -655,8 +559,8 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
   }
 
   function handleSubmitClick() {
-    if (!opponent)  { setStatus("Please select an opponent."); return; }
-    if (!matchday)  { setStatus("Please select a matchday."); return; }
+    if (!opponent)   { setStatus("Please select an opponent."); return; }
+    if (!matchday)   { setStatus("Please select a matchday."); return; }
     if (!matchImage) { setStatus("A match image is required."); return; }
     setStatus(""); setConfirming(true);
   }
@@ -668,62 +572,113 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
       const existingNow = await findExistingResult(league, season, myTeam, opponent, matchday);
       const isSecondNow = !!existingNow;
 
-      // Use fixture-card-detected home/away — no extra calendar fetch needed
-      const homeTeam = detectedHome || myTeam;
-      const awayTeam = detectedAway || opponent;
-      const iAmHome  = homeTeam.toLowerCase() === myTeam.toLowerCase();
-
-      const isForfeit  = matchType === "forfeit";
-      const homeScore  = isForfeit ? 3 : (iAmHome ? +myScore : +oppScore);
-      const awayScore  = isForfeit ? 0 : (iAmHome ? +oppScore : +myScore);
-
-      if (!isForfeit && !isSecondNow) {
-        if (isForbiddenResult(forbiddenList, homeTeam, awayTeam, homeScore, awayScore)) {
-          setStatus("❌ Result Declined — this result has been flagged as forbidden by the admin.");
-          setSaving(false);
-          setConfirming(false);
-          return;
-        }
-      }
-
-      setStatus("Uploading match image...");
-      const matchImageUrl = await uploadToImgBB(matchImage);
-
-      const scorersData = scorers.map(s => ({ player: s.player, goals: s.goals, team: myTeam }));
-      const assistsData = assists.map(a => ({ player: a.player, assists: a.assists, team: myTeam }));
+      const isForfeit = matchType === "forfeit";
 
       if (isSecondNow && existingNow) {
-        // Second manager — only update scorers/assists and image, never touch score or table
-        setStatus("Adding your scorers to match result...");
+        // ── SECOND MANAGER: only add their scorers/assists to correct side ──
+        // Derive home/away from the stored result — NOT from local detection state
+        const iAmHome = existingNow.homeTeam?.toLowerCase() === myTeam.toLowerCase();
         const side = iAmHome ? "home" : "away";
+
+        const scorersData = scorers.map(s => ({ player: s.player, goals: s.goals, team: myTeam }));
+        const assistsData = assists.map(a => ({ player: a.player, assists: a.assists, team: myTeam }));
+
+        setStatus("Uploading match image...");
+        const matchImageUrl = await uploadToImgBB(matchImage);
+
+        setStatus("Adding your scorers to match result...");
         const existingGoalScorers = existingNow.goalScorers || { home: [], away: [] };
         const existingAssistsData = existingNow.assists    || { home: [], away: [] };
+
         await update(ref(db, `${PATHS.results(league, season)}/${existingNow.key}`), {
-          goalScorers: { ...existingGoalScorers, [side]: [...(existingGoalScorers[side] || []), ...scorersData] },
-          assists:     { ...existingAssistsData, [side]: [...(existingAssistsData[side] || []), ...assistsData] },
+          goalScorers: {
+            home: iAmHome
+              ? [...(existingGoalScorers.home || []), ...scorersData]
+              : (existingGoalScorers.home || []),
+            away: iAmHome
+              ? (existingGoalScorers.away || [])
+              : [...(existingGoalScorers.away || []), ...scorersData],
+          },
+          assists: {
+            home: iAmHome
+              ? [...(existingAssistsData.home || []), ...assistsData]
+              : (existingAssistsData.home || []),
+            away: iAmHome
+              ? (existingAssistsData.away || [])
+              : [...(existingAssistsData.away || []), ...assistsData],
+          },
           [`matchImageUrl_${side}`]: matchImageUrl,
           secondManagerSubmittedBy: manager?.uid || myTeam,
           secondManagerSubmittedAt: Date.now(),
         });
+
+        // Update top stats only — no table update
         setStatus("Updating stats...");
         for (const s of scorersData) await updateTopStat(league, season, "top_scorers",    s.player, s.goals,   myTeam);
         for (const a of assistsData) await updateTopStat(league, season, "top_assistants", a.player, a.assists, myTeam);
+
       } else {
-        // First manager — write the full result
+        // ── FIRST MANAGER: write full result ──
+        // home/away from fixture card detection; fall back to myTeam as home
+        const homeTeam = detectedHome || myTeam;
+        const awayTeam = detectedAway || opponent;
+        const iAmHome  = homeTeam.toLowerCase() === myTeam.toLowerCase();
+
+        let homeScore, awayScore, forfeitTypeStr;
+
+        if (isForfeit) {
+          // Uploader always gets the forfeit win — put winner on correct side
+          homeScore     = iAmHome ? 3 : 0;
+          awayScore     = iAmHome ? 0 : 3;
+          forfeitTypeStr = "forfeit_win";
+        } else {
+          homeScore     = iAmHome ? +myScore : +oppScore;
+          awayScore     = iAmHome ? +oppScore : +myScore;
+          forfeitTypeStr = "none";
+
+          if (isForbiddenResult(forbiddenList, homeTeam, awayTeam, homeScore, awayScore)) {
+            setStatus("❌ Result Declined — this result has been flagged as forbidden by the admin.");
+            setSaving(false);
+            setConfirming(false);
+            return;
+          }
+        }
+
+        setStatus("Uploading match image...");
+        const matchImageUrl = await uploadToImgBB(matchImage);
+
+        const scorersData = scorers.map(s => ({ player: s.player, goals: s.goals, team: myTeam }));
+        const assistsData = assists.map(a => ({ player: a.player, assists: a.assists, team: myTeam }));
+
         setStatus("Saving result...");
         await push(ref(db, PATHS.results(league, season)), {
           homeTeam, awayTeam, homeScore, awayScore,
-          forfeitType: isForfeit ? "forfeit_win" : "none",
-          matchType:   isForfeit ? "forfeit"      : "normal",
+          forfeitType: forfeitTypeStr,
+          matchType:   isForfeit ? "forfeit" : "normal",
           md: +matchday, date, matchImageUrl,
-          goalScorers: { home: iAmHome ? scorersData : [], away: iAmHome ? [] : scorersData },
-          assists:     { home: iAmHome ? assistsData : [], away: iAmHome ? [] : assistsData },
+          goalScorers: {
+            home: iAmHome ? scorersData : [],
+            away: iAmHome ? [] : scorersData,
+          },
+          assists: {
+            home: iAmHome ? assistsData : [],
+            away: iAmHome ? [] : assistsData,
+          },
           submittedBy:  manager?.uid || myTeam,
           submittedAt:  Date.now(),
           status: "approved",
         });
+
         setStatus("Updating table...");
-        await applyResultToTable(league, season, homeTeam, awayTeam, homeScore, awayScore, isForfeit ? "forfeit_win" : "none");
+        // For forfeit: always pass winner as homeTeam arg so tableLogic gives 3-0 correctly
+        if (isForfeit) {
+          const forfeitWinner = iAmHome ? homeTeam : awayTeam;
+          const forfeitLoser  = iAmHome ? awayTeam : homeTeam;
+          await applyResultToTable(league, season, forfeitWinner, forfeitLoser, 3, 0, "forfeit_win");
+        } else {
+          await applyResultToTable(league, season, homeTeam, awayTeam, homeScore, awayScore, "none");
+        }
+
         if (!isForfeit) {
           setStatus("Updating stats...");
           for (const s of scorersData) await updateTopStat(league, season, "top_scorers",    s.player, s.goals,   myTeam);
@@ -822,9 +777,15 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
 
   // ── Confirmation screen ───────────────────────────────────────────────────
   if (confirming) {
-    const homeDisplay = detectedHome || myTeam;
-    const awayDisplay = detectedAway || opponent;
+    // For display: use existing result's home/away if 2nd manager, else detected
+    const homeDisplay = isSecondManager && existingResult
+      ? existingResult.homeTeam
+      : (detectedHome || myTeam);
+    const awayDisplay = isSecondManager && existingResult
+      ? existingResult.awayTeam
+      : (detectedAway || opponent);
     const iAmHome = homeDisplay.toLowerCase() === myTeam.toLowerCase();
+
     return (
       <div>
         <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: 20, textAlign: "center" }}>⚠️ Confirm Submission</h3>
@@ -858,7 +819,7 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
           )}
           {isSecondManager && (
             <div style={{ marginTop: 10, background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: 10, padding: "8px 14px", color: "#22c55e", fontSize: "0.85rem" }}>
-              ✅ Score auto-filled. Table will NOT be updated again.
+              ✅ Score locked from first submission. Table will NOT be updated again.
             </div>
           )}
         </div>
@@ -892,7 +853,7 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
         <div style={{ background: "rgba(255,20,147,0.1)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, padding: "12px 16px", marginBottom: 16, color: "#FF1493", fontWeight: 700 }}>
           Your Team: {myTeam}
         </div>
-        {/* Fixture cards — opponent selection */}
+
         <label style={labelStyle}>Select Your Fixture</label>
         {fixturesLoading ? (
           <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.85rem", marginBottom: 14 }}>Loading fixtures...</div>
@@ -931,7 +892,6 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
           </div>
         )}
 
-        {/* Static matchday label */}
         {matchday && (
           <div style={{ background: "rgba(255,20,147,0.08)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 10, padding: "10px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: 1 }}>Matchday</span>
@@ -953,11 +913,12 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
             </label>
           )}
         </div>
+
         {status && <div style={{ color: "#ff6b6b", fontSize: "0.85rem", margin: "12px 0", textAlign: "center" }}>{status}</div>}
         <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
           <button onClick={() => {
-            if (!opponent)  { setStatus("Please select an opponent."); return; }
-            if (!matchday)  { setStatus("Please select a matchday."); return; }
+            if (!opponent)   { setStatus("Please select an opponent."); return; }
+            if (!matchday)   { setStatus("Please select a matchday."); return; }
             if (!matchImage) { setStatus("A match image is required."); return; }
             setStatus(""); setConfirming(true);
           }} style={{ flex: 1, padding: 14, background: "#FF1493", border: "none", borderRadius: 12, color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem" }}>Submit Forfeit</button>
@@ -1042,18 +1003,29 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
       )}
       {isSecondManager && existingResult && (
         <div style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.4)", borderRadius: 12, padding: "12px 16px", marginBottom: 16, color: "#22c55e", fontSize: "0.9rem", fontWeight: 600 }}>
-          ✅ Your opponent already submitted this result. Score is locked — just add your goal scorers & assists. Table will not be updated again.
+          ✅ Your opponent already submitted this result. Score is locked — just add your goal scorers & assists below. Table will not be updated again.
         </div>
       )}
 
+      {/* Score — locked for 2nd manager */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div>
           <label style={labelStyle}>Your Score</label>
-          <input type="number" min={0} value={myScore} onChange={e => setMyScore(e.target.value)} style={{ ...inputStyle, opacity: isSecondManager ? 0.5 : 1 }} disabled={isSecondManager} />
+          <input
+            type="number" min={0} value={myScore}
+            onChange={e => setMyScore(e.target.value)}
+            style={{ ...inputStyle, opacity: isSecondManager ? 0.45 : 1, pointerEvents: isSecondManager ? "none" : "auto" }}
+            disabled={isSecondManager}
+          />
         </div>
         <div>
           <label style={labelStyle}>Opponent Score</label>
-          <input type="number" min={0} value={oppScore} onChange={e => setOppScore(e.target.value)} style={{ ...inputStyle, opacity: isSecondManager ? 0.5 : 1 }} disabled={isSecondManager} />
+          <input
+            type="number" min={0} value={oppScore}
+            onChange={e => setOppScore(e.target.value)}
+            style={{ ...inputStyle, opacity: isSecondManager ? 0.45 : 1, pointerEvents: isSecondManager ? "none" : "auto" }}
+            disabled={isSecondManager}
+          />
         </div>
       </div>
 
@@ -1072,7 +1044,7 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
         )}
       </div>
 
-      {/* Scorers */}
+      {/* Scorers — always visible, for both managers */}
       <div style={{ borderTop: "1px solid rgba(255,20,147,0.2)", paddingTop: 16, marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
           <div style={{ color: "#fff", fontWeight: 700, fontSize: "0.95rem" }}>⚽ Goal Scorers</div>
@@ -1090,7 +1062,7 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
         </div>
       </div>
 
-      {/* Assists */}
+      {/* Assists — always visible */}
       <div style={{ borderTop: "1px solid rgba(255,20,147,0.2)", paddingTop: 16, marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
           <div style={{ color: "#fff", fontWeight: 700, fontSize: "0.95rem" }}>🎯 Assists</div>
