@@ -27,29 +27,21 @@ export async function applyResultToTable(league, season, homeTeam, awayTeam, hom
     ad.l   = (ad.l  || 0) + 1;
     // GS / GC / GD unchanged — no goals scored in a no-contest
   } else if (forfeitType === 'forfeit_win') {
-    // Home team is always the winner when a forfeit_win is submitted
-    hd.p   = (hd.p  || 0) + 1;
-    hd.w   = (hd.w  || 0) + 1;
-    hd.pts = (hd.pts || 0) + 3;
-    hd.gs  = (hd.gs  || 0) + 3;
-    hd.gc  = (hd.gc  || 0);       // winner concedes 0
-    hd.gd  = (hd.gs  || 0) - (hd.gc  || 0); // recalculate from stored gs/gc
+    // homeTeam is always the forfeit winner (caller must pass winner as homeTeam)
+    hd.p   = (hd.p   || 0) + 1;
+    hd.w   = (hd.w   || 0) + 1;
+    hd.pts = (hd.pts  || 0) + 3;
+    hd.gs  = (hd.gs   || 0) + 3;
+    // gc unchanged — winner concedes 0
+    hd.gd  = (hd.gd   || 0) + 3;
 
-    ad.p   = (ad.p  || 0) + 1;
-    ad.l   = (ad.l  || 0) + 1;
-    ad.gc  = (ad.gc  || 0) + 3;
-    ad.gs  = (ad.gs  || 0);       // loser scores 0
-    ad.gd  = (ad.gs  || 0) - (ad.gc  || 0); // recalculate from stored gs/gc
-
-    // Overwrite gd with the delta applied correctly
-    hd.gd = ((hd.gd !== undefined ? hd.gd : 0));
-    // Simpler: accumulate the delta
-    const prevHd = homeEntry.data;
-    const prevAd = awayEntry.data;
-    hd.gd = (prevHd.gd || 0) + 3;
-    ad.gd = (prevAd.gd || 0) - 3;
+    ad.p   = (ad.p   || 0) + 1;
+    ad.l   = (ad.l   || 0) + 1;
+    ad.gc  = (ad.gc   || 0) + 3;
+    // gs unchanged — loser scores 0
+    ad.gd  = (ad.gd   || 0) - 3;
   } else {
-    // Normal match — accumulate all stats
+    // Normal match
     const hScore = Number(homeScore);
     const aScore = Number(awayScore);
 
@@ -108,15 +100,15 @@ export async function reverseResultFromTable(league, season, homeTeam, awayTeam,
     ad.p = Math.max(0, (ad.p || 0) - 1);
     ad.l = Math.max(0, (ad.l || 0) - 1);
   } else if (forfeitType === 'forfeit_win') {
-    hd.p   = Math.max(0, (hd.p  || 0) - 1);
-    hd.w   = Math.max(0, (hd.w  || 0) - 1);
-    hd.pts = Math.max(0, (hd.pts || 0) - 3);
-    hd.gs  = Math.max(0, (hd.gs  || 0) - 3);
+    hd.p   = Math.max(0, (hd.p   || 0) - 1);
+    hd.w   = Math.max(0, (hd.w   || 0) - 1);
+    hd.pts = Math.max(0, (hd.pts  || 0) - 3);
+    hd.gs  = Math.max(0, (hd.gs   || 0) - 3);
     hd.gd  = (hd.gd  || 0) - 3;
 
-    ad.p   = Math.max(0, (ad.p  || 0) - 1);
-    ad.l   = Math.max(0, (ad.l  || 0) - 1);
-    ad.gc  = Math.max(0, (ad.gc  || 0) - 3);
+    ad.p   = Math.max(0, (ad.p   || 0) - 1);
+    ad.l   = Math.max(0, (ad.l   || 0) - 1);
+    ad.gc  = Math.max(0, (ad.gc   || 0) - 3);
     ad.gd  = (ad.gd  || 0) + 3;
   } else {
     const hScore = Number(homeScore);
