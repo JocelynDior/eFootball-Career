@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { useAdmin } from "../context/AdminContext";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 const menuItems = [
   { label: "💸 Transfer Market", path: "/transfer-market" },
@@ -19,6 +19,32 @@ export default function SideMenu({ open, onClose }) {
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [keyInput, setKeyInput] = useState("");
   const [keyError, setKeyError] = useState("");
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [isInstalled, setIsInstalled] = useState(false);
+
+  useEffect(() => {
+    const handler = (e) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+    window.addEventListener("beforeinstallprompt", handler);
+    window.addEventListener("appinstalled", () => setIsInstalled(true));
+    // Check if already installed
+    if (window.matchMedia("(display-mode: standalone)").matches) {
+      setIsInstalled(true);
+    }
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
+  async function handleInstall() {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    if (outcome === "accepted") {
+      setInstallPrompt(null);
+      setIsInstalled(true);
+    }
+  }
 
   const adminProfile = (() => {
     try { return JSON.parse(localStorage.getItem("careerAdminProfile") || "{}"); } catch { return {}; }
@@ -211,6 +237,31 @@ export default function SideMenu({ open, onClose }) {
                 e.currentTarget.style.transform = "translateX(0)";
               }}
             >🚪 Sign Out</div>
+          )}
+
+          {/* ── Install App ── */}
+          {!isInstalled && installPrompt && (
+            <div
+              onClick={handleInstall}
+              style={{
+                padding: "32px 36px", margin: "12px 0",
+                background: "rgba(255,20,147,0.1)",
+                border: "1px solid rgba(255,20,147,0.4)",
+                borderRadius: "20px", cursor: "pointer", color: "#fff",
+                fontWeight: 700, fontSize: "2.8rem", transition: "all 0.2s",
+                display: "flex", alignItems: "center", gap: "16px",
+              }}
+              onMouseOver={e => {
+                e.currentTarget.style.background = "rgba(255,20,147,0.22)";
+                e.currentTarget.style.transform = "translateX(6px)";
+              }}
+              onMouseOut={e => {
+                e.currentTarget.style.background = "rgba(255,20,147,0.1)";
+                e.currentTarget.style.transform = "translateX(0)";
+              }}
+            >
+              📲 Install App
+            </div>
           )}
 
           {/* ── Admin toggle ── */}
