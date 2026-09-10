@@ -22,6 +22,8 @@ export default function SideMenu({ open, onClose }) {
   const [installPrompt, setInstallPrompt] = useState(null);
   const [isInstalled, setIsInstalled] = useState(false);
 
+  const [pwaChecks, setPwaChecks] = useState(null);
+
   useEffect(() => {
     const handler = (e) => {
       e.preventDefault();
@@ -29,10 +31,56 @@ export default function SideMenu({ open, onClose }) {
     };
     window.addEventListener("beforeinstallprompt", handler);
     window.addEventListener("appinstalled", () => setIsInstalled(true));
-    // Check if already installed
     if (window.matchMedia("(display-mode: standalone)").matches) {
       setIsInstalled(true);
     }
+
+    // Run diagnostics
+    const checks = [];
+
+    // HTTPS
+    checks.push({
+      label: "HTTPS",
+      ok: location.protocol === "https:" || location.hostname === "localhost",
+      detail: location.protocol === "https:" ? location.origin : `❌ Running on ${location.protocol}`
+    });
+
+    // Service Worker
+    checks.push({
+      label: "Service Worker",
+      ok: "serviceWorker" in navigator,
+      detail: "serviceWorker" in navigator ? "Supported" : "❌ Not supported in this browser"
+    });
+
+    // SW registered
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.getRegistration().then(reg => {
+        setPwaChecks(prev => prev ? prev.map(c =>
+          c.label === "SW Registered"
+            ? { ...c, ok: !!reg, detail: reg ? `✅ Scope: ${reg.scope}` : "❌ No SW registered" }
+            : c
+        ) : null);
+      });
+      checks.push({ label: "SW Registered", ok: null, detail: "Checking…" });
+    }
+
+    // Manifest
+    const manifestLink = document.querySelector('link[rel="manifest"]');
+    checks.push({
+      label: "Manifest linked",
+      ok: !!manifestLink,
+      detail: manifestLink ? `✅ ${manifestLink.href}` : "❌ No <link rel=manifest> found"
+    });
+
+    // Already installed
+    checks.push({
+      label: "Display mode",
+      ok: true,
+      detail: window.matchMedia("(display-mode: standalone)").matches ? "standalone (already installed)" : "browser tab"
+    });
+
+    setPwaChecks(checks);
+
     return () => window.removeEventListener("beforeinstallprompt", handler);
   }, []);
 
@@ -263,8 +311,23 @@ export default function SideMenu({ open, onClose }) {
             >
               📲 Install App
               {!installPrompt && (
-                <div style={{ fontSize: "1.5rem", color: "rgba(255,255,255,0.5)", fontWeight: 400, marginTop: "8px" }}>
-                  Tap Chrome menu (⋮) → "Add to Home Screen"
+                <div style={{ fontSize: "1.5rem", fontWeight: 400, marginTop: "12px" }}>
+                  <div style={{ color: "#FF1493", marginBottom: "10px" }}>⚠️ Install not ready — diagnostics:</div>
+                  {pwaChecks ? pwaChecks.map((c, i) => (
+                    <div key={i} style={{
+                      padding: "8px 12px", marginBottom: "6px",
+                      background: "rgba(0,0,0,0.3)", borderRadius: "10px",
+                      borderLeft: `3px solid ${c.ok === null ? "#888" : c.ok ? "#00ff88" : "#ff4444"}`
+                    }}>
+                      <span style={{ color: c.ok === null ? "#888" : c.ok ? "#00ff88" : "#ff4444" }}>
+                        {c.ok === null ? "⏳" : c.ok ? "✅" : "❌"} {c.label}
+                      </span>
+                      <div style={{ color: "rgba(255,255,255,0.5)", marginTop: "2px" }}>{c.detail}</div>
+                    </div>
+                  )) : <div style={{ color: "rgba(255,255,255,0.4)" }}>Running checks…</div>}
+                  <div style={{ color: "rgba(255,255,255,0.35)", marginTop: "10px", fontSize: "1.3rem" }}>
+                    Also check: Chrome must have visited the site at least twice, and the app must pass all manifest checks.
+                  </div>
                 </div>
               )}
             </div>
