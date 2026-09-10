@@ -170,13 +170,15 @@ function AuctionGridCard({ player, onClick, bidCount }) {
         ) : (
           <div style={{ width: "70%", height: "70%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "4rem" }}>⚽</div>
         )}
-        <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "3px" }}>✅ SOLD</div>
-        </div>
+        {player.listedBy && (
+          <div style={{ position: "absolute", top: "10px", right: "10px", background: "rgba(0,0,0,0.7)", borderRadius: "8px", padding: "4px 10px", color: "rgba(255,255,255,0.7)", fontSize: "0.7rem", fontWeight: 700 }}>
+            by {player.listedBy}
+          </div>
+        )}
       </div>
       <div style={{ padding: "16px", flex: 1, display: "flex", flexDirection: "column", gap: "8px" }}>
-        <div style={{ color: "#fff", fontWeight: 800, fontSize: "1.1rem" }}>{player.name}</div>
-        <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem" }}>{player.value || "—"}</div>
+        <div style={{ color: "#fff", fontWeight: 800, fontSize: "2.2rem", lineHeight: 1.2 }}>{player.name}</div>
+        <div style={{ color: "rgba(255,255,255,0.55)", fontSize: "1rem" }}>{player.club || "—"}</div>
         <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.9rem" }}>
           👥 Interested Managers: <span style={{ color: "#fff", fontWeight: 700 }}>{bidCount}</span>
         </div>
@@ -200,20 +202,19 @@ function NewAuctionCard({ onClick }) {
 }
 
 function NewAuctionModal({ manager, onClose }) {
-  const [form, setForm] = useState({ name: "", club: "", nationality: "", age: "", value: "", startingBid: "", imageUrl: "" });
+  const [form, setForm] = useState({ name: "", club: "", startingBid: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   function set_(k, v) { setForm(prev => ({ ...prev, [k]: v })); }
 
   async function handleCreate() {
-    if (!form.name || !form.club || !form.startingBid) { setError("Player name, club and starting bid are required."); return; }
+    if (!form.name || !form.club || !form.startingBid) { setError("Player name, club and opening bid are required."); return; }
     setSaving(true); setError("");
     try {
       await push(ref(db, `${PATHS.transfers}/auction`), {
-        name: form.name, club: form.club, nationality: form.nationality || "",
-        age: form.age || "", value: form.value || "",
-        startingBid: parseRaw(form.startingBid), imageUrl: form.imageUrl || "",
+        name: form.name, club: form.club,
+        startingBid: parseRaw(form.startingBid),
         createdBy: manager?.username || "Admin", createdAt: Date.now(), settled: false,
       });
       onClose();
@@ -236,11 +237,7 @@ function NewAuctionModal({ manager, onClose }) {
       </div>
       {field("Player Name", "name", "e.g. Lionel Messi")}
       {field("Club", "club", "e.g. Inter Miami")}
-      {field("Nationality", "nationality", "e.g. Argentina")}
-      {field("Age", "age", "e.g. 36")}
-      {field("Market Value", "value", "e.g. €45M")}
-      {field("Starting Bid (€)", "startingBid", "e.g. 40000000", "number")}
-      {field("Image URL (optional)", "imageUrl", "https://...")}
+      {field("Opening Bid (€)", "startingBid", "e.g. 40000000", "number")}
       {error && <div style={{ color: "#ff6b6b", fontSize: "1rem", marginBottom: "16px", padding: "12px", background: "rgba(255,0,0,0.1)", borderRadius: "10px" }}>❌ {error}</div>}
       <div style={{ display: "flex", gap: "12px" }}>
         <button onClick={handleCreate} disabled={saving} style={{ flex: 2, padding: "18px", background: saving ? "rgba(255,20,147,0.3)" : "#FF1493", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.1rem", cursor: saving ? "not-allowed" : "pointer" }}>
@@ -253,7 +250,7 @@ function NewAuctionModal({ manager, onClose }) {
 }
 
 function ManagerAuctionRequestModal({ manager, onClose }) {
-  const [form, setForm] = useState({ name: "", club: "", nationality: "", age: "", value: "", startingBid: "", imageUrl: "" });
+  const [form, setForm] = useState({ name: "", club: "", startingBid: "" });
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
@@ -261,13 +258,12 @@ function ManagerAuctionRequestModal({ manager, onClose }) {
   function set_(k, v) { setForm(prev => ({ ...prev, [k]: v })); }
 
   async function handleSubmit() {
-    if (!form.name || !form.club || !form.startingBid) { setError("Player name, club and starting bid are required."); return; }
+    if (!form.name || !form.club || !form.startingBid) { setError("Player name, club and opening bid are required."); return; }
     setSaving(true); setError("");
     try {
       await push(ref(db, `${PATHS.transfers}/auctionRequests`), {
-        name: form.name, club: form.club, nationality: form.nationality || "",
-        age: form.age || "", value: form.value || "",
-        startingBid: parseRaw(form.startingBid), imageUrl: form.imageUrl || "",
+        name: form.name, club: form.club,
+        startingBid: parseRaw(form.startingBid),
         requestedBy: manager?.username || "Manager",
         requestedByUid: manager?.uid || "",
         createdAt: Date.now(), status: "pending",
@@ -299,11 +295,7 @@ function ManagerAuctionRequestModal({ manager, onClose }) {
         <>
           {field("Player Name", "name", "e.g. Lionel Messi")}
           {field("Club", "club", "e.g. Inter Miami")}
-          {field("Nationality", "nationality", "e.g. Argentina")}
-          {field("Age", "age", "e.g. 36")}
-          {field("Market Value", "value", "e.g. €45M")}
-          {field("Starting Bid (€)", "startingBid", "e.g. 40000000", "number")}
-          {field("Image URL (optional)", "imageUrl", "https://...")}
+          {field("Opening Bid (€)", "startingBid", "e.g. 40000000", "number")}
           {error && <div style={{ color: "#ff6b6b", fontSize: "1rem", marginBottom: "16px", padding: "12px", background: "rgba(255,0,0,0.1)", borderRadius: "10px" }}>❌ {error}</div>}
           <div style={{ display: "flex", gap: "12px" }}>
             <button onClick={handleSubmit} disabled={saving} style={{ flex: 2, padding: "18px", background: saving ? "rgba(255,170,0,0.3)" : "#ffaa44", border: "none", borderRadius: "14px", color: "#000", fontWeight: 700, fontSize: "1.1rem", cursor: saving ? "not-allowed" : "pointer" }}>
@@ -727,7 +719,7 @@ export default function TransferMarketPage() {
   const [auctionBids, setAuctionBids]   = useState({});
   const [negotiations, setNegotiations] = useState([]);
   const [countdowns, setCountdowns]     = useState([]);
-  const [headlineVideo, setHeadlineVideo] = useState("");
+  const [headlineImage, setHeadlineImage] = useState("");
   const [teamIcons, setTeamIcons]       = useState({});
   const [windowOpen, setWindowOpen]     = useState(true);
 
@@ -772,8 +764,8 @@ export default function TransferMarketPage() {
       const data = snap.val();
       setCountdowns(data ? Object.entries(data).map(([k, v]) => ({ id: k, ...v })) : []);
     });
-    const vidUnsub = onValue(ref(db, `${PATHS.globalSettings}/transferHeadlineVideo`), snap => {
-      if (snap.val()) setHeadlineVideo(snap.val());
+    const vidUnsub = onValue(ref(db, `${PATHS.globalSettings}/transferHeadlineImage`), snap => {
+      if (snap.val()) setHeadlineImage(snap.val());
     });
     const iconsUnsub = onValue(ref(db, `${PATHS.teamIcons}`), snap => {
       if (snap.val()) setTeamIcons(snap.val());
@@ -922,12 +914,9 @@ export default function TransferMarketPage() {
         </div>
       )}
 
-      {headlineVideo ? (
+      {headlineImage ? (
         <div style={{ position: "relative", width: "100%", aspectRatio: "16/7", overflow: "hidden" }}>
-          <video key={headlineVideo} autoPlay muted loop playsInline style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}>
-            <source src={headlineVideo} type="video/mp4" />
-            <source src={headlineVideo} type="video/webm" />
-          </video>
+          <img src={headlineImage} alt="Transfer Window" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
           <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "60%", background: "linear-gradient(to top, rgba(0,0,20,0.75), transparent)", pointerEvents: "none" }} />
           <div style={{ position: "absolute", bottom: "20px", left: "20px", color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "3px", textShadow: "0 2px 12px rgba(0,0,0,0.8)" }}>
             💸 Transfer Window
@@ -935,8 +924,8 @@ export default function TransferMarketPage() {
         </div>
       ) : (
         <div style={{ width: "100%", aspectRatio: "16/7", background: "rgba(255,20,147,0.04)", border: "1px solid rgba(255,20,147,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: "12px" }}>
-          <span style={{ fontSize: "3rem" }}>🎬</span>
-          <span style={{ color: "rgba(255,255,255,0.3)", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.2rem", letterSpacing: "2px" }}>Transfer Window Video</span>
+          <span style={{ fontSize: "3rem" }}>🖼️</span>
+          <span style={{ color: "rgba(255,255,255,0.3)", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.2rem", letterSpacing: "2px" }}>Transfer Window Image</span>
         </div>
       )}
 
@@ -1088,22 +1077,30 @@ export default function TransferMarketPage() {
               </div>
             )}
 
+            {/* Request auction bar — full width above the grid (manager only) */}
+            {!isAdmin && (
+              <div
+                onClick={() => setShowRequestAuction(true)}
+                style={{ width: "100%", boxSizing: "border-box", padding: "16px 20px", background: "linear-gradient(135deg, rgba(255,170,0,0.18), rgba(255,170,0,0.06))", border: "1px solid rgba(255,170,0,0.5)", borderRadius: "14px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", marginBottom: "16px", transition: "all 0.2s" }}
+                onMouseOver={e => { e.currentTarget.style.background = "linear-gradient(135deg, rgba(255,170,0,0.28), rgba(255,170,0,0.12))"; e.currentTarget.style.borderColor = "rgba(255,170,0,0.8)"; }}
+                onMouseOut={e => { e.currentTarget.style.background = "linear-gradient(135deg, rgba(255,170,0,0.18), rgba(255,170,0,0.06))"; e.currentTarget.style.borderColor = "rgba(255,170,0,0.5)"; }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+                  <span style={{ fontSize: "1.8rem" }}>📋</span>
+                  <div>
+                    <div style={{ color: "#ffaa44", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "2px" }}>REQUEST AUCTION</div>
+                    <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.85rem", marginTop: "2px" }}>Submit a player for admin approval</div>
+                  </div>
+                </div>
+                <span style={{ color: "#ffaa44", fontSize: "1.6rem", fontWeight: 700 }}>›</span>
+              </div>
+            )}
+
             {/* Auction grid */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: "20px" }}>
-              {/* Admin: create new auction card; Manager: request auction card */}
-              {isAdmin ? (
+              {/* Admin: create new auction card */}
+              {isAdmin && (
                 <NewAuctionCard onClick={() => setShowNewAuction(true)} />
-              ) : (
-                <div
-                  onClick={() => setShowRequestAuction(true)}
-                  style={{ background: "linear-gradient(135deg, rgba(255,170,0,0.3), rgba(255,170,0,0.1))", border: "2px solid rgba(255,170,0,0.5)", borderRadius: "20px", overflow: "hidden", cursor: "pointer", transition: "all 0.25s", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", aspectRatio: "1/1", minHeight: "260px", boxShadow: "0 4px 30px rgba(255,170,0,0.15)" }}
-                  onMouseOver={e => { e.currentTarget.style.transform = "translateY(-4px)"; e.currentTarget.style.boxShadow = "0 8px 40px rgba(255,170,0,0.3)"; }}
-                  onMouseOut={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 4px 30px rgba(255,170,0,0.15)"; }}
-                >
-                  <div style={{ fontSize: "3.5rem", marginBottom: "12px" }}>📋</div>
-                  <div style={{ color: "#ffaa44", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", letterSpacing: "3px", textAlign: "center" }}>REQUEST AUCTION</div>
-                  <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.9rem", marginTop: "8px", textAlign: "center", padding: "0 16px" }}>Submit a request for admin approval</div>
-                </div>
               )}
 
               {/* Auction player cards */}
