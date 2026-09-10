@@ -2,13 +2,6 @@ import { useState, useEffect } from "react";
 import { db, PATHS } from "../firebase";
 import { ref, onValue, push } from "firebase/database";
 
-const GLASS = {
-  background: "rgba(255,255,255,0.04)",
-  backdropFilter: "blur(12px)",
-  WebkitBackdropFilter: "blur(12px)",
-  border: "1px solid rgba(255,20,147,0.2)",
-};
-
 function formatWithCommas(num) {
   if (!num) return "";
   const str = String(num).replace(/,/g, "");
@@ -29,6 +22,7 @@ export default function BuySellModal({ mode, manager, onClose }) {
   const [selectedPlayerName, setSelectedPlayerName] = useState("");
   const [manualPlayerName, setManualPlayerName] = useState("");
   const [isManualPlayer, setIsManualPlayer] = useState(false);
+  const [buyType, setBuyType] = useState("transfer"); // "transfer" | "freeAgent"
   const [bidAmount, setBidAmount] = useState("");
   const [loanAmount, setLoanAmount] = useState("");
   const [buyOptionClause, setBuyOptionClause] = useState("");
@@ -43,13 +37,13 @@ export default function BuySellModal({ mode, manager, onClose }) {
   useEffect(() => {
     const unsub = onValue(ref(db, `${PATHS.globalSettings}/transferWindowOpen`), snap => {
       const val = snap.val();
-      // If null/undefined treat as open; admin must explicitly close it
       setWindowOpen(val === null || val === undefined ? true : !!val);
       setWindowLoading(false);
     });
     return () => unsub();
   }, []);
 
+  // Load teams from Firebase accounts — read only, never write
   useEffect(() => {
     const unsub = onValue(ref(db, PATHS.accounts), (snap) => {
       const data = snap.val() || {};
@@ -61,10 +55,11 @@ export default function BuySellModal({ mode, manager, onClose }) {
     return () => unsub();
   }, [manager]);
 
+  // Load squad for selected Firebase team only — manual team has no squad to load
   useEffect(() => {
-    const activeTeam = isManualTeam ? manualTeam : selectedTeam;
-    if (!activeTeam) { setSquadPlayers([]); setSelectedPlayerName(""); return; }
-    const unsub = onValue(ref(db, `career_team_management/${activeTeam}/squad`), (snap) => {
+    if (isManualTeam) { setSquadPlayers([]); setSelectedPlayerName(""); return; }
+    if (!selectedTeam) { setSquadPlayers([]); setSelectedPlayerName(""); return; }
+    const unsub = onValue(ref(db, `career_team_management/${selectedTeam}/squad`), (snap) => {
       const data = snap.val();
       setSquadPlayers(data ? Object.values(data).map((p) => p.name).filter(Boolean) : []);
       setSelectedPlayerName("");
@@ -72,7 +67,7 @@ export default function BuySellModal({ mode, manager, onClose }) {
       setManualPlayerName("");
     });
     return () => unsub();
-  }, [selectedTeam, manualTeam, isManualTeam]);
+  }, [selectedTeam, isManualTeam]);
 
   const handleTeamSelect = (e) => {
     const val = e.target.value;
@@ -87,21 +82,42 @@ export default function BuySellModal({ mode, manager, onClose }) {
   };
 
   async function handleSubmit() {
+    // Use manual team name as label only — never written to Firebase as a club
     const team = isManualTeam ? manualTeam.trim() : selectedTeam;
     const player = isManualPlayer ? manualPlayerName.trim() : selectedPlayerName;
     if (!team) { setError("Please select or enter a team."); return; }
     if (!player) { setError("Please select or enter a player name."); return; }
-    const amount = mode === "buy" ? parseCommaValue(bidAmount) : parseCommaValue(loanAmount);
-    if (amount <= 0) { setError(`Please enter a valid ${mode === "buy" ? "bid" : "loan"} amount.`); return; }
+
+    const isFreeAgent = mode === "buy" && buyType === "freeAgent";
+
+    if (mode === "buy" && !isFreeAgent) {
+      const amount = parseCommaValue(bidAmount);
+      if (amount <= 0) { setError("Please enter a valid bid amount."); return; }
+    }
+    if (mode === "loan") {
+      const amount = parseCommaValue(loanAmount);
+      if (amount <= 0) { setError("Please enter a valid loan fee."); return; }
+    }
 
     setSending(true); setError("");
     try {
       const offer = {
-        type: mode, playerName: player, playerClub: team,
-        fromClub: manager.team, fromManagerUid: manager.uid,
-        status: "pending", createdAt: Date.now(),
+        type: isFreeAgent ? "freeAgent" : mode,
+        playerName: player,
+        // playerClub used as display label only — manual teams are never registered clubs
+        playerClub: team,
+        toClub: team,
+        fromClub: manager.team,
+        fromManagerUid: manager.uid,
+        fromManagerName: manager.username,
+        status: "pending",
+        createdAt: Date.now(),
       };
-      if (mode === "buy") {
+
+      if (isFreeAgent) {
+        offer.offerAmount = "€0";
+        if (addOns.trim()) offer.addOns = addOns.trim();
+      } else if (mode === "buy") {
         offer.offerAmount = `€${formatWithCommas(bidAmount)}`;
         if (addOns.trim()) offer.addOns = addOns.trim();
       } else {
@@ -110,6 +126,7 @@ export default function BuySellModal({ mode, manager, onClose }) {
         if (buyOptionClause) offer.buyOptionClause = `€${formatWithCommas(buyOptionClause)}`;
         if (addOns.trim()) offer.addOns = addOns.trim();
       }
+
       await push(ref(db, `${PATHS.transfers}/negotiations`), offer);
       setSuccess(true);
       setTimeout(() => onClose(), 2000);
@@ -137,7 +154,8 @@ export default function BuySellModal({ mode, manager, onClose }) {
     if (raw === "" || /^\d+$/.test(raw)) setter(formatWithCommas(raw));
   };
 
-  // Window closed — block everything
+  const isFreeAgent = mode === "buy" && buyType === "freeAgent";
+
   if (windowLoading) return (
     <div style={{ textAlign: "center", padding: "60px 20px", color: "rgba(255,255,255,0.4)", fontSize: "1.2rem" }}>
       Checking transfer window status...
@@ -174,6 +192,37 @@ export default function BuySellModal({ mode, manager, onClose }) {
         </div>
       ) : (
         <>
+          {/* Buy type toggle — only shown in buy mode */}
+          {mode === "buy" && (
+            <div style={{ marginBottom: "20px" }}>
+              <label style={labelStyle}>Transfer Type</label>
+              <div style={{ display: "flex", gap: "10px" }}>
+                <button
+                  onClick={() => setBuyType("transfer")}
+                  style={{
+                    flex: 1, padding: "12px",
+                    background: buyType === "transfer" ? "#00cc66" : "rgba(255,255,255,0.06)",
+                    border: buyType === "transfer" ? "none" : "1px solid rgba(255,255,255,0.15)",
+                    borderRadius: "12px", color: "#fff", fontWeight: 700, fontSize: "1rem", cursor: "pointer",
+                  }}
+                >
+                  💸 Transfer
+                </button>
+                <button
+                  onClick={() => setBuyType("freeAgent")}
+                  style={{
+                    flex: 1, padding: "12px",
+                    background: buyType === "freeAgent" ? "rgba(0,200,255,0.3)" : "rgba(255,255,255,0.06)",
+                    border: buyType === "freeAgent" ? "1px solid rgba(0,200,255,0.6)" : "1px solid rgba(255,255,255,0.15)",
+                    borderRadius: "12px", color: "#fff", fontWeight: 700, fontSize: "1rem", cursor: "pointer",
+                  }}
+                >
+                  🆓 Free Agent
+                </button>
+              </div>
+            </div>
+          )}
+
           <div style={{ marginBottom: "18px" }}>
             <label style={labelStyle}>Select Team</label>
             <select value={isManualTeam ? "__manual_team__" : selectedTeam} onChange={handleTeamSelect} style={{ ...inputStyle, cursor: "pointer" }}>
@@ -193,25 +242,44 @@ export default function BuySellModal({ mode, manager, onClose }) {
           {(selectedTeam || isManualTeam) && (
             <div style={{ marginBottom: "18px" }}>
               <label style={labelStyle}>Select Player</label>
-              <select value={isManualPlayer ? "__manual_player__" : selectedPlayerName} onChange={handlePlayerSelect} style={{ ...inputStyle, cursor: "pointer" }}>
-                <option value="">— Choose a player —</option>
-                {squadPlayers.map((p) => <option key={p} value={p}>{p}</option>)}
-                <option value="__manual_player__">✏️ Enter different player…</option>
-              </select>
+              {isManualTeam ? (
+                // Manual team — no squad to load, always type manually
+                <input value={manualPlayerName} onChange={(e) => setManualPlayerName(e.target.value)} placeholder="Type player name…" style={inputStyle} />
+              ) : (
+                <select value={isManualPlayer ? "__manual_player__" : selectedPlayerName} onChange={handlePlayerSelect} style={{ ...inputStyle, cursor: "pointer" }}>
+                  <option value="">— Choose a player —</option>
+                  {squadPlayers.map((p) => <option key={p} value={p}>{p}</option>)}
+                  <option value="__manual_player__">✏️ Enter different player…</option>
+                </select>
+              )}
             </div>
           )}
 
-          {isManualPlayer && (
+          {!isManualTeam && isManualPlayer && (
             <div style={{ marginBottom: "18px" }}>
               <label style={labelStyle}>Player Name</label>
               <input value={manualPlayerName} onChange={(e) => setManualPlayerName(e.target.value)} placeholder="Type player name…" style={inputStyle} />
             </div>
           )}
 
-          <div style={{ marginBottom: "18px" }}>
-            <label style={labelStyle}>{mode === "buy" ? "Your Bid (€)" : "Loan Fee (€)"}</label>
-            <input value={mode === "buy" ? bidAmount : loanAmount} onChange={mode === "buy" ? handleNumberInput(setBidAmount) : handleNumberInput(setLoanAmount)} placeholder="e.g. 10,000,000" style={inputStyle} />
-          </div>
+          {/* Fee fields — hidden for free agent */}
+          {!isFreeAgent && (
+            <div style={{ marginBottom: "18px" }}>
+              <label style={labelStyle}>{mode === "buy" ? "Your Bid (€)" : "Loan Fee (€)"}</label>
+              <input
+                value={mode === "buy" ? bidAmount : loanAmount}
+                onChange={mode === "buy" ? handleNumberInput(setBidAmount) : handleNumberInput(setLoanAmount)}
+                placeholder="e.g. 10,000,000"
+                style={inputStyle}
+              />
+            </div>
+          )}
+
+          {isFreeAgent && (
+            <div style={{ marginBottom: "18px", padding: "12px 16px", background: "rgba(0,200,255,0.06)", border: "1px solid rgba(0,200,255,0.2)", borderRadius: "12px" }}>
+              <div style={{ color: "rgba(0,200,255,0.8)", fontSize: "0.95rem", fontWeight: 700 }}>🆓 Free Agent — No transfer fee required</div>
+            </div>
+          )}
 
           {mode === "loan" && (
             <>
@@ -236,7 +304,18 @@ export default function BuySellModal({ mode, manager, onClose }) {
           )}
 
           <div style={{ display: "flex", gap: "12px" }}>
-            <button onClick={handleSubmit} disabled={sending} style={{ flex: 2, padding: "16px", background: mode === "buy" ? "#00cc66" : "#ffaa44", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.1rem", cursor: sending ? "not-allowed" : "pointer", opacity: sending ? 0.7 : 1 }}>
+            <button
+              onClick={handleSubmit}
+              disabled={sending}
+              style={{
+                flex: 2, padding: "16px",
+                background: mode === "buy" ? "#00cc66" : "#ffaa44",
+                border: "none", borderRadius: "14px", color: "#fff",
+                fontWeight: 700, fontSize: "1.1rem",
+                cursor: sending ? "not-allowed" : "pointer",
+                opacity: sending ? 0.7 : 1,
+              }}
+            >
               {sending ? "Sending..." : "🚀 Send Offer"}
             </button>
             <button onClick={onClose} style={{ flex: 1, padding: "16px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "14px", color: "#fff", cursor: "pointer", fontSize: "1.1rem" }}>
