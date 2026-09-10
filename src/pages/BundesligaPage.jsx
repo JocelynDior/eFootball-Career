@@ -57,6 +57,7 @@ async function updateTopStat(league, season, pathKey, playerName, count, imageUr
   }
 }
 
+// ── Matchday number resolver ──────────────────────────────────────────────────
 function useMatchdayNumber(dateStr) {
   const [md, setMd] = useState(null);
   useEffect(() => {
@@ -80,7 +81,8 @@ function useMatchdayNumber(dateStr) {
   return md;
 }
 
-function Countdown({ title, startMs, durationMs, accent = "#E8000D", matchday }) {
+// ── Countdown card ────────────────────────────────────────────────────────────
+function Countdown({ title, startMs, durationMs, accent = "#FF1493", matchday }) {
   const [parts, setParts] = useState({ h: "48", m: "00", s: "00", pct: 1 });
   useEffect(() => {
     function tick() {
@@ -108,7 +110,7 @@ function Countdown({ title, startMs, durationMs, accent = "#E8000D", matchday })
         {[parts.h, parts.m, parts.s].map((val, i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-              <div style={{ width: 88, height: 104, background: "rgba(20,0,0,0.8)", border: `3px solid ${urgency}66`, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 0 24px ${urgency}22` }}>
+              <div style={{ width: 88, height: 104, background: "rgba(0,0,20,0.8)", border: `3px solid ${urgency}66`, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 0 24px ${urgency}22` }}>
                 <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.6rem", color: urgency, lineHeight: 1 }}>{val}</span>
               </div>
               <span style={{ color: "rgba(255,255,255,0.3)", fontSize: "1.1rem", letterSpacing: 1, marginTop: 6 }}>{["HRS", "MIN", "SEC"][i]}</span>
@@ -117,6 +119,7 @@ function Countdown({ title, startMs, durationMs, accent = "#E8000D", matchday })
           </div>
         ))}
       </div>
+      {/* Matchday label */}
       <div style={{
         background: `${urgency}18`, border: `1px solid ${urgency}44`,
         borderRadius: 30, padding: "6px 20px",
@@ -135,6 +138,7 @@ function Countdown({ title, startMs, durationMs, accent = "#E8000D", matchday })
 export default function BundesligaPage() {
   const { isAdmin } = useAdmin();
   const [season, setSeason] = useState("1");
+
   const [seasons, setSeasons] = useState(["1"]);
   const [tab, setTab] = useState("main");
   const [teams, setTeams] = useState([]);
@@ -264,7 +268,7 @@ export default function BundesligaPage() {
           onMenuOpen={isAdmin ? () => setAdminOpen(true) : undefined}
         />
 
-        {/* Countdown blocks */}
+        {/* Countdown blocks with matchday labels */}
         <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
           <Countdown
             title="⏮ PREVIOUS MATCHDAY DEADLINE"
