@@ -172,6 +172,16 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
   const minNextBid = leadingRaw + MIN_BID_INCREMENT;
   const interestedCount = [...new Set(bids.map(b => b.fromManagerUid))].length;
 
+  // For managers: find their own latest bid
+  const myBid = manager ? [...bids].reverse().find(b => b.fromManagerUid === manager.uid) : null;
+  // Unique interested managers (club + name) for display — no amounts shown to managers
+  const interestedManagers = bids.reduce((acc, b) => {
+    if (!acc.find(x => x.fromManagerUid === b.fromManagerUid)) {
+      acc.push({ fromManagerUid: b.fromManagerUid, fromManagerName: b.fromManagerName, fromClub: b.fromClub });
+    }
+    return acc;
+  }, []);
+
   const isClosed = auctionCard.settled && !auctionCard.adminReset;
   const showCountdown = !!deadline && !isClosed;
   const timerExpired = countdown.expired && !!deadline;
@@ -354,29 +364,48 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
         </div>
       )}
 
-      {/* Leading bid display */}
-      <div style={{ textAlign: "center", marginBottom: "32px" }}>
-        <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.6rem", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "12px" }}>
-          {bids.length > 0 ? "Leading Bid" : "Starting Bid"}
-        </div>
-        {bids.length > 0 ? (
-          <>
-            <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "5rem", letterSpacing: "3px", textShadow: "0 0 30px rgba(0,255,136,0.5)" }}>
-              {formatAmt(leadingRaw)}
-            </div>
-            <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "1.8rem", marginTop: "10px" }}>
-              {leadingBid.fromClub} · <span style={{ color: "#fff", fontWeight: 700 }}>{leadingBid.fromManagerName}</span>
-            </div>
-          </>
-        ) : (
-          <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "5rem", letterSpacing: "3px" }}>
-            {formatAmt(parseRaw(player.startingBid || player.value))}
+      {/* Leading bid display — admin sees full info, managers see starting bid + own bid only */}
+      {isAdmin ? (
+        <div style={{ textAlign: "center", marginBottom: "32px" }}>
+          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.6rem", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "12px" }}>
+            {bids.length > 0 ? "Leading Bid" : "Starting Bid"}
           </div>
-        )}
-      </div>
+          {bids.length > 0 ? (
+            <>
+              <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "5rem", letterSpacing: "3px", textShadow: "0 0 30px rgba(0,255,136,0.5)" }}>
+                {formatAmt(leadingRaw)}
+              </div>
+              <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "1.8rem", marginTop: "10px" }}>
+                {leadingBid.fromClub} · <span style={{ color: "#fff", fontWeight: 700 }}>{leadingBid.fromManagerName}</span>
+              </div>
+            </>
+          ) : (
+            <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "5rem", letterSpacing: "3px" }}>
+              {formatAmt(parseRaw(player.startingBid || player.value))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{ marginBottom: "32px" }}>
+          {/* Starting bid */}
+          <div style={{ textAlign: "center", marginBottom: "20px" }}>
+            <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.6rem", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "12px" }}>Starting Bid</div>
+            <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "5rem", letterSpacing: "3px" }}>
+              {formatAmt(parseRaw(player.startingBid || player.value))}
+            </div>
+          </div>
+          {/* Manager's own bid */}
+          {myBid && (
+            <div style={{ background: "rgba(255,20,147,0.08)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "16px", padding: "20px 28px", textAlign: "center" }}>
+              <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.3rem", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "8px" }}>Your Current Bid</div>
+              <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.6rem", letterSpacing: "2px" }}>{formatAmt(myBid.bidAmountRaw)}</div>
+            </div>
+          )}
+        </div>
+      )}
 
-      {/* Bid input — only when auction is open AND timer has not expired */}
-      {!isClosed && !timerExpired && manager && (
+      {/* Bid input — only when auction is open AND timer has not expired; managers locked after deadline */}
+      {!isClosed && !timerExpired && manager && (isAdmin || !countdown.expired) && (
         <div style={{ ...GLASS, borderRadius: "20px", padding: "32px", marginBottom: "32px", border: "1px solid rgba(255,20,147,0.4)" }}>
           <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "2px", marginBottom: "8px" }}>🔨 ENTER NEW BID</div>
           <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.4rem", marginBottom: "20px" }}>
@@ -419,147 +448,87 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
         </div>
       )}
 
-      {/* All bids list — leading bid + lost bids */}
+      {/* Bids section — admin sees full bid history, managers see interested list only */}
       {bidsLoading ? (
         <div style={{ textAlign: "center", padding: "32px", color: "rgba(255,255,255,0.4)", fontSize: "1.4rem" }}>
           Loading bids...
         </div>
-      ) : bids.length > 0 ? (
-        <div style={{ marginBottom: "32px" }}>
-          {/* Leading / Winner bid */}
-          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.6rem", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "12px" }}>
-            {isClosed ? "🏆 Winning Bid" : "🥇 Leading Bid"}
-          </div>
-          {winnerBid && (
-            <div style={{
-              display: "flex", justifyContent: "space-between", alignItems: "center",
-              padding: "20px 24px",
-              background: "rgba(0,255,136,0.06)",
-              border: "1px solid rgba(0,255,136,0.25)",
-              borderRadius: "14px",
-              marginBottom: "20px",
-            }}>
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <span style={{ background: "#00ff88", color: "#000", fontSize: "1rem", fontWeight: 700, padding: "3px 10px", borderRadius: "6px" }}>
-                    {isClosed ? "WINNER" : "LEADING"}
-                  </span>
-                  <span style={{ color: "rgba(255,255,255,0.7)", fontSize: "1.8rem", fontWeight: 700 }}>{winnerBid.fromClub}</span>
-                </div>
-                <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.4rem" }}>{winnerBid.fromManagerName}</span>
-                {winnerBid.createdAt && !onlyOneBid && (
-                  <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "1.2rem", marginTop: "4px" }}>
-                    {new Date(winnerBid.createdAt).toLocaleString()}
+      ) : isAdmin ? (
+        /* ── ADMIN: full bid list with amounts ── */
+        bids.length > 0 ? (
+          <div style={{ marginBottom: "32px" }}>
+            <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.6rem", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "12px" }}>
+              {isClosed ? "🏆 Winning Bid" : "🥇 Leading Bid"}
+            </div>
+            {winnerBid && (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 24px", background: "rgba(0,255,136,0.06)", border: "1px solid rgba(0,255,136,0.25)", borderRadius: "14px", marginBottom: "20px" }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <span style={{ background: "#00ff88", color: "#000", fontSize: "1rem", fontWeight: 700, padding: "3px 10px", borderRadius: "6px" }}>{isClosed ? "WINNER" : "LEADING"}</span>
+                    <span style={{ color: "rgba(255,255,255,0.7)", fontSize: "1.8rem", fontWeight: 700 }}>{winnerBid.fromClub}</span>
                   </div>
-                )}
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-                <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "1px" }}>
-                  {formatAmt(winnerBid.bidAmountRaw)}
+                  <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.4rem" }}>{winnerBid.fromManagerName}</span>
+                  {winnerBid.createdAt && !onlyOneBid && (
+                    <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "1.2rem", marginTop: "4px" }}>{new Date(winnerBid.createdAt).toLocaleString()}</div>
+                  )}
                 </div>
-                {/* Manager can cancel their own leading bid if auction is open */}
-                {!isClosed && manager && winnerBid.fromManagerUid === manager.uid && (
-                  <button
-                    onClick={() => handleManagerCancelBid(winnerBid.id, winnerBid)}
-                    disabled={cancellingBid === winnerBid.id}
-                    style={{
-                      background: "rgba(255,170,0,0.15)", border: "1px solid rgba(255,170,0,0.4)",
-                      color: "#ffaa44", padding: "10px 18px", borderRadius: "10px",
-                      cursor: "pointer", fontSize: "1.3rem", fontWeight: 700,
-                      opacity: cancellingBid === winnerBid.id ? 0.5 : 1,
-                    }}
-                  >
-                    {cancellingBid === winnerBid.id ? "..." : "✕ Cancel My Bid"}
-                  </button>
-                )}
-                {isAdmin && (
-                  <button
-                    onClick={() => handleAdminCancelBid(winnerBid.id, winnerBid)}
-                    disabled={cancellingBid === winnerBid.id}
-                    style={{
-                      background: "rgba(255,0,0,0.15)", border: "1px solid rgba(255,0,0,0.3)",
-                      color: "#ff6b6b", padding: "10px 18px", borderRadius: "10px",
-                      cursor: "pointer", fontSize: "1.3rem", fontWeight: 700,
-                      opacity: cancellingBid === winnerBid.id ? 0.5 : 1,
-                    }}
-                  >
+                <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+                  <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "1px" }}>{formatAmt(winnerBid.bidAmountRaw)}</div>
+                  <button onClick={() => handleAdminCancelBid(winnerBid.id, winnerBid)} disabled={cancellingBid === winnerBid.id} style={{ background: "rgba(255,0,0,0.15)", border: "1px solid rgba(255,0,0,0.3)", color: "#ff6b6b", padding: "10px 18px", borderRadius: "10px", cursor: "pointer", fontSize: "1.3rem", fontWeight: 700, opacity: cancellingBid === winnerBid.id ? 0.5 : 1 }}>
                     {cancellingBid === winnerBid.id ? "..." : "✕ Cancel"}
                   </button>
-                )}
+                </div>
               </div>
-            </div>
-          )}
-
-          {/* Lost bids */}
-          {lostBids.length > 0 && (
-            <>
-              <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.6rem", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "12px" }}>
-                ❌ Lost Bids ({lostBids.length})
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                {lostBids.map((bid, i) => (
-                  <div
-                    key={bid.id || i}
-                    style={{
-                      display: "flex", justifyContent: "space-between", alignItems: "center",
-                      padding: "18px 24px",
-                      background: "rgba(255,107,107,0.06)",
-                      border: "1px solid rgba(255,107,107,0.2)",
-                      borderRadius: "14px",
-                    }}
-                  >
-                    <div>
-                      <div style={{ color: "rgba(255,255,255,0.7)", fontSize: "1.8rem", fontWeight: 700 }}>{bid.fromClub}</div>
-                      <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.4rem" }}>{bid.fromManagerName}</span>
-                      {bid.createdAt && (
-                        <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "1.2rem", marginTop: "4px" }}>
-                          {new Date(bid.createdAt).toLocaleString()}
-                        </div>
-                      )}
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-                      <div style={{ color: "#ff6b6b", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "1px" }}>
-                        {formatAmt(bid.bidAmountRaw)}
+            )}
+            {lostBids.length > 0 && (
+              <>
+                <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.6rem", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "12px" }}>❌ Lost Bids ({lostBids.length})</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  {lostBids.map((bid, i) => (
+                    <div key={bid.id || i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 24px", background: "rgba(255,107,107,0.06)", border: "1px solid rgba(255,107,107,0.2)", borderRadius: "14px" }}>
+                      <div>
+                        <div style={{ color: "rgba(255,255,255,0.7)", fontSize: "1.8rem", fontWeight: 700 }}>{bid.fromClub}</div>
+                        <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.4rem" }}>{bid.fromManagerName}</span>
+                        {bid.createdAt && <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "1.2rem", marginTop: "4px" }}>{new Date(bid.createdAt).toLocaleString()}</div>}
                       </div>
-                      {/* Manager can cancel their own lost bid if auction is open */}
-                      {!isClosed && manager && bid.fromManagerUid === manager.uid && (
-                        <button
-                          onClick={() => handleManagerCancelBid(bid.id, bid)}
-                          disabled={cancellingBid === bid.id}
-                          style={{
-                            background: "rgba(255,170,0,0.15)", border: "1px solid rgba(255,170,0,0.4)",
-                            color: "#ffaa44", padding: "10px 18px", borderRadius: "10px",
-                            cursor: "pointer", fontSize: "1.3rem", fontWeight: 700,
-                            opacity: cancellingBid === bid.id ? 0.5 : 1,
-                          }}
-                        >
-                          {cancellingBid === bid.id ? "..." : "✕ Cancel My Bid"}
-                        </button>
-                      )}
-                      {isAdmin && (
-                        <button
-                          onClick={() => handleAdminCancelBid(bid.id, bid)}
-                          disabled={cancellingBid === bid.id}
-                          style={{
-                            background: "rgba(255,0,0,0.15)", border: "1px solid rgba(255,0,0,0.3)",
-                            color: "#ff6b6b", padding: "10px 18px", borderRadius: "10px",
-                            cursor: "pointer", fontSize: "1.3rem", fontWeight: 700,
-                            opacity: cancellingBid === bid.id ? 0.5 : 1,
-                          }}
-                        >
+                      <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+                        <div style={{ color: "#ff6b6b", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "1px" }}>{formatAmt(bid.bidAmountRaw)}</div>
+                        <button onClick={() => handleAdminCancelBid(bid.id, bid)} disabled={cancellingBid === bid.id} style={{ background: "rgba(255,0,0,0.15)", border: "1px solid rgba(255,0,0,0.3)", color: "#ff6b6b", padding: "10px 18px", borderRadius: "10px", cursor: "pointer", fontSize: "1.3rem", fontWeight: 700, opacity: cancellingBid === bid.id ? 0.5 : 1 }}>
                           {cancellingBid === bid.id ? "..." : "✕ Cancel"}
                         </button>
-                      )}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        ) : (
+          <div style={{ textAlign: "center", padding: "32px", color: "rgba(255,255,255,0.3)", fontSize: "1.4rem", marginBottom: "32px" }}>No bids placed yet.</div>
+        )
       ) : (
-        <div style={{ textAlign: "center", padding: "32px", color: "rgba(255,255,255,0.3)", fontSize: "1.4rem", marginBottom: "32px" }}>
-          No bids placed yet. Be the first!
+        /* ── MANAGER: interested managers list, no amounts ── */
+        <div style={{ marginBottom: "32px" }}>
+          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.6rem", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "16px" }}>
+            👥 Interested Managers ({interestedCount})
+          </div>
+          {interestedManagers.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "28px", color: "rgba(255,255,255,0.3)", fontSize: "1.4rem" }}>No bids placed yet. Be the first!</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              {interestedManagers.map((m, i) => (
+                <div key={m.fromManagerUid || i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", background: m.fromManagerUid === manager?.uid ? "rgba(255,20,147,0.1)" : "rgba(255,255,255,0.04)", border: `1px solid ${m.fromManagerUid === manager?.uid ? "rgba(255,20,147,0.4)" : "rgba(255,255,255,0.08)"}`, borderRadius: "12px" }}>
+                  <div>
+                    <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.4rem" }}>{m.fromClub}</div>
+                    <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "1.1rem" }}>{m.fromManagerName}</div>
+                  </div>
+                  {m.fromManagerUid === manager?.uid && (
+                    <span style={{ background: "rgba(255,20,147,0.2)", color: "#FF1493", padding: "4px 12px", borderRadius: "20px", fontSize: "0.9rem", fontWeight: 700 }}>YOU</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
