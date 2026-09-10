@@ -720,6 +720,7 @@ export default function TransferMarketPage() {
   const [negotiations, setNegotiations] = useState([]);
   const [countdowns, setCountdowns]     = useState([]);
   const [headlineImage, setHeadlineImage] = useState("");
+  const [transferSlides, setTransferSlides] = useState([]);
   const [teamIcons, setTeamIcons]       = useState({});
   const [windowOpen, setWindowOpen]     = useState(true);
 
@@ -764,8 +765,13 @@ export default function TransferMarketPage() {
       const data = snap.val();
       setCountdowns(data ? Object.entries(data).map(([k, v]) => ({ id: k, ...v })) : []);
     });
-    const vidUnsub = onValue(ref(db, `${PATHS.globalSettings}/transferHeadlineImage`), snap => {
-      if (snap.val()) setHeadlineImage(snap.val());
+    const slidesUnsub = onValue(ref(db, "career_global_settings/transferSlides"), snap => {
+      const data = snap.val();
+      if (data) {
+        const list = Object.values(data).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        setTransferSlides(list);
+        setHeadlineImage(list[0]?.imageUrl || "");
+      }
     });
     const iconsUnsub = onValue(ref(db, `${PATHS.teamIcons}`), snap => {
       if (snap.val()) setTeamIcons(snap.val());
@@ -778,7 +784,7 @@ export default function TransferMarketPage() {
       const data = snap.val();
       setAuctionRequests(data ? Object.entries(data).map(([k, v]) => ({ id: k, ...v })) : []);
     });
-    return () => { unsubs.forEach(u => u()); negUnsub(); cdUnsub(); vidUnsub(); iconsUnsub(); winUnsub(); reqUnsub(); };
+    return () => { unsubs.forEach(u => u()); negUnsub(); cdUnsub(); slidesUnsub(); iconsUnsub(); winUnsub(); reqUnsub(); };
   }, []);
 
   useEffect(() => {
@@ -1059,12 +1065,30 @@ export default function TransferMarketPage() {
                     <button
                       onClick={async () => {
                         try {
-                          await push(ref(db, `${PATHS.transfers}/auction`), {
-                            name: req.name, club: req.club, nationality: req.nationality || "",
-                            age: req.age || "", value: req.value || "",
-                            startingBid: req.startingBid || 0, imageUrl: req.imageUrl || "",
+                          const newRef = await push(ref(db, `${PATHS.transfers}/auction`), {
+                            name: req.name, club: req.club,
+                            startingBid: req.startingBid || 0,
                             createdBy: req.requestedBy || "Manager", createdAt: Date.now(), settled: false,
                           });
+                          const newPlayerId = newRef.key;
+                          // Auto-add requester as first bidder with their opening bid
+                          if (req.requestedByUid && req.startingBid) {
+                            const autoBid = {
+                              type: "auction",
+                              playerName: req.name,
+                              playerClub: req.club,
+                              playerId: newPlayerId,
+                              bidAmount: `€${Number(req.startingBid).toLocaleString()}`,
+                              bidAmountRaw: req.startingBid,
+                              fromManagerUid: req.requestedByUid,
+                              fromManagerName: req.requestedBy || "Manager",
+                              fromClub: "",
+                              status: "pending",
+                              createdAt: Date.now(),
+                            };
+                            await push(ref(db, `${PATHS.transfers}/auction/${newPlayerId}/bids`), autoBid);
+                            await push(ref(db, `${PATHS.transfers}/negotiations`), autoBid);
+                          }
                           await update(ref(db, `${PATHS.transfers}/auctionRequests/${req.id}`), { status: "approved" });
                         } catch (e) { console.error("Approve failed:", e); }
                       }}
