@@ -14,11 +14,10 @@ import AuctionBidModal from "../modals/AuctionBidModal";
 import { getClubColors } from "../utils/groq";
 
 // ── Tab definitions ──────────────────────────────────────────────────────────
-// IMPORTANT: "auction" tab is intentionally excluded from MANAGER_TABS.
-// Managers must never see or access the Auction tab.
 const MANAGER_TABS = [
-  { id: "topTargets", label: "TOP TARGETS" },
-  { id: "signings",   label: "SIGNINGS" },
+  { id: "topTargets",   label: "TOP TARGETS" },
+  { id: "signings",     label: "SIGNINGS" },
+  { id: "auction",      label: "AUCTION" },
   { id: "negotiations", label: "NEGOTIATIONS" },
 ];
 
@@ -253,6 +252,71 @@ function NewAuctionModal({ manager, onClose }) {
   );
 }
 
+function ManagerAuctionRequestModal({ manager, onClose }) {
+  const [form, setForm] = useState({ name: "", club: "", nationality: "", age: "", value: "", startingBid: "", imageUrl: "" });
+  const [saving, setSaving] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState("");
+
+  function set_(k, v) { setForm(prev => ({ ...prev, [k]: v })); }
+
+  async function handleSubmit() {
+    if (!form.name || !form.club || !form.startingBid) { setError("Player name, club and starting bid are required."); return; }
+    setSaving(true); setError("");
+    try {
+      await push(ref(db, `${PATHS.transfers}/auctionRequests`), {
+        name: form.name, club: form.club, nationality: form.nationality || "",
+        age: form.age || "", value: form.value || "",
+        startingBid: parseRaw(form.startingBid), imageUrl: form.imageUrl || "",
+        requestedBy: manager?.username || "Manager",
+        requestedByUid: manager?.uid || "",
+        createdAt: Date.now(), status: "pending",
+      });
+      setDone(true);
+      setTimeout(onClose, 1500);
+    } catch (e) { setError("Failed: " + e.message); }
+    setSaving(false);
+  }
+
+  const field = (label, key, placeholder, type = "text") => (
+    <div style={{ marginBottom: "16px" }}>
+      <label style={{ color: "rgba(255,255,255,0.5)", fontSize: "1rem", display: "block", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>{label}</label>
+      <input type={type} value={form[key]} onChange={e => set_(key, e.target.value)} placeholder={placeholder} style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }} />
+    </div>
+  );
+
+  return (
+    <div style={{ fontFamily: "'Inter', sans-serif", maxWidth: "560px", margin: "0 auto" }}>
+      <div style={{ color: "#ffaa44", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3rem", letterSpacing: "3px", marginBottom: "6px" }}>📋 REQUEST AUCTION</div>
+      <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1rem", marginBottom: "28px" }}>
+        Requested by: <span style={{ color: "#ffaa44", fontWeight: 700 }}>{manager?.username || "Manager"}</span> · Pending admin approval
+      </div>
+      {done ? (
+        <div style={{ textAlign: "center", padding: "40px", color: "#00ff88", fontWeight: 700, fontSize: "1.4rem", background: "rgba(0,255,136,0.08)", borderRadius: "16px" }}>
+          ✅ Request submitted! Waiting for admin approval.
+        </div>
+      ) : (
+        <>
+          {field("Player Name", "name", "e.g. Lionel Messi")}
+          {field("Club", "club", "e.g. Inter Miami")}
+          {field("Nationality", "nationality", "e.g. Argentina")}
+          {field("Age", "age", "e.g. 36")}
+          {field("Market Value", "value", "e.g. €45M")}
+          {field("Starting Bid (€)", "startingBid", "e.g. 40000000", "number")}
+          {field("Image URL (optional)", "imageUrl", "https://...")}
+          {error && <div style={{ color: "#ff6b6b", fontSize: "1rem", marginBottom: "16px", padding: "12px", background: "rgba(255,0,0,0.1)", borderRadius: "10px" }}>❌ {error}</div>}
+          <div style={{ display: "flex", gap: "12px" }}>
+            <button onClick={handleSubmit} disabled={saving} style={{ flex: 2, padding: "18px", background: saving ? "rgba(255,170,0,0.3)" : "#ffaa44", border: "none", borderRadius: "14px", color: "#000", fontWeight: 700, fontSize: "1.1rem", cursor: saving ? "not-allowed" : "pointer" }}>
+              {saving ? "Submitting..." : "📋 Submit Request"}
+            </button>
+            <button onClick={onClose} style={{ flex: 1, padding: "18px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "14px", color: "#fff", cursor: "pointer" }}>Cancel</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function AuctionDeadlineModal({ onClose }) {
   const [dateStr, setDateStr] = useState("");
   const [timeStr, setTimeStr] = useState("23:59");
@@ -439,19 +503,17 @@ function NegotiationCard({ offer, isOwn, isAdmin, manager }) {
   return (
     <div style={{ padding: "24px 28px", background: isOwn ? "rgba(255,20,147,0.1)" : "rgba(255,255,255,0.03)", border: `1px solid ${isOwn ? "rgba(255,20,147,0.4)" : "rgba(255,255,255,0.08)"}`, borderRadius: "20px", marginBottom: "14px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "14px" }}>
-        <div>
-          <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.3rem" }}>{offer.playerName}</div>
-          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1rem", marginTop: "4px" }}>{offer.playerClub}</div>
-        </div>
+        <div style={{ color: "#fff", fontWeight: 700, fontSize: "2.6rem", lineHeight: 1.1 }}>{offer.playerName}</div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "6px" }}>
-          <span style={{ background: offer.type === "buy" ? "rgba(255,20,147,0.2)" : offer.type === "loan" ? "rgba(0,150,255,0.2)" : "rgba(255,170,0,0.2)", color: offer.type === "buy" ? "#FF1493" : offer.type === "loan" ? "#44aaff" : "#ffaa44", padding: "5px 14px", borderRadius: "20px", fontSize: "0.9rem", fontWeight: 700, textTransform: "uppercase" }}>{offer.type}</span>
+          <span style={{ background: offer.type === "buy" ? "rgba(255,20,147,0.2)" : offer.type === "loan" ? "rgba(0,150,255,0.2)" : offer.type === "freeAgent" ? "rgba(0,255,136,0.2)" : "rgba(255,170,0,0.2)", color: offer.type === "buy" ? "#FF1493" : offer.type === "loan" ? "#44aaff" : offer.type === "freeAgent" ? "#00ff88" : "#ffaa44", padding: "5px 14px", borderRadius: "20px", fontSize: "0.9rem", fontWeight: 700, textTransform: "uppercase" }}>{offer.type === "freeAgent" ? "FREE AGENT" : offer.type}</span>
           <span style={{ background: `${statusColor}22`, color: statusColor, padding: "5px 14px", borderRadius: "20px", fontSize: "0.9rem", fontWeight: 700, textTransform: "uppercase" }}>{offer.status}</span>
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
         {[
           ["From", offer.fromClub || offer.fromManagerName],
-          [offer.type === "auction" ? "Bid" : offer.type === "loan" ? "Loan Fee" : "Offer", offer.offerAmount || offer.loanAmount || offer.bidAmount],
+          ["To", offer.toClub || offer.playerClub || "—"],
+          offer.type !== "freeAgent" && [offer.type === "auction" ? "Bid" : offer.type === "loan" ? "Loan Fee" : "Offer", offer.offerAmount || offer.loanAmount || offer.bidAmount],
           offer.contractLength && ["Contract", offer.contractLength],
           offer.loanTerm && ["Loan Term", offer.loanTerm],
           offer.buyOptionClause && ["Buy Option", offer.buyOptionClause],
@@ -492,8 +554,8 @@ function SigningCard({ offer }) {
 
   const details = [
     ["From", offer.fromClub || offer.fromManagerName],
-    ["To",   offer.toClub   || "—"],
-    [offer.type === "loan" ? "Loan Fee" : "Transfer Fee", offer.offerAmount || offer.loanAmount || offer.bidAmount],
+    ["To",   offer.toClub || offer.playerClub || "—"],
+    offer.type !== "freeAgent" && [offer.type === "loan" ? "Loan Fee" : "Transfer Fee", offer.offerAmount || offer.loanAmount || offer.bidAmount],
     offer.contractLength   && ["Contract",   offer.contractLength],
     offer.loanTerm         && ["Loan Term",  offer.loanTerm],
     offer.buyOptionClause  && ["Buy Option", offer.buyOptionClause],
@@ -503,13 +565,10 @@ function SigningCard({ offer }) {
     <div style={{ padding: "24px 28px", background: "rgba(0,255,136,0.06)", border: "1px solid rgba(0,255,136,0.2)", borderRadius: "20px", marginBottom: "14px" }}>
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "14px" }}>
-        <div>
-          <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.3rem" }}>{offer.playerName}</div>
-          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1rem", marginTop: "4px" }}>{offer.playerClub}</div>
-        </div>
+        <div style={{ color: "#fff", fontWeight: 700, fontSize: "2.6rem", lineHeight: 1.1 }}>{offer.playerName}</div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "6px" }}>
           <span style={{ background: typeBg, color: typeColor, padding: "5px 14px", borderRadius: "20px", fontSize: "0.9rem", fontWeight: 700, textTransform: "uppercase" }}>
-            {offer.type}
+            {offer.type === "freeAgent" ? "FREE AGENT" : offer.type}
           </span>
           <span style={{ background: "rgba(0,255,136,0.15)", color: "#00ff88", padding: "5px 14px", borderRadius: "20px", fontSize: "0.9rem", fontWeight: 700 }}>
             ✅ SIGNED
@@ -552,23 +611,23 @@ function FilterSortBar({ filterName, setFilterName, filterClub, setFilterClub, f
   const chipActive = (id) => filterTypes.includes(id);
 
   return (
-    <div style={{ marginBottom: "24px", display: "flex", flexDirection: "column", gap: "14px" }}>
+    <div style={{ marginBottom: "24px", display: "flex", flexDirection: "column", gap: "18px" }}>
       {/* Row 1: Name search + Club dropdown */}
-      <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: "14px", flexWrap: "wrap" }}>
         <input
           type="text"
           placeholder="🔍 Search by player name..."
           value={filterName}
           onChange={e => setFilterName(e.target.value)}
           style={{
-            flex: "1 1 180px",
-            padding: "13px 18px",
+            flex: "1 1 220px",
+            padding: "20px 28px",
             background: "rgba(255,255,255,0.06)",
             border: "1px solid rgba(255,20,147,0.35)",
-            borderRadius: "12px",
+            borderRadius: "14px",
             color: "#fff",
             fontFamily: "inherit",
-            fontSize: "0.95rem",
+            fontSize: "1.4rem",
             outline: "none",
           }}
         />
@@ -576,14 +635,14 @@ function FilterSortBar({ filterName, setFilterName, filterClub, setFilterClub, f
           value={filterClub}
           onChange={e => setFilterClub(e.target.value)}
           style={{
-            flex: "1 1 160px",
-            padding: "13px 18px",
+            flex: "1 1 200px",
+            padding: "20px 28px",
             background: "rgba(20,0,30,0.95)",
             border: "1px solid rgba(255,20,147,0.35)",
-            borderRadius: "12px",
+            borderRadius: "14px",
             color: filterClub ? "#fff" : "rgba(255,255,255,0.4)",
             fontFamily: "inherit",
-            fontSize: "0.95rem",
+            fontSize: "1.4rem",
             outline: "none",
             cursor: "pointer",
           }}
@@ -596,15 +655,15 @@ function FilterSortBar({ filterName, setFilterName, filterClub, setFilterClub, f
       </div>
 
       {/* Row 2: Type chips + Sort */}
-      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
         {/* Type toggle chips */}
-        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
           {TYPE_CHIPS.map(chip => (
             <button
               key={chip.id}
               onClick={() => toggleType(chip.id)}
               style={{
-                padding: "9px 20px",
+                padding: "16px 36px",
                 borderRadius: "30px",
                 border: chipActive(chip.id)
                   ? "1px solid rgba(255,20,147,0.9)"
@@ -614,7 +673,7 @@ function FilterSortBar({ filterName, setFilterName, filterClub, setFilterClub, f
                   : "rgba(255,255,255,0.05)",
                 color: chipActive(chip.id) ? "#FF1493" : "rgba(255,255,255,0.5)",
                 fontWeight: 700,
-                fontSize: "0.85rem",
+                fontSize: "1.3rem",
                 letterSpacing: "1px",
                 cursor: "pointer",
                 transition: "all 0.18s",
@@ -630,13 +689,13 @@ function FilterSortBar({ filterName, setFilterName, filterClub, setFilterClub, f
           value={sortBy}
           onChange={e => setSortBy(e.target.value)}
           style={{
-            padding: "9px 16px",
+            padding: "16px 28px",
             background: "rgba(20,0,30,0.95)",
             border: "1px solid rgba(255,20,147,0.35)",
-            borderRadius: "12px",
+            borderRadius: "14px",
             color: "#fff",
             fontFamily: "inherit",
-            fontSize: "0.9rem",
+            fontSize: "1.3rem",
             outline: "none",
             cursor: "pointer",
           }}
@@ -689,13 +748,11 @@ export default function TransferMarketPage() {
   const [selectedAuction, setSelectedAuction]   = useState(null);
   const [selectedAuctionId, setSelectedAuctionId] = useState(null);
   const [visibleCount, setVisibleCount]         = useState(12);
+  const [auctionSearch, setAuctionSearch]       = useState("");
+  const [auctionRequests, setAuctionRequests]   = useState([]);
+  const [showRequestAuction, setShowRequestAuction] = useState(false);
 
-  // Guard: if a manager somehow has tab="auction" (e.g. stale state), reset it.
-  useEffect(() => {
-    if (!isAdmin && tab === "auction") {
-      setTab(MANAGER_DEFAULT_TAB);
-    }
-  }, [isAdmin, tab]);
+
 
   useEffect(() => {
     const playerTabs = ["topTargets", "signings", "auction"];
@@ -725,7 +782,11 @@ export default function TransferMarketPage() {
       const val = snap.val();
       setWindowOpen(val === null || val === undefined ? true : !!val);
     });
-    return () => { unsubs.forEach(u => u()); negUnsub(); cdUnsub(); vidUnsub(); iconsUnsub(); winUnsub(); };
+    const reqUnsub = onValue(ref(db, `${PATHS.transfers}/auctionRequests`), snap => {
+      const data = snap.val();
+      setAuctionRequests(data ? Object.entries(data).map(([k, v]) => ({ id: k, ...v })) : []);
+    });
+    return () => { unsubs.forEach(u => u()); negUnsub(); cdUnsub(); vidUnsub(); iconsUnsub(); winUnsub(); reqUnsub(); };
   }, []);
 
   useEffect(() => {
@@ -821,7 +882,6 @@ export default function TransferMarketPage() {
 
   // ── Safe tab change: managers cannot switch to auction ───────────────────────
   function handleTabChange(nextTab) {
-    if (!isAdmin && nextTab === "auction") return; // hard block
     setTab(nextTab);
     setVisibleCount(12);
     // Reset filter & sort on every tab switch
@@ -881,8 +941,29 @@ export default function TransferMarketPage() {
       )}
 
       <div style={{ padding: "24px 20px 80px" }}>
+        {/* ── Buy / Loan buttons — managers only ── */}
+        {!isAdmin && (
+          <div style={{ display: "flex", gap: "12px", marginBottom: "20px" }}>
+            <button
+              onClick={() => { setBuySellMode("buy"); setShowBuySellModal(true); }}
+              style={{ flex: 1, padding: "18px", background: "#00cc66", border: "none", borderRadius: "14px", color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "2px", cursor: "pointer", boxShadow: "0 4px 20px rgba(0,204,102,0.3)" }}
+              onMouseOver={e => e.currentTarget.style.background = "#00aa55"}
+              onMouseOut={e => e.currentTarget.style.background = "#00cc66"}
+            >
+              💰 BUY PLAYER
+            </button>
+            <button
+              onClick={() => { setBuySellMode("loan"); setShowBuySellModal(true); }}
+              style={{ flex: 1, padding: "18px", background: "#ffaa44", border: "none", borderRadius: "14px", color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "2px", cursor: "pointer", boxShadow: "0 4px 20px rgba(255,170,68,0.3)" }}
+              onMouseOver={e => e.currentTarget.style.background = "#e09030"}
+              onMouseOut={e => e.currentTarget.style.background = "#ffaa44"}
+            >
+              🔄 LOAN PLAYER
+            </button>
+          </div>
+        )}
+
         <div style={{ marginBottom: "24px" }}>
-          {/* TabBar receives the role-appropriate tab list — auction never appears for managers */}
           <TabBar tabs={TABS} activeTab={tab} onTabChange={handleTabChange} />
         </div>
 
@@ -951,27 +1032,104 @@ export default function TransferMarketPage() {
             ))}
           </div>
 
-        ) : tab === "auction" && isAdmin ? (
-          // ── AUCTION: admin only — double-guarded ───────────────────────────
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "16px", width: "100%" }}>
-            <NewAuctionCard onClick={() => setShowNewAuction(true)} />
-            {currentTabPlayers.map(player => (
-              <div key={player.id} style={{ position: "relative" }}>
-                <AuctionGridCard player={player} bidCount={auctionBids[player.id] || 0} onClick={() => { setSelectedAuction(player); setSelectedAuctionId(player.id); }} />
-                <button onClick={() => handleDeletePlayer(player.id)} style={{ position: "absolute", top: "8px", right: "8px", background: "rgba(255,0,0,0.8)", border: "none", borderRadius: "8px", color: "#fff", fontWeight: 700, fontSize: "0.8rem", padding: "4px 8px", cursor: "pointer", zIndex: 10 }}>🗑️</button>
-              </div>
-            ))}
-            {currentTabPlayers.length === 0 && (
-              <div style={{ gridColumn: "1/-1", textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.3)" }}>
-                <div style={{ fontSize: "4rem", marginBottom: "16px" }}>🔨</div>
-                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px" }}>No Auctions Yet</div>
+        ) : tab === "auction" ? (
+          // ── AUCTION: visible to all ────────────────────────────────────────
+          <div style={{ width: "100%" }}>
+            {/* Search bar */}
+            <div style={{ marginBottom: "20px" }}>
+              <input
+                type="text"
+                placeholder="🔍 Search auction by player name..."
+                value={auctionSearch}
+                onChange={e => setAuctionSearch(e.target.value)}
+                style={{
+                  width: "100%", boxSizing: "border-box",
+                  padding: "20px 28px",
+                  background: "rgba(255,255,255,0.06)",
+                  border: "1px solid rgba(255,20,147,0.35)",
+                  borderRadius: "14px",
+                  color: "#fff", fontFamily: "inherit",
+                  fontSize: "1.4rem", outline: "none",
+                }}
+              />
+            </div>
+
+            {/* Admin: pending auction requests */}
+            {isAdmin && auctionRequests.filter(r => r.status === "pending").length > 0 && (
+              <div style={{ marginBottom: "28px" }}>
+                <div style={{ color: "#ffaa44", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", letterSpacing: "2px", marginBottom: "14px" }}>
+                  ⏳ PENDING AUCTION REQUESTS ({auctionRequests.filter(r => r.status === "pending").length})
+                </div>
+                {auctionRequests.filter(r => r.status === "pending").map(req => (
+                  <div key={req.id} style={{ background: "rgba(255,170,0,0.08)", border: "1px solid rgba(255,170,0,0.3)", borderRadius: "16px", padding: "20px 24px", marginBottom: "12px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
+                    <div>
+                      <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.3rem" }}>{req.name}</div>
+                      <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.95rem", marginTop: "4px" }}>{req.club} · Starting bid: {req.startingBid ? `€${Number(req.startingBid).toLocaleString()}` : "—"}</div>
+                      <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.85rem", marginTop: "2px" }}>Requested by: {req.requestedBy || "—"}</div>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await push(ref(db, `${PATHS.transfers}/auction`), {
+                            name: req.name, club: req.club, nationality: req.nationality || "",
+                            age: req.age || "", value: req.value || "",
+                            startingBid: req.startingBid || 0, imageUrl: req.imageUrl || "",
+                            createdBy: req.requestedBy || "Manager", createdAt: Date.now(), settled: false,
+                          });
+                          await update(ref(db, `${PATHS.transfers}/auctionRequests/${req.id}`), { status: "approved" });
+                        } catch (e) { console.error("Approve failed:", e); }
+                      }}
+                      style={{ padding: "14px 28px", background: "#00cc66", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, fontSize: "1rem", cursor: "pointer", whiteSpace: "nowrap" }}
+                    >
+                      ✅ Approve Auction
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
-          </div>
 
-        ) : tab === "auction" && !isAdmin ? (
-          // ── Fallback: manager somehow reached auction tab — redirect silently
-          null
+            {/* Auction grid */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: "20px" }}>
+              {/* Admin: create new auction card; Manager: request auction card */}
+              {isAdmin ? (
+                <NewAuctionCard onClick={() => setShowNewAuction(true)} />
+              ) : (
+                <div
+                  onClick={() => setShowRequestAuction(true)}
+                  style={{ background: "linear-gradient(135deg, rgba(255,170,0,0.3), rgba(255,170,0,0.1))", border: "2px solid rgba(255,170,0,0.5)", borderRadius: "20px", overflow: "hidden", cursor: "pointer", transition: "all 0.25s", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", aspectRatio: "1/1", minHeight: "260px", boxShadow: "0 4px 30px rgba(255,170,0,0.15)" }}
+                  onMouseOver={e => { e.currentTarget.style.transform = "translateY(-4px)"; e.currentTarget.style.boxShadow = "0 8px 40px rgba(255,170,0,0.3)"; }}
+                  onMouseOut={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 4px 30px rgba(255,170,0,0.15)"; }}
+                >
+                  <div style={{ fontSize: "3.5rem", marginBottom: "12px" }}>📋</div>
+                  <div style={{ color: "#ffaa44", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", letterSpacing: "3px", textAlign: "center" }}>REQUEST AUCTION</div>
+                  <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.9rem", marginTop: "8px", textAlign: "center", padding: "0 16px" }}>Submit a request for admin approval</div>
+                </div>
+              )}
+
+              {/* Auction player cards */}
+              {currentTabPlayers
+                .filter(p => !auctionSearch || (p.name || "").toLowerCase().includes(auctionSearch.toLowerCase()))
+                .map(player => (
+                  <div key={player.id} style={{ position: "relative" }}>
+                    <AuctionGridCard
+                      player={player}
+                      bidCount={auctionBids[player.id] || 0}
+                      onClick={() => { setSelectedAuction(player); setSelectedAuctionId(player.id); }}
+                    />
+                    {isAdmin && (
+                      <button onClick={() => handleDeletePlayer(player.id)} style={{ position: "absolute", top: "8px", right: "8px", background: "rgba(255,0,0,0.8)", border: "none", borderRadius: "8px", color: "#fff", fontWeight: 700, fontSize: "0.8rem", padding: "4px 8px", cursor: "pointer", zIndex: 10 }}>🗑️</button>
+                    )}
+                  </div>
+                ))}
+
+              {currentTabPlayers.length === 0 && (
+                <div style={{ gridColumn: "1/-1", textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.3)" }}>
+                  <div style={{ fontSize: "4rem", marginBottom: "16px" }}>🔨</div>
+                  <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px" }}>No Auctions Yet</div>
+                </div>
+              )}
+            </div>
+          </div>
 
         ) : (
           // ── TOP TARGETS (and any future player-list tabs) ──────────────────
@@ -983,7 +1141,7 @@ export default function TransferMarketPage() {
             </div>
           ) : (
             <>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "16px", width: "100%" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: "20px", width: "100%" }}>
                 {visiblePlayers.map(player => (
                   <div key={player.id} style={{ position: "relative" }}>
                     <PlayerGridCard player={player} teamIcons={mergedIcons} onClick={() => { setSelectedPlayer(player); setSelectedPlayerId(player.id); }} />
@@ -1012,12 +1170,19 @@ export default function TransferMarketPage() {
         {selectedPlayer && <PlayerPopupModal player={selectedPlayer} playerId={selectedPlayerId} playerTab={tab} teamIcons={mergedIcons} onClose={() => { setSelectedPlayer(null); setSelectedPlayerId(null); }} />}
       </Modal>
 
-      {/* Auction modal — only mounted when admin */}
+      {/* Auction modal — all users can open it now */}
+      <Modal active={!!selectedAuction} onClose={() => { setSelectedAuction(null); setSelectedAuctionId(null); }} wide>
+        {selectedAuction && <AuctionBidModal player={selectedAuction} playerId={selectedAuctionId} isAdmin={isAdmin} windowOpen={windowOpen} onClose={() => { setSelectedAuction(null); setSelectedAuctionId(null); }} />}
+      </Modal>
+
+      {/* Manager: request auction modal */}
+      <Modal active={showRequestAuction} onClose={() => setShowRequestAuction(false)} wide>
+        <ManagerAuctionRequestModal manager={manager} onClose={() => setShowRequestAuction(false)} />
+      </Modal>
+
+      {/* Admin only modals */}
       {isAdmin && (
         <>
-          <Modal active={!!selectedAuction} onClose={() => { setSelectedAuction(null); setSelectedAuctionId(null); }} wide>
-            {selectedAuction && <AuctionBidModal player={selectedAuction} playerId={selectedAuctionId} isAdmin={isAdmin} windowOpen={windowOpen} onClose={() => { setSelectedAuction(null); setSelectedAuctionId(null); }} />}
-          </Modal>
           <Modal active={showNewAuction} onClose={() => setShowNewAuction(false)} wide>
             <NewAuctionModal manager={manager} onClose={() => setShowNewAuction(false)} />
           </Modal>
