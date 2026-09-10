@@ -10,7 +10,6 @@ const GLASS = {
   border: "1px solid rgba(255,20,147,0.2)",
 };
 
-const MIN_BID_INCREMENT = 5_000_000;
 
 function formatAmt(n) {
   if (!n && n !== 0) return "€0";
@@ -169,7 +168,6 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
 
   const leadingBid = bids[0] || null;
   const leadingRaw = leadingBid ? (leadingBid.bidAmountRaw || 0) : parseRaw(player.startingBid || player.value);
-  const minNextBid = leadingRaw + MIN_BID_INCREMENT;
   const interestedCount = [...new Set(bids.map(b => b.fromManagerUid))].length;
 
   // For managers: find their own latest bid
@@ -194,8 +192,8 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
   async function handleBid() {
     if (!manager) { setError("You must be logged in."); return; }
     const amt = parseRaw(bidInput);
-    if (!amt || amt < minNextBid) {
-      setError(`Minimum bid is ${formatAmt(minNextBid)} (leading bid + €5M).`);
+    if (!amt || amt <= 0) {
+      setError("Please enter a valid bid amount.");
       return;
     }
     setSubmitting(true);
@@ -407,19 +405,23 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
       {/* Bid input — only when auction is open AND timer has not expired; managers locked after deadline */}
       {!isClosed && !timerExpired && manager && (isAdmin || !countdown.expired) && (
         <div style={{ ...GLASS, borderRadius: "20px", padding: "32px", marginBottom: "32px", border: "1px solid rgba(255,20,147,0.4)" }}>
-          <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "2px", marginBottom: "8px" }}>🔨 ENTER NEW BID</div>
+          <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "2px", marginBottom: "8px" }}>🔨 ENTER BID</div>
           <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.4rem", marginBottom: "20px" }}>
-            Minimum bid: <span style={{ color: "#fff", fontWeight: 700 }}>{formatAmt(minNextBid)}</span>
-            &nbsp;· Bidding as: <span style={{ color: "#fff", fontWeight: 700 }}>{manager.username}</span> ({manager.team})
+            Bidding as: <span style={{ color: "#fff", fontWeight: 700 }}>{manager.username}</span> ({manager.team})
           </div>
           <input
             value={bidInput}
             onChange={e => { const v = e.target.value.replace(/[^0-9]/g, ""); setBidInput(v); }}
-            placeholder={`Min. ${formatAmt(minNextBid)}`}
+            placeholder="Enter your bid amount (€)"
             style={inputStyle}
             type="number"
-            min={minNextBid}
+            min={1}
           />
+          {myBid && (
+            <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "1.2rem", marginTop: "10px" }}>
+              Last updated: {new Date(myBid.createdAt).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+            </div>
+          )}
           {error && (
             <div style={{ color: "#ff6b6b", fontSize: "1.4rem", marginTop: "12px", padding: "14px", background: "rgba(255,0,0,0.1)", borderRadius: "12px" }}>{error}</div>
           )}
@@ -519,8 +521,8 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
               {interestedManagers.map((m, i) => (
                 <div key={m.fromManagerUid || i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", background: m.fromManagerUid === manager?.uid ? "rgba(255,20,147,0.1)" : "rgba(255,255,255,0.04)", border: `1px solid ${m.fromManagerUid === manager?.uid ? "rgba(255,20,147,0.4)" : "rgba(255,255,255,0.08)"}`, borderRadius: "12px" }}>
                   <div>
-                    <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.4rem" }}>{m.fromClub}</div>
-                    <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "1.1rem" }}>{m.fromManagerName}</div>
+                    <div style={{ color: "#fff", fontWeight: 700, fontSize: "2.8rem", lineHeight: 1.2 }}>{m.fromClub}</div>
+                    <div style={{ color: "rgba(255,255,255,0.55)", fontSize: "2.2rem" }}>{m.fromManagerName}</div>
                   </div>
                   {m.fromManagerUid === manager?.uid && (
                     <span style={{ background: "rgba(255,20,147,0.2)", color: "#FF1493", padding: "4px 12px", borderRadius: "20px", fontSize: "0.9rem", fontWeight: 700 }}>YOU</span>
