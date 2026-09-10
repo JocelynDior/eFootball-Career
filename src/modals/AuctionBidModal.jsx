@@ -212,10 +212,26 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
         status: "pending",
         createdAt: Date.now(),
       };
-      // Push to auction bids (source of truth for history)
-      await push(ref(db, `${PATHS.transfers}/auction/${playerId}/bids`), bidData);
-      // Also push to negotiations for the negotiations tab
-      await push(ref(db, `${PATHS.transfers}/negotiations`), bidData);
+
+      // Check if this manager already has a bid node — if so, overwrite it
+      const existingSnap = await get(ref(db, `${PATHS.transfers}/auction/${playerId}/bids`));
+      const existingData = existingSnap.val();
+      let existingBidKey = null;
+      if (existingData) {
+        for (const [k, v] of Object.entries(existingData)) {
+          if (v.fromManagerUid === manager.uid) { existingBidKey = k; break; }
+        }
+      }
+
+      if (existingBidKey) {
+        // Overwrite existing bid
+        await update(ref(db, `${PATHS.transfers}/auction/${playerId}/bids/${existingBidKey}`), bidData);
+      } else {
+        // First bid — push new node
+        await push(ref(db, `${PATHS.transfers}/auction/${playerId}/bids`), bidData);
+        // Also push to negotiations for the negotiations tab (only on first bid)
+        await push(ref(db, `${PATHS.transfers}/negotiations`), bidData);
+      }
       setBidInput("");
       setDone(true);
       setTimeout(() => setDone(false), 2000);
