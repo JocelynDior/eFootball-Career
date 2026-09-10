@@ -240,20 +240,21 @@ export default function SideMenu({ open, onClose }) {
           )}
 
           {/* ── Install App ── */}
-          {!isInstalled && installPrompt && (
+          {!isInstalled && (
             <div
-              onClick={handleInstall}
+              onClick={installPrompt ? handleInstall : undefined}
               style={{
                 padding: "32px 36px", margin: "12px 0",
                 background: "rgba(255,20,147,0.1)",
                 border: "1px solid rgba(255,20,147,0.4)",
-                borderRadius: "20px", cursor: "pointer", color: "#fff",
-                fontWeight: 700, fontSize: "2.8rem", transition: "all 0.2s",
-                display: "flex", alignItems: "center", gap: "16px",
+                borderRadius: "20px", cursor: installPrompt ? "pointer" : "default",
+                color: "#fff", fontWeight: 700, fontSize: "2.8rem", transition: "all 0.2s",
               }}
               onMouseOver={e => {
-                e.currentTarget.style.background = "rgba(255,20,147,0.22)";
-                e.currentTarget.style.transform = "translateX(6px)";
+                if (installPrompt) {
+                  e.currentTarget.style.background = "rgba(255,20,147,0.22)";
+                  e.currentTarget.style.transform = "translateX(6px)";
+                }
               }}
               onMouseOut={e => {
                 e.currentTarget.style.background = "rgba(255,20,147,0.1)";
@@ -261,6 +262,11 @@ export default function SideMenu({ open, onClose }) {
               }}
             >
               📲 Install App
+              {!installPrompt && (
+                <div style={{ fontSize: "1.5rem", color: "rgba(255,255,255,0.5)", fontWeight: 400, marginTop: "8px" }}>
+                  Tap Chrome menu (⋮) → "Add to Home Screen"
+                </div>
+              )}
             </div>
           )}
 
