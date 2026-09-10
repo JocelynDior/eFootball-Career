@@ -57,6 +57,7 @@ async function updateTopStat(league, season, pathKey, playerName, count, imageUr
   }
 }
 
+// ── Matchday number resolver ──────────────────────────────────────────────────
 function useMatchdayNumber(dateStr) {
   const [md, setMd] = useState(null);
   useEffect(() => {
@@ -80,7 +81,8 @@ function useMatchdayNumber(dateStr) {
   return md;
 }
 
-function Countdown({ title, startMs, durationMs, accent = "#00BFFF", matchday }) {
+// ── Countdown card ────────────────────────────────────────────────────────────
+function Countdown({ title, startMs, durationMs, accent = "#FF1493", matchday }) {
   const [parts, setParts] = useState({ h: "48", m: "00", s: "00", pct: 1 });
   useEffect(() => {
     function tick() {
@@ -117,6 +119,7 @@ function Countdown({ title, startMs, durationMs, accent = "#00BFFF", matchday })
           </div>
         ))}
       </div>
+      {/* Matchday label */}
       <div style={{
         background: `${urgency}18`, border: `1px solid ${urgency}44`,
         borderRadius: 30, padding: "6px 20px",
@@ -135,6 +138,7 @@ function Countdown({ title, startMs, durationMs, accent = "#00BFFF", matchday })
 export default function Ligue1Page() {
   const { isAdmin } = useAdmin();
   const [season, setSeason] = useState("1");
+
   const [seasons, setSeasons] = useState(["1"]);
   const [tab, setTab] = useState("main");
   const [teams, setTeams] = useState([]);
@@ -264,7 +268,7 @@ export default function Ligue1Page() {
           onMenuOpen={isAdmin ? () => setAdminOpen(true) : undefined}
         />
 
-        {/* Countdown blocks */}
+        {/* Countdown blocks with matchday labels */}
         <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
           <Countdown
             title="⏮ PREVIOUS MATCHDAY DEADLINE"
