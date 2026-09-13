@@ -21,7 +21,6 @@ const MANAGER_TABS = [
   { id: "negotiations", label: "NEGOTIATIONS" },
 ];
 
-// Admin sees all 4 tabs including Auction.
 const ADMIN_TABS = [
   { id: "topTargets",   label: "TOP TARGETS" },
   { id: "signings",     label: "SIGNINGS" },
@@ -29,7 +28,6 @@ const ADMIN_TABS = [
   { id: "negotiations", label: "NEGOTIATIONS" },
 ];
 
-// Safe default tab for managers — never "auction"
 const MANAGER_DEFAULT_TAB = "topTargets";
 const ADMIN_DEFAULT_TAB   = "topTargets";
 
@@ -62,6 +60,78 @@ function formatAmt(n) {
 function parseRaw(str) {
   if (!str && str !== 0) return 0;
   return Number(String(str).replace(/[^0-9.]/g, "")) || 0;
+}
+
+// ── Settle a single auction (called by admin Close All button) ───────────────
+async function settleAuction(player, playerId) {
+  try {
+    const cardSnap = await get(ref(db, `${PATHS.transfers}/auction/${playerId}`));
+    const card = cardSnap.val();
+    if (card?.settled) return;
+
+    const bidsSnap = await get(ref(db, `${PATHS.transfers}/auction/${playerId}/bids`));
+    const bidsData = bidsSnap.val();
+    if (!bidsData) {
+      // No bids — just mark as settled with no winner
+      await update(ref(db, `${PATHS.transfers}/auction/${playerId}`), {
+        settled: true,
+        adminReset: false,
+      });
+      return;
+    }
+
+    const bids = Object.values(bidsData).sort((a, b) => (b.bidAmountRaw || 0) - (a.bidAmountRaw || 0));
+    const winner = bids[0];
+    if (!winner) return;
+
+    await update(ref(db, `${PATHS.transfers}/auction/${playerId}`), {
+      settled: true,
+      adminReset: false,
+      winnerId: winner.fromManagerUid,
+      winnerClub: winner.fromClub,
+      winnerName: winner.fromManagerName,
+      winningBid: winner.bidAmountRaw,
+    });
+
+    const amt = winner.bidAmountRaw || 0;
+    const now = new Date();
+    const monthIndex = now.getMonth();
+    const monthName = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][monthIndex];
+    const year = now.getFullYear();
+    const buyingClub = winner.fromClub;
+    const sellingClub = player.club;
+    const playerName = player.name;
+
+    if (buyingClub && amt > 0) {
+      await push(ref(db, `career_team_management/${buyingClub}/finance/transactions`), {
+        type: "expense", category: "Player Purchase",
+        source: playerName, amount: amt,
+        month: monthName, monthIndex, year, createdAt: Date.now(),
+      });
+    }
+    if (sellingClub && amt > 0) {
+      await push(ref(db, `career_team_management/${sellingClub}/finance/transactions`), {
+        type: "income", category: "Player Sales",
+        source: playerName, amount: amt,
+        month: monthName, monthIndex, year, createdAt: Date.now(),
+      });
+    }
+
+    const sellingSnap = await get(ref(db, `career_team_management/${sellingClub}/squad`));
+    const sellingData = sellingSnap.val();
+    if (sellingData) {
+      for (const [key, p] of Object.entries(sellingData)) {
+        if (p.name === playerName) {
+          await remove(ref(db, `career_team_management/${sellingClub}/squad/${key}`));
+          const { loanStatus, loanClub, loanFrom, ...cleanPlayer } = p;
+          await push(ref(db, `career_team_management/${buyingClub}/squad`), cleanPlayer);
+          break;
+        }
+      }
+    }
+  } catch (e) {
+    console.error("Auction settle error:", e);
+  }
 }
 
 // ── Spinner ─────────────────────────────────────────────────────────────────
@@ -156,19 +226,25 @@ function PlayerGridCard({ player, teamIcons, onClick }) {
   );
 }
 
-// ── Auction card — admin only ─────────────────────────────────────────────────
+// ── Auction card ─────────────────────────────────────────────────────────────
 function AuctionGridCard({ player, onClick, bidCount }) {
+  const isClosed = player.settled && !player.adminReset;
   return (
-    <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,20,147,0.18)", borderRadius: "20px", overflow: "hidden", cursor: "pointer", transition: "all 0.25s", display: "flex", flexDirection: "column" }}
+    <div style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${isClosed ? "rgba(0,255,136,0.3)" : "rgba(255,20,147,0.18)"}`, borderRadius: "20px", overflow: "hidden", cursor: "pointer", transition: "all 0.25s", display: "flex", flexDirection: "column" }}
       onClick={onClick}
-      onMouseOver={e => { e.currentTarget.style.background = "rgba(255,20,147,0.08)"; e.currentTarget.style.borderColor = "rgba(255,20,147,0.5)"; e.currentTarget.style.transform = "translateY(-4px)"; }}
-      onMouseOut={e => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; e.currentTarget.style.borderColor = "rgba(255,20,147,0.18)"; e.currentTarget.style.transform = "translateY(0)"; }}
+      onMouseOver={e => { e.currentTarget.style.background = "rgba(255,20,147,0.08)"; e.currentTarget.style.transform = "translateY(-4px)"; }}
+      onMouseOut={e => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; e.currentTarget.style.transform = "translateY(0)"; }}
     >
       <div style={{ width: "100%", aspectRatio: "1/1", background: "rgba(0,0,0,0.3)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative" }}>
         {player.imageUrl ? (
           <img src={player.imageUrl} alt={player.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         ) : (
           <div style={{ width: "70%", height: "70%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "4rem" }}>⚽</div>
+        )}
+        {isClosed && (
+          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "4px", textShadow: "0 0 20px rgba(0,255,136,0.8)" }}>✅ SOLD</div>
+          </div>
         )}
         {player.listedBy && (
           <div style={{ position: "absolute", top: "10px", right: "10px", background: "rgba(0,0,0,0.7)", borderRadius: "8px", padding: "4px 10px", color: "rgba(255,255,255,0.7)", fontSize: "0.7rem", fontWeight: 700 }}>
@@ -182,6 +258,9 @@ function AuctionGridCard({ player, onClick, bidCount }) {
         <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.9rem" }}>
           👥 Interested Managers: <span style={{ color: "#fff", fontWeight: 700 }}>{bidCount}</span>
         </div>
+        {isClosed && (
+          <div style={{ color: "#00ff88", fontWeight: 700, fontSize: "0.9rem" }}>🏆 Auction Closed</div>
+        )}
       </div>
     </div>
   );
@@ -539,7 +618,7 @@ function NegotiationCard({ offer, isOwn, isAdmin, manager }) {
   );
 }
 
-// ── Signing card — used in the Signings tab ──────────────────────────────────
+// ── Signing card ─────────────────────────────────────────────────────────────
 function SigningCard({ offer }) {
   const typeColor = offer.type === "buy" ? "#FF1493" : offer.type === "loan" ? "#44aaff" : "#ffaa44";
   const typeBg   = offer.type === "buy" ? "rgba(255,20,147,0.2)" : offer.type === "loan" ? "rgba(0,150,255,0.2)" : "rgba(255,170,0,0.2)";
@@ -555,7 +634,6 @@ function SigningCard({ offer }) {
 
   return (
     <div style={{ padding: "24px 28px", background: "rgba(0,255,136,0.06)", border: "1px solid rgba(0,255,136,0.2)", borderRadius: "20px", marginBottom: "14px" }}>
-      {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "14px" }}>
         <div style={{ color: "#fff", fontWeight: 700, fontSize: "2.6rem", lineHeight: 1.1 }}>{offer.playerName}</div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "6px" }}>
@@ -567,8 +645,6 @@ function SigningCard({ offer }) {
           </span>
         </div>
       </div>
-
-      {/* Detail grid */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
         {details.map(([label, value]) => (
           <div key={label} style={{ background: "rgba(255,255,255,0.05)", borderRadius: "12px", padding: "12px 16px" }}>
@@ -604,7 +680,6 @@ function FilterSortBar({ filterName, setFilterName, filterClub, setFilterClub, f
 
   return (
     <div style={{ marginBottom: "24px", display: "flex", flexDirection: "column", gap: "18px" }}>
-      {/* Row 1: Name search + Club dropdown */}
       <div style={{ display: "flex", gap: "14px", flexWrap: "wrap" }}>
         <input
           type="text"
@@ -646,9 +721,7 @@ function FilterSortBar({ filterName, setFilterName, filterClub, setFilterClub, f
         </select>
       </div>
 
-      {/* Row 2: Type chips + Sort */}
       <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
-        {/* Type toggle chips */}
         <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
           {TYPE_CHIPS.map(chip => (
             <button
@@ -676,7 +749,6 @@ function FilterSortBar({ filterName, setFilterName, filterClub, setFilterClub, f
           ))}
         </div>
 
-        {/* Sort dropdown */}
         <select
           value={sortBy}
           onChange={e => setSortBy(e.target.value)}
@@ -705,13 +777,9 @@ function FilterSortBar({ filterName, setFilterName, filterClub, setFilterClub, f
 export default function TransferMarketPage() {
   const { isAdmin, manager, teamIconsCache } = useAdmin();
 
-  // Choose tab set based on role. Managers never get ADMIN_TABS.
   const TABS = isAdmin ? ADMIN_TABS : MANAGER_TABS;
-
-  // Safe initial tab — always valid for the current role.
   const [tab, setTab] = useState(isAdmin ? ADMIN_DEFAULT_TAB : MANAGER_DEFAULT_TAB);
 
-  // Per-tab loading states
   const [playersLoaded, setPlayersLoaded] = useState({ topTargets: false, signings: false, auction: false });
   const [negsLoaded, setNegsLoaded] = useState(false);
 
@@ -724,7 +792,6 @@ export default function TransferMarketPage() {
   const [teamIcons, setTeamIcons]       = useState({});
   const [windowOpen, setWindowOpen]     = useState(true);
 
-  // ── Filter & sort state (reset on tab change) ───────────────────────────────
   const [filterName, setFilterName]   = useState("");
   const [filterClub, setFilterClub]   = useState("");
   const [filterTypes, setFilterTypes] = useState([]);
@@ -745,7 +812,9 @@ export default function TransferMarketPage() {
   const [auctionRequests, setAuctionRequests]   = useState([]);
   const [showRequestAuction, setShowRequestAuction] = useState(false);
 
-
+  // Admin close-all auctions state
+  const [closingAllAuctions, setClosingAllAuctions] = useState(false);
+  const [closeAllMsg, setCloseAllMsg] = useState("");
 
   useEffect(() => {
     const playerTabs = ["topTargets", "signings", "auction"];
@@ -801,15 +870,42 @@ export default function TransferMarketPage() {
     return () => unsubs.forEach(u => u());
   }, [players.auction]);
 
-  // ── Derived data ────────────────────────────────────────────────────────────
+  // ── Admin: Close All Auctions ────────────────────────────────────────────
+  async function handleCloseAllAuctions() {
+    if (!window.confirm("Close ALL active auctions now? The highest bidder on each will be declared the winner.")) return;
+    setClosingAllAuctions(true);
+    setCloseAllMsg("");
+    try {
+      const auctionPlayers = players.auction || [];
+      const active = auctionPlayers.filter(p => !p.settled || p.adminReset);
+      if (active.length === 0) {
+        setCloseAllMsg("⚠️ No active auctions to close.");
+        setClosingAllAuctions(false);
+        return;
+      }
+      await Promise.all(active.map(p => settleAuction(p, p.id)));
+      setCloseAllMsg(`✅ ${active.length} auction${active.length !== 1 ? "s" : ""} closed successfully.`);
+      setTimeout(() => setCloseAllMsg(""), 4000);
+    } catch (e) {
+      setCloseAllMsg("❌ Failed: " + e.message);
+    }
+    setClosingAllAuctions(false);
+  }
 
-  // ── Helper: parse raw fee/amount from an offer ───────────────────────────────
+  // ── Admin: Delete auction request ────────────────────────────────────────
+  async function handleDeleteAuctionRequest(reqId) {
+    if (!window.confirm("Delete this auction request?")) return;
+    try {
+      await remove(ref(db, `${PATHS.transfers}/auctionRequests/${reqId}`));
+    } catch (e) { console.error("Delete request error:", e); }
+  }
+
+  // ── Derived data ────────────────────────────────────────────────────────────
   function offerAmount(offer) {
     const raw = offer.offerAmount || offer.loanAmount || offer.bidAmount || "0";
     return Number(String(raw).replace(/[^0-9.]/g, "")) || 0;
   }
 
-  // ── Helper: apply sort to an array of negotiations/signings ─────────────────
   function applySort(arr, sort) {
     return [...arr].sort((a, b) => {
       if (sort === "latest")   return (b.createdAt || 0) - (a.createdAt || 0);
@@ -820,7 +916,6 @@ export default function TransferMarketPage() {
     });
   }
 
-  // ── Helper: apply name/club/type filters ─────────────────────────────────────
   function applyFilters(arr) {
     return arr.filter(offer => {
       if (filterName) {
@@ -838,7 +933,6 @@ export default function TransferMarketPage() {
     });
   }
 
-  // ── Club options: unique clubs from the current tab's data ──────────────────
   function extractClubs(arr) {
     const set = new Set();
     arr.forEach(offer => {
@@ -847,17 +941,12 @@ export default function TransferMarketPage() {
     return [...set].sort();
   }
 
-  // Signings tab: ALL accepted negotiations
   const allAcceptedSignings = negotiations.filter(n => n.status === "accepted");
   const signingsClubOptions = extractClubs(allAcceptedSignings);
   const filteredSignings    = applySort(applyFilters(allAcceptedSignings), sortBy);
 
-  // Negotiations tab: all negotiations
   const negsClubOptions       = extractClubs(negotiations);
   const filteredNegotiations  = applySort(applyFilters(negotiations), sortBy);
-
-  // Legacy alias used in existing JSX below (kept for non-filter tabs)
-  const acceptedSignings = filteredSignings;
 
   const currentTabPlayers = (players[tab] || []).sort((a, b) => {
     const av = Number((a.value || a.price || "").replace(/[^0-9]/g, "") || 0);
@@ -875,14 +964,11 @@ export default function TransferMarketPage() {
     catch (e) { console.error("Delete failed:", e); }
   }
 
-  // Is current tab still loading?
   const tabLoading = (tab === "negotiations" || tab === "signings") ? !negsLoaded : !playersLoaded[tab];
 
-  // ── Safe tab change: managers cannot switch to auction ───────────────────────
   function handleTabChange(nextTab) {
     setTab(nextTab);
     setVisibleCount(12);
-    // Reset filter & sort on every tab switch
     setFilterName("");
     setFilterClub("");
     setFilterTypes([]);
@@ -969,7 +1055,6 @@ export default function TransferMarketPage() {
           <TabSpinner />
 
         ) : tab === "signings" ? (
-          // ── SIGNINGS: show ALL accepted negotiations ────────────────────────
           <div style={{ width: "100%" }}>
             <FilterSortBar
               filterName={filterName} setFilterName={setFilterName}
@@ -1002,7 +1087,6 @@ export default function TransferMarketPage() {
           </div>
 
         ) : tab === "negotiations" ? (
-          // ── NEGOTIATIONS ───────────────────────────────────────────────────
           <div style={{ width: "100%" }}>
             <FilterSortBar
               filterName={filterName} setFilterName={setFilterName}
@@ -1028,8 +1112,30 @@ export default function TransferMarketPage() {
           </div>
 
         ) : tab === "auction" ? (
-          // ── AUCTION: visible to all ────────────────────────────────────────
           <div style={{ width: "100%" }}>
+
+            {/* ── Admin: Close All Auctions + feedback ── */}
+            {isAdmin && (
+              <div style={{ marginBottom: "24px", padding: "20px 24px", background: "rgba(0,255,136,0.06)", border: "1px solid rgba(0,255,136,0.2)", borderRadius: "16px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px" }}>
+                <div>
+                  <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", letterSpacing: "2px" }}>🏆 CLOSE ALL AUCTIONS</div>
+                  <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.1rem", marginTop: "4px" }}>Declares the highest bidder as winner on every active auction.</div>
+                  {closeAllMsg && (
+                    <div style={{ marginTop: "8px", fontSize: "1.2rem", color: closeAllMsg.startsWith("✅") ? "#00ff88" : closeAllMsg.startsWith("⚠️") ? "#ffaa44" : "#ff6b6b" }}>
+                      {closeAllMsg}
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={handleCloseAllAuctions}
+                  disabled={closingAllAuctions}
+                  style={{ padding: "18px 32px", background: closingAllAuctions ? "rgba(0,255,136,0.15)" : "#00cc66", border: "none", borderRadius: "14px", color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", letterSpacing: "2px", cursor: closingAllAuctions ? "not-allowed" : "pointer", whiteSpace: "nowrap", opacity: closingAllAuctions ? 0.6 : 1 }}
+                >
+                  {closingAllAuctions ? "Closing..." : "🔒 Close All"}
+                </button>
+              </div>
+            )}
+
             {/* Search bar */}
             <div style={{ marginBottom: "20px" }}>
               <input
@@ -1062,46 +1168,53 @@ export default function TransferMarketPage() {
                       <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.95rem", marginTop: "4px" }}>{req.club} · Starting bid: {req.startingBid ? `€${Number(req.startingBid).toLocaleString()}` : "—"}</div>
                       <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.85rem", marginTop: "2px" }}>Requested by: {req.requestedBy || "—"}</div>
                     </div>
-                    <button
-                      onClick={async () => {
-                        try {
-                          const newRef = await push(ref(db, `${PATHS.transfers}/auction`), {
-                            name: req.name, club: req.club,
-                            startingBid: req.startingBid || 0,
-                            createdBy: req.requestedBy || "Manager", createdAt: Date.now(), settled: false,
-                          });
-                          const newPlayerId = newRef.key;
-                          // Auto-add requester as first bidder with their opening bid
-                          if (req.requestedByUid && req.startingBid) {
-                            const autoBid = {
-                              type: "auction",
-                              playerName: req.name,
-                              playerClub: req.club,
-                              playerId: newPlayerId,
-                              bidAmount: `€${Number(req.startingBid).toLocaleString()}`,
-                              bidAmountRaw: req.startingBid,
-                              fromManagerUid: req.requestedByUid,
-                              fromManagerName: req.requestedBy || "Manager",
-                              fromClub: "",
-                              status: "pending",
-                              createdAt: Date.now(),
-                            };
-                            await push(ref(db, `${PATHS.transfers}/auction/${newPlayerId}/bids`), autoBid);
-                            await push(ref(db, `${PATHS.transfers}/negotiations`), autoBid);
-                          }
-                          await update(ref(db, `${PATHS.transfers}/auctionRequests/${req.id}`), { status: "approved" });
-                        } catch (e) { console.error("Approve failed:", e); }
-                      }}
-                      style={{ padding: "14px 28px", background: "#00cc66", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, fontSize: "1rem", cursor: "pointer", whiteSpace: "nowrap" }}
-                    >
-                      ✅ Approve Auction
-                    </button>
+                    <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                      <button
+                        onClick={async () => {
+                          try {
+                            const newRef = await push(ref(db, `${PATHS.transfers}/auction`), {
+                              name: req.name, club: req.club,
+                              startingBid: req.startingBid || 0,
+                              createdBy: req.requestedBy || "Manager", createdAt: Date.now(), settled: false,
+                            });
+                            const newPlayerId = newRef.key;
+                            if (req.requestedByUid && req.startingBid) {
+                              const autoBid = {
+                                type: "auction",
+                                playerName: req.name,
+                                playerClub: req.club,
+                                playerId: newPlayerId,
+                                bidAmount: `€${Number(req.startingBid).toLocaleString()}`,
+                                bidAmountRaw: req.startingBid,
+                                fromManagerUid: req.requestedByUid,
+                                fromManagerName: req.requestedBy || "Manager",
+                                fromClub: "",
+                                status: "pending",
+                                createdAt: Date.now(),
+                              };
+                              await push(ref(db, `${PATHS.transfers}/auction/${newPlayerId}/bids`), autoBid);
+                              await push(ref(db, `${PATHS.transfers}/negotiations`), autoBid);
+                            }
+                            await update(ref(db, `${PATHS.transfers}/auctionRequests/${req.id}`), { status: "approved" });
+                          } catch (e) { console.error("Approve failed:", e); }
+                        }}
+                        style={{ padding: "14px 28px", background: "#00cc66", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, fontSize: "1rem", cursor: "pointer", whiteSpace: "nowrap" }}
+                      >
+                        ✅ Approve
+                      </button>
+                      <button
+                        onClick={() => handleDeleteAuctionRequest(req.id)}
+                        style={{ padding: "14px 20px", background: "rgba(255,0,0,0.15)", border: "1px solid rgba(255,0,0,0.3)", borderRadius: "12px", color: "#ff6b6b", fontWeight: 700, fontSize: "1rem", cursor: "pointer", whiteSpace: "nowrap" }}
+                      >
+                        🗑️ Delete
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
             )}
 
-            {/* Request auction bar — full width above the grid (manager only) */}
+            {/* Request auction bar — manager only */}
             {!isAdmin && (
               <div
                 onClick={() => setShowRequestAuction(true)}
@@ -1122,12 +1235,10 @@ export default function TransferMarketPage() {
 
             {/* Auction grid */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: "20px" }}>
-              {/* Admin: create new auction card */}
               {isAdmin && (
                 <NewAuctionCard onClick={() => setShowNewAuction(true)} />
               )}
 
-              {/* Auction player cards */}
               {currentTabPlayers
                 .filter(p => !auctionSearch || (p.name || "").toLowerCase().includes(auctionSearch.toLowerCase()))
                 .map(player => (
@@ -1138,7 +1249,12 @@ export default function TransferMarketPage() {
                       onClick={() => { setSelectedAuction(player); setSelectedAuctionId(player.id); }}
                     />
                     {isAdmin && (
-                      <button onClick={() => handleDeletePlayer(player.id)} style={{ position: "absolute", top: "8px", right: "8px", background: "rgba(255,0,0,0.8)", border: "none", borderRadius: "8px", color: "#fff", fontWeight: 700, fontSize: "0.8rem", padding: "4px 8px", cursor: "pointer", zIndex: 10 }}>🗑️</button>
+                      <button
+                        onClick={() => handleDeletePlayer(player.id)}
+                        style={{ position: "absolute", top: "8px", right: "8px", background: "rgba(255,0,0,0.8)", border: "none", borderRadius: "8px", color: "#fff", fontWeight: 700, fontSize: "0.8rem", padding: "4px 8px", cursor: "pointer", zIndex: 10 }}
+                      >
+                        🗑️
+                      </button>
                     )}
                   </div>
                 ))}
@@ -1153,7 +1269,6 @@ export default function TransferMarketPage() {
           </div>
 
         ) : (
-          // ── TOP TARGETS (and any future player-list tabs) ──────────────────
           currentTabPlayers.length === 0 ? (
             <div style={{ textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.3)" }}>
               <div style={{ fontSize: "4rem", marginBottom: "16px" }}>⚽</div>
@@ -1191,17 +1306,14 @@ export default function TransferMarketPage() {
         {selectedPlayer && <PlayerPopupModal player={selectedPlayer} playerId={selectedPlayerId} playerTab={tab} teamIcons={mergedIcons} onClose={() => { setSelectedPlayer(null); setSelectedPlayerId(null); }} />}
       </Modal>
 
-      {/* Auction modal — all users can open it now */}
       <Modal active={!!selectedAuction} onClose={() => { setSelectedAuction(null); setSelectedAuctionId(null); }} wide>
         {selectedAuction && <AuctionBidModal player={selectedAuction} playerId={selectedAuctionId} isAdmin={isAdmin} windowOpen={windowOpen} onClose={() => { setSelectedAuction(null); setSelectedAuctionId(null); }} />}
       </Modal>
 
-      {/* Manager: request auction modal */}
       <Modal active={showRequestAuction} onClose={() => setShowRequestAuction(false)} wide>
         <ManagerAuctionRequestModal manager={manager} onClose={() => setShowRequestAuction(false)} />
       </Modal>
 
-      {/* Admin only modals */}
       {isAdmin && (
         <>
           <Modal active={showNewAuction} onClose={() => setShowNewAuction(false)} wide>
