@@ -10,7 +10,6 @@ const GLASS = {
   border: "1px solid rgba(255,20,147,0.2)",
 };
 
-
 function formatAmt(n) {
   if (!n && n !== 0) return "€0";
   if (n >= 1_000_000_000) return `€${(n / 1_000_000_000).toFixed(2)}B`;
@@ -43,69 +42,6 @@ function useCountdown(deadlineTs) {
   return time;
 }
 
-async function settleAuction(player, playerId) {
-  try {
-    const cardSnap = await get(ref(db, `${PATHS.transfers}/auction/${playerId}`));
-    const card = cardSnap.val();
-    if (card?.settled || card?.adminReset) return;
-
-    const bidsSnap = await get(ref(db, `${PATHS.transfers}/auction/${playerId}/bids`));
-    const bidsData = bidsSnap.val();
-    if (!bidsData) return;
-    const bids = Object.values(bidsData).sort((a, b) => (b.bidAmountRaw || 0) - (a.bidAmountRaw || 0));
-    const winner = bids[0];
-    if (!winner) return;
-
-    await update(ref(db, `${PATHS.transfers}/auction/${playerId}`), {
-      settled: true,
-      adminReset: false,
-      winnerId: winner.fromManagerUid,
-      winnerClub: winner.fromClub,
-      winnerName: winner.fromManagerName,
-      winningBid: winner.bidAmountRaw,
-    });
-
-    const amt = winner.bidAmountRaw || 0;
-    const now = new Date();
-    const monthIndex = now.getMonth();
-    const monthName = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][monthIndex];
-    const year = now.getFullYear();
-    const buyingClub = winner.fromClub;
-    const sellingClub = player.club;
-    const playerName = player.name;
-
-    if (buyingClub && amt > 0) {
-      await push(ref(db, `career_team_management/${buyingClub}/finance/transactions`), {
-        type: "expense", category: "Player Purchase",
-        source: playerName, amount: amt,
-        month: monthName, monthIndex, year, createdAt: Date.now(),
-      });
-    }
-    if (sellingClub && amt > 0) {
-      await push(ref(db, `career_team_management/${sellingClub}/finance/transactions`), {
-        type: "income", category: "Player Sales",
-        source: playerName, amount: amt,
-        month: monthName, monthIndex, year, createdAt: Date.now(),
-      });
-    }
-
-    const sellingSnap = await get(ref(db, `career_team_management/${sellingClub}/squad`));
-    const sellingData = sellingSnap.val();
-    if (sellingData) {
-      for (const [key, p] of Object.entries(sellingData)) {
-        if (p.name === playerName) {
-          await remove(ref(db, `career_team_management/${sellingClub}/squad/${key}`));
-          const { loanStatus, loanClub, loanFrom, ...cleanPlayer } = p;
-          await push(ref(db, `career_team_management/${buyingClub}/squad`), cleanPlayer);
-          break;
-        }
-      }
-    }
-  } catch (e) {
-    console.error("Auction settle error:", e);
-  }
-}
-
 export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) {
   const { manager } = useAdmin();
   const [bids, setBids] = useState([]);
@@ -129,10 +65,11 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
 
   const countdown = useCountdown(deadline);
 
+  const startingBidRaw = parseRaw(player.startingBid || player.value);
+
   useEffect(() => {
     if (!playerId) return;
 
-    // Listen to ALL bids under this auction — this is the source of truth for bid history
     const unsubBids = onValue(ref(db, `${PATHS.transfers}/auction/${playerId}/bids`), snap => {
       const data = snap.val();
       setBids(
@@ -160,19 +97,18 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
     return () => { unsubBids(); unsubDeadline(); unsubCard(); };
   }, [playerId]);
 
-  useEffect(() => {
-    if (countdown.expired && !auctionCard.settled && !auctionCard.adminReset && playerId && bids.length > 0) {
-      settleAuction(player, playerId);
-    }
-  }, [countdown.expired, auctionCard.settled, auctionCard.adminReset]);
-
   const leadingBid = bids[0] || null;
-  const leadingRaw = leadingBid ? (leadingBid.bidAmountRaw || 0) : parseRaw(player.startingBid || player.value);
+  const leadingRaw = leadingBid ? (leadingBid.bidAmountRaw || 0) : startingBidRaw;
   const interestedCount = [...new Set(bids.map(b => b.fromManagerUid))].length;
 
-  // For managers: find their own latest bid
-  const myBid = manager ? [...bids].reverse().find(b => b.fromManagerUid === manager.uid) : null;
-  // Unique interested managers (club + name) for display — no amounts shown to managers
+  // For managers: find their own latest bid (by most recent createdAt)
+  const myBid = manager
+    ? [...bids]
+        .filter(b => b.fromManagerUid === manager.uid)
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0] || null
+    : null;
+
+  // Unique interested managers for display — no amounts shown to managers
   const interestedManagers = bids.reduce((acc, b) => {
     if (!acc.find(x => x.fromManagerUid === b.fromManagerUid)) {
       acc.push({ fromManagerUid: b.fromManagerUid, fromManagerName: b.fromManagerName, fromClub: b.fromClub });
@@ -182,18 +118,21 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
 
   const isClosed = auctionCard.settled && !auctionCard.adminReset;
   const showCountdown = !!deadline && !isClosed;
-  const timerExpired = countdown.expired && !!deadline;
-  const onlyOneBid = bids.length === 1;
 
   // Split bids: winner (index 0) and lost bids (rest)
   const winnerBid = bids[0] || null;
   const lostBids = bids.slice(1);
+  const onlyOneBid = bids.length === 1;
 
   async function handleBid() {
     if (!manager) { setError("You must be logged in."); return; }
     const amt = parseRaw(bidInput);
     if (!amt || amt <= 0) {
       setError("Please enter a valid bid amount.");
+      return;
+    }
+    if (amt <= startingBidRaw) {
+      setError(`Your bid must be greater than the starting bid of ${formatAmt(startingBidRaw)}.`);
       return;
     }
     setSubmitting(true);
@@ -224,7 +163,7 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
       }
 
       if (existingBidKey) {
-        // Overwrite existing bid
+        // Overwrite existing bid (edit)
         await update(ref(db, `${PATHS.transfers}/auction/${playerId}/bids/${existingBidKey}`), bidData);
       } else {
         // First bid — push new node
@@ -325,34 +264,19 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
         )}
       </div>
 
-      {/* Player name + value */}
+      {/* Player name + club only */}
       <div style={{ textAlign: "center", marginBottom: "32px" }}>
         <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "4.8rem", letterSpacing: "4px", lineHeight: 1 }}>{player.name}</div>
-        <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3rem", letterSpacing: "2px", marginTop: "8px" }}>{adminValue || player.value || "—"}</div>
+        <div style={{ color: "rgba(255,255,255,0.6)", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "2px", marginTop: "8px" }}>{player.club || "—"}</div>
+        <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px", marginTop: "4px" }}>{adminValue || player.value || "—"}</div>
       </div>
 
-      {/* Info grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "32px" }}>
-        <div style={{ ...GLASS, borderRadius: "16px", padding: "24px 28px" }}>
-          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.4rem", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "8px" }}>Nationality</div>
-          <div style={{ color: "#fff", fontWeight: 700, fontSize: "2rem" }}>{player.nationality || "—"}</div>
-          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.4rem", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "8px", marginTop: "16px" }}>Club</div>
-          <div style={{ color: "#fff", fontWeight: 700, fontSize: "2rem" }}>{player.club || "—"}</div>
-        </div>
-        <div style={{ ...GLASS, borderRadius: "16px", padding: "24px 28px" }}>
-          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.4rem", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "8px" }}>Interested Managers</div>
-          <div style={{ color: "#fff", fontWeight: 700, fontSize: "3.2rem" }}>{interestedCount}</div>
-          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.4rem", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "8px", marginTop: "16px" }}>Age</div>
-          <div style={{ color: "#fff", fontWeight: 700, fontSize: "2rem" }}>{player.age || "—"}</div>
-        </div>
-      </div>
-
-      {/* Extra info */}
+      {/* Info grid — position, overall, starting bid, interested managers */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px", marginBottom: "32px" }}>
         {[
           ["Position", player.position || "—"],
           ["Overall", player.overall || player.rating || "—"],
-          ["Starting Bid", formatAmt(parseRaw(player.startingBid || player.value))],
+          ["Starting Bid", formatAmt(startingBidRaw)],
         ].map(([label, val]) => (
           <div key={label} style={{ ...GLASS, borderRadius: "16px", padding: "20px 24px", textAlign: "center" }}>
             <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.2rem", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "8px" }}>{label}</div>
@@ -361,20 +285,28 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
         ))}
       </div>
 
-      {/* Countdown */}
+      {/* Countdown — display only, no action on expire */}
       {showCountdown && (
         <div style={{ ...GLASS, borderRadius: "16px", padding: "28px", marginBottom: "32px", textAlign: "center", border: "1px solid rgba(255,20,147,0.3)" }}>
-          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.4rem", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "16px" }}>Auction Ends In</div>
-          <div style={{ display: "flex", justifyContent: "center", gap: "24px" }}>
-            {[["Days", countdown.d], ["Hours", countdown.h], ["Mins", countdown.m], ["Secs", countdown.s]].map(([label, val]) => (
-              <div key={label} style={{ textAlign: "center" }}>
-                <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "4rem", lineHeight: 1, minWidth: "60px" }}>
-                  {String(val).padStart(2, "0")}
-                </div>
-                <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.2rem", marginTop: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>{label}</div>
-              </div>
-            ))}
+          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.4rem", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "16px" }}>
+            {countdown.expired ? "Time Expired — Awaiting Admin Close" : "Auction Ends In"}
           </div>
+          {countdown.expired ? (
+            <div style={{ color: "#ffaa44", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "2px" }}>
+              ⏰ TIMER ENDED
+            </div>
+          ) : (
+            <div style={{ display: "flex", justifyContent: "center", gap: "24px" }}>
+              {[["Days", countdown.d], ["Hours", countdown.h], ["Mins", countdown.m], ["Secs", countdown.s]].map(([label, val]) => (
+                <div key={label} style={{ textAlign: "center" }}>
+                  <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "4rem", lineHeight: 1, minWidth: "60px" }}>
+                    {String(val).padStart(2, "0")}
+                  </div>
+                  <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.2rem", marginTop: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>{label}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -395,7 +327,7 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
             </>
           ) : (
             <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "5rem", letterSpacing: "3px" }}>
-              {formatAmt(parseRaw(player.startingBid || player.value))}
+              {formatAmt(startingBidRaw)}
             </div>
           )}
         </div>
@@ -405,25 +337,41 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
           <div style={{ textAlign: "center", marginBottom: "20px" }}>
             <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.6rem", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "12px" }}>Starting Bid</div>
             <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "5rem", letterSpacing: "3px" }}>
-              {formatAmt(parseRaw(player.startingBid || player.value))}
+              {formatAmt(startingBidRaw)}
             </div>
           </div>
-          {/* Manager's own bid */}
+          {/* Manager's own latest bid */}
           {myBid && (
             <div style={{ background: "rgba(255,20,147,0.08)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "16px", padding: "20px 28px", textAlign: "center" }}>
               <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.3rem", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "8px" }}>Your Current Bid</div>
               <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.6rem", letterSpacing: "2px" }}>{formatAmt(myBid.bidAmountRaw)}</div>
+              <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "1.2rem", marginTop: "8px" }}>
+                Last updated: {new Date(myBid.createdAt).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+              </div>
+              {/* Manager cancel own bid */}
+              <button
+                onClick={() => handleManagerCancelBid(myBid.id, myBid)}
+                disabled={cancellingBid === myBid.id || isClosed}
+                style={{ marginTop: "14px", padding: "10px 24px", background: "rgba(255,0,0,0.15)", border: "1px solid rgba(255,0,0,0.3)", borderRadius: "10px", color: "#ff6b6b", fontWeight: 700, fontSize: "1.2rem", cursor: isClosed || cancellingBid === myBid.id ? "not-allowed" : "pointer", opacity: isClosed ? 0.5 : 1 }}
+              >
+                {cancellingBid === myBid.id ? "..." : "🚫 Cancel Bid"}
+              </button>
             </div>
           )}
         </div>
       )}
 
-      {/* Bid input — only when auction is open AND timer has not expired; managers locked after deadline */}
-      {!isClosed && !timerExpired && manager && (isAdmin || !countdown.expired) && (
+      {/* Bid input — only when auction is open and manager is logged in */}
+      {!isClosed && manager && (
         <div style={{ ...GLASS, borderRadius: "20px", padding: "32px", marginBottom: "32px", border: "1px solid rgba(255,20,147,0.4)" }}>
-          <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "2px", marginBottom: "8px" }}>🔨 ENTER BID</div>
-          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.4rem", marginBottom: "20px" }}>
+          <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "2px", marginBottom: "8px" }}>
+            🔨 {myBid ? "EDIT YOUR BID" : "ENTER BID"}
+          </div>
+          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.4rem", marginBottom: "4px" }}>
             Bidding as: <span style={{ color: "#fff", fontWeight: 700 }}>{manager.username}</span> ({manager.team})
+          </div>
+          <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "1.2rem", marginBottom: "20px" }}>
+            Minimum bid: <span style={{ color: "#ffaa44", fontWeight: 700 }}>{formatAmt(startingBidRaw + 1)}</span>
           </div>
           <input
             value={bidInput}
@@ -431,25 +379,22 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
             placeholder="Enter your bid amount (€)"
             style={inputStyle}
             type="number"
-            min={1}
+            min={startingBidRaw + 1}
           />
-          {myBid && (
-            <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "1.2rem", marginTop: "10px" }}>
-              Last updated: {new Date(myBid.createdAt).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
-            </div>
-          )}
           {error && (
             <div style={{ color: "#ff6b6b", fontSize: "1.4rem", marginTop: "12px", padding: "14px", background: "rgba(255,0,0,0.1)", borderRadius: "12px" }}>{error}</div>
           )}
           {done && (
-            <div style={{ color: "#00ff88", fontSize: "1.6rem", marginTop: "12px", padding: "14px", background: "rgba(0,255,136,0.1)", borderRadius: "12px", textAlign: "center", fontWeight: 700 }}>✅ Bid placed!</div>
+            <div style={{ color: "#00ff88", fontSize: "1.6rem", marginTop: "12px", padding: "14px", background: "rgba(0,255,136,0.1)", borderRadius: "12px", textAlign: "center", fontWeight: 700 }}>
+              ✅ {myBid ? "Bid updated!" : "Bid placed!"}
+            </div>
           )}
           <button
             onClick={handleBid}
             disabled={submitting}
             style={{ width: "100%", marginTop: "20px", padding: "28px", background: submitting ? "rgba(255,20,147,0.3)" : "linear-gradient(135deg,#FF1493,#cc0077)", border: "none", borderRadius: "16px", color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.6rem", letterSpacing: "3px", cursor: submitting ? "not-allowed" : "pointer" }}
           >
-            {submitting ? "PLACING BID..." : "🔨 PLACE BID"}
+            {submitting ? "PLACING BID..." : myBid ? "🔨 UPDATE BID" : "🔨 PLACE BID"}
           </button>
         </div>
       )}
@@ -466,7 +411,7 @@ export default function AuctionBidModal({ player, playerId, onClose, isAdmin }) 
         </div>
       )}
 
-      {/* Bids section — admin sees full bid history, managers see interested list only */}
+      {/* Bids section */}
       {bidsLoading ? (
         <div style={{ textAlign: "center", padding: "32px", color: "rgba(255,255,255,0.4)", fontSize: "1.4rem" }}>
           Loading bids...
