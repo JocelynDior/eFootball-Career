@@ -142,7 +142,7 @@ const READ_TOOLS = {
   get_teams_in_league: {
     schema: {
       name: "get_teams_in_league",
-      description: "Get the list of team names that exist in a league (across all seasons). Use this to resolve/verify a team name before adding results, fixtures, etc.",
+      description: "List team names in a league (all seasons). Use to verify a team name before result/fixture writes.",
       parameters: { type: "object", properties: { league: { type: "string" } }, required: ["league"] },
     },
     run: async ({ league }) => {
@@ -171,7 +171,7 @@ const READ_TOOLS = {
   get_team_season_stats: {
     schema: {
       name: "get_team_season_stats",
-      description: "Get one team's stats (goals scored, conceded, wins, draws, losses, points) for a league+season. Use this for questions like 'how many goals did X score in season Y'.",
+      description: "One team's season stats (goals scored/conceded, w/d/l, points). Use for 'how many goals did X score' type questions.",
       parameters: { type: "object", properties: { league: { type: "string" }, season: { type: "string" }, team: { type: "string" } }, required: ["league", "season", "team"] },
     },
     run: async ({ league, season, team }) => {
@@ -191,8 +191,8 @@ const READ_TOOLS = {
   get_results: {
     schema: {
       name: "get_results",
-      description: "Get the match results for a league+season, optionally filtered to matches involving one team.",
-      parameters: { type: "object", properties: { league: { type: "string" }, season: { type: "string" }, team: { type: "string", description: "Optional — filter to matches involving this team" } }, required: ["league", "season"] },
+      description: "Match results for a league+season, optionally filtered to one team.",
+      parameters: { type: "object", properties: { league: { type: "string" }, season: { type: "string" }, team: { type: "string", description: "Optional team filter" } }, required: ["league", "season"] },
     },
     run: async ({ league, season, team }) => {
       const key = resolveLeagueKey(league);
@@ -201,7 +201,9 @@ const READ_TOOLS = {
       const val = snap.val() || {};
       let rows = Object.entries(val).map(([resultKey, r]) => ({ resultKey, ...r }));
       if (team) rows = rows.filter(r => norm(r.homeTeam).includes(norm(team)) || norm(r.awayTeam).includes(norm(team)) || norm(team).includes(norm(r.homeTeam)) || norm(team).includes(norm(r.awayTeam)));
-      return { league, season, results: rows };
+      const truncated = rows.length > 60;
+      rows = rows.slice(0, 60).map(r => ({ resultKey: r.resultKey, homeTeam: r.homeTeam, awayTeam: r.awayTeam, homeScore: r.homeScore, awayScore: r.awayScore, md: r.md, date: r.date, forfeitType: r.forfeitType }));
+      return { league, season, results: rows, truncated };
     },
   },
 
@@ -264,13 +266,14 @@ const READ_TOOLS = {
   get_transfer_market: {
     schema: {
       name: "get_transfer_market",
-      description: "Get entries from the transfer market. Section is one of: listed (players listed for sale), negotiations (offers/bids in progress), topTargets, signingsPosts (announced signings).",
+      description: "Transfer market entries for a section: listed, negotiations, topTargets, or signingsPosts.",
       parameters: { type: "object", properties: { section: { type: "string", enum: ["listed", "negotiations", "topTargets", "signingsPosts"] } }, required: ["section"] },
     },
     run: async ({ section }) => {
       const snap = await get(ref(db, `${PATHS.transfers}/${section}`));
       const val = snap.val() || {};
-      return { section, entries: Object.entries(val).map(([entryId, v]) => ({ entryId, ...v })) };
+      const all = Object.entries(val).map(([entryId, v]) => ({ entryId, ...v }));
+      return { section, entries: all.slice(0, 40), truncated: all.length > 40 };
     },
   },
 
@@ -303,7 +306,8 @@ const READ_TOOLS = {
       const val = snap.val() || {};
       const managers = Object.entries(val)
         .filter(([, a]) => a.role === "manager")
-        .map(([uid, a]) => ({ uid, username: a.username, team: a.team || null, rank: a.rank || null }));
+        .map(([uid, a]) => ({ uid, username: a.username, team: a.team || null, rank: a.rank || null }))
+        .slice(0, 60);
       return { managers };
     },
   },
@@ -316,7 +320,7 @@ const WRITE_TOOLS = {
   add_result: {
     schema: {
       name: "add_result",
-      description: "Add a match result to a league+season. This recalculates the table automatically. Requires user confirmation before it writes anything.",
+      description: "Add a match result (recalculates the table). Needs confirmation.",
       parameters: {
         type: "object",
         properties: {
@@ -393,7 +397,7 @@ const WRITE_TOOLS = {
   delete_result: {
     schema: {
       name: "delete_result",
-      description: "Delete a match result from a league+season and recalculate the table. Requires user confirmation.",
+      description: "Delete a match result (recalculates the table). Needs confirmation.",
       parameters: {
         type: "object",
         properties: { league: { type: "string" }, season: { type: "string" }, homeTeam: { type: "string" }, awayTeam: { type: "string" }, matchday: { type: "number", description: "Optional, to disambiguate if teams played more than once" } },
@@ -429,7 +433,7 @@ const WRITE_TOOLS = {
   add_finance_transaction: {
     schema: {
       name: "add_finance_transaction",
-      description: "Add a one-off income or expense transaction for a team. Requires user confirmation.",
+      description: "Add a one-off income/expense transaction for a team. Needs confirmation.",
       parameters: {
         type: "object",
         properties: {
@@ -465,7 +469,7 @@ const WRITE_TOOLS = {
   add_recurring_finance: {
     schema: {
       name: "add_recurring_finance",
-      description: "Set up a recurring daily income or expense for a team (e.g. 'recurring expense of €2M/day up to €200M total'). Requires user confirmation.",
+      description: "Set up recurring daily income/expense for a team (daily amount + total cap). Needs confirmation.",
       parameters: {
         type: "object",
         properties: {
@@ -504,7 +508,7 @@ const WRITE_TOOLS = {
   add_recurring_kit_sales: {
     schema: {
       name: "add_recurring_kit_sales",
-      description: "Set up recurring daily kit sales income for a team. Requires user confirmation.",
+      description: "Set up recurring kit sales income for a team. Needs confirmation.",
       parameters: {
         type: "object",
         properties: { team: { type: "string" }, kitPrice: { type: "number" }, dailyMin: { type: "number" }, dailyMax: { type: "number" } },
@@ -533,7 +537,7 @@ const WRITE_TOOLS = {
   add_fixture: {
     schema: {
       name: "add_fixture",
-      description: "Add a fixture to the calendar for a given date and tournament. Requires user confirmation.",
+      description: "Add a calendar fixture for a date/tournament. Needs confirmation.",
       parameters: {
         type: "object",
         properties: { tournament: { type: "string", description: "e.g. 'Premier League', 'Champions League'" }, date: { type: "string", description: "YYYY-MM-DD" }, homeTeam: { type: "string" }, awayTeam: { type: "string" } },
@@ -574,7 +578,7 @@ const WRITE_TOOLS = {
   delete_transfer_entry: {
     schema: {
       name: "delete_transfer_entry",
-      description: "Delete an entry (player listing, negotiation/offer, target, or signing post) from the transfer market. Requires user confirmation.",
+      description: "Delete a transfer-market entry (listing/offer/target/signing post). Needs confirmation.",
       parameters: {
         type: "object",
         properties: { section: { type: "string", enum: ["listed", "negotiations", "topTargets", "signingsPosts"] }, playerName: { type: "string" }, team: { type: "string", description: "Optional, to disambiguate" } },
@@ -603,7 +607,7 @@ const WRITE_TOOLS = {
   update_club_objectives: {
     schema: {
       name: "update_club_objectives",
-      description: "Add or remove a club objective for a team. Requires user confirmation.",
+      description: "Add or remove a club objective. Needs confirmation.",
       parameters: {
         type: "object",
         properties: { team: { type: "string" }, action: { type: "string", enum: ["add", "remove"] }, objective: { type: "string", description: "The objective text (exact or close match, for remove)" } },
