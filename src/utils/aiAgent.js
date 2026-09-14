@@ -33,6 +33,7 @@ async function callGroq(messages) {
       tools: getToolSchemas(),
       tool_choice: "auto",
       temperature: 0.2,
+      max_tokens: 700, // Groq's TPM limit is checked against this declared value, not actual usage — keep it tight
     }),
   });
   const data = await res.json();
