@@ -42,6 +42,7 @@ import RequestBuyModal from "./modals/RequestBuyModal";
 import RequestLoanModal from "./modals/RequestLoanModal";
 import AuctionBidModal from "./modals/AuctionBidModal";
 import PlayerPopupModal from "./modals/PlayerPopupModal";
+import AIAgentWidget from "./components/AIAgentWidget";
 
 const INACTIVITY_LIMIT = 10 * 60 * 1000; // 10 minutes
 const INACTIVE_FLAG_KEY = "careerInactiveAt";
@@ -137,6 +138,7 @@ function AppInner() {
         <Route path="/rules-tutorials"   element={<RulesAndTutorialsPage />} />
       </Routes>
       <BottomNavBar />
+      <AIAgentWidget />
     </>
   );
 }
