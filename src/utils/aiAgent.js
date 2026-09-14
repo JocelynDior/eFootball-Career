@@ -7,7 +7,7 @@
 import { LEAGUE_MAP, getToolSchemas, isWriteTool, runReadTool, previewWriteTool, executeWriteTool } from "./aiAgentTools";
 
 const GROQ_API_KEY = import.meta.env.VITE_Career_Groq1;
-const GROQ_MODEL = "llama-3.3-70b-versatile"; // reliable tool-calling model on Groq
+const GROQ_MODEL = "openai/gpt-oss-120b"; // Groq's current recommended tool-use model (llama-3.3-70b-versatile was decommissioned Aug 16 2026)
 const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
 
 const MAX_LOOP_ITERATIONS = 8;
