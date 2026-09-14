@@ -24,7 +24,11 @@ export default function AIAgentWidget() {
     setInput("");
     setChatLog(prev => [...prev, { role: "user", text }]);
     setBusy(true);
-    const nextMessages = [...messages, { role: "user", content: text }];
+    // Start a fresh short thread for this turn (system + this message only) instead of
+    // resending the whole session history — keeps each request well under Groq's
+    // free-tier token-per-minute limit. Confirm/cancel follow-ups within this same
+    // turn still use the full thread via `messages` state below.
+    const nextMessages = [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: text }];
     setMessages(nextMessages);
     const result = await runAgentTurn(nextMessages);
     handleResult(result);
