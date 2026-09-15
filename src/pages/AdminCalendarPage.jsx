@@ -572,19 +572,19 @@ export default function AdminCalendarPage() {
                 {/* Month header — centered, 2x bigger */}
                 <div style={{ padding: "1rem 1.6rem", background: "rgba(0,0,0,0.98)", borderBottom: "2px solid rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
                   <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: "4px", background: "linear-gradient(180deg, #fff, rgba(255,255,255,0.1))" }} />
-                  <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.5rem", letterSpacing: "0.04em", color: "#fff", margin: 0, textAlign: "center" }}>{MONTH_NAMES[month].toUpperCase()} {year}</h2>
+                  <h2 className="cal-month-title" style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.5rem", letterSpacing: "0.04em", color: "#fff", margin: 0, textAlign: "center" }}>{MONTH_NAMES[month].toUpperCase()} {year}</h2>
                   <button onClick={() => removeMonth(year, month)} style={{ position: "absolute", right: "1rem", background: "rgba(255,0,0,0.15)", border: "1px solid rgba(255,0,0,0.3)", color: "#ff6b6b", padding: "4px 12px", borderRadius: "20px", cursor: "pointer", fontSize: "0.75rem", fontWeight: 700 }}>Remove</button>
                 </div>
                 {/* Weekday headers — 2x bigger */}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", background: "rgba(255,255,255,0.05)", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
                   {WEEKDAYS.map((w, i) => (
-                    <div key={i} style={{ padding: "0.65rem 0.3rem", textAlign: "center", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.3rem", color: "#fff", letterSpacing: "0.08em" }}>{w}</div>
+                    <div key={i} className="cal-weekday-header" style={{ padding: "0.65rem 0.3rem", textAlign: "center", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.3rem", color: "#fff", letterSpacing: "0.08em" }}>{w}</div>
                   ))}
                 </div>
                 {/* Days grid */}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
                   {Array.from({ length: swd }).map((_, i) => (
-                    <div key={`e-${i}`} style={{ background: "rgba(0,0,0,0.55)", border: "1px solid rgba(255,255,255,0.03)", minHeight: "115px" }} />
+                    <div key={`e-${i}`} className="cal-day-cell" style={{ background: "rgba(0,0,0,0.55)", border: "1px solid rgba(255,255,255,0.03)", minHeight: "115px" }} />
                   ))}
                   {Array.from({ length: dim }, (_, di) => {
                     const d = di + 1;
@@ -595,7 +595,7 @@ export default function AdminCalendarPage() {
                     const visibleInFilter = !selectedTeam || (ev && evHasTeam(ev, selectedTeam));
                     const pairIdx = pairs.length > 1 ? globalFlipIdx % pairs.length : 0;
                     return (
-                      <div key={d} onClick={() => openDayModal(ds)} style={{ position: "relative", border: "1px solid rgba(255,255,255,0.05)", background: hasEvent && visibleInFilter ? "rgba(51,51,51,0.58)" : "rgba(26,26,26,0.45)", minHeight: "115px", cursor: "pointer", transition: "background 0.2s, border-color 0.25s", opacity: selectedTeam && !visibleInFilter ? 0.25 : 1, overflow: "hidden", }} onMouseOver={e => { e.currentTarget.style.background = "rgba(184,150,12,0.3)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.15)"; }} onMouseOut={e => { e.currentTarget.style.background = hasEvent && visibleInFilter ? "rgba(51,51,51,0.58)" : "rgba(26,26,26,0.45)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.05)"; }}>
+                      <div key={d} onClick={() => openDayModal(ds)} className="cal-day-cell" style={{ position: "relative", border: "1px solid rgba(255,255,255,0.05)", background: hasEvent && visibleInFilter ? "rgba(51,51,51,0.58)" : "rgba(26,26,26,0.45)", minHeight: "115px", cursor: "pointer", transition: "background 0.2s, border-color 0.25s", opacity: selectedTeam && !visibleInFilter ? 0.25 : 1, overflow: "hidden", }} onMouseOver={e => { e.currentTarget.style.background = "rgba(184,150,12,0.3)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.15)"; }} onMouseOut={e => { e.currentTarget.style.background = hasEvent && visibleInFilter ? "rgba(51,51,51,0.58)" : "rgba(26,26,26,0.45)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.05)"; }}>
                         {/* Icon covers cell, flip centered */}
                         {hasEvent && visibleInFilter && pairs.length > 0 && (
                           <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -608,9 +608,9 @@ export default function AdminCalendarPage() {
                           <div style={{ position: "absolute", top: "5px", right: "5px", width: "7px", height: "7px", background: "#fff", borderRadius: "50%", boxShadow: "0 0 6px rgba(255,255,255,0.8)", animation: "dotPulse 2.2s ease-in-out infinite", zIndex: 2 }} />
                         )}
                         {/* Day number — 2x bigger */}
-                        <div style={{ position: "absolute", top: "6px", left: "6px", zIndex: 3, fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.36rem", fontWeight: 700, color: "#fff", textShadow: hasEvent ? "0 1px 4px rgba(0,0,0,0.9)" : "none", letterSpacing: "0.03em" }}>{d}</div>
+                        <div className="cal-day-number" style={{ position: "absolute", top: "6px", left: "6px", zIndex: 3, fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.36rem", fontWeight: 700, color: "#fff", textShadow: hasEvent ? "0 1px 4px rgba(0,0,0,0.9)" : "none", letterSpacing: "0.03em" }}>{d}</div>
                         {!hasEvent && (
-                          <div style={{ position: "absolute", bottom: "6px", left: 0, right: 0, textAlign: "center", fontSize: "0.58rem", color: "rgba(255,255,255,0.2)", fontStyle: "italic" }}>+ add</div>
+                          <div className="cal-no-event-label" style={{ position: "absolute", bottom: "6px", left: 0, right: 0, textAlign: "center", fontSize: "0.58rem", color: "rgba(255,255,255,0.2)", fontStyle: "italic" }}>+ add</div>
                         )}
                       </div>
                     );
@@ -826,6 +826,26 @@ export default function AdminCalendarPage() {
         select option {
           background: #000033;
           color: #fff;
+        }
+        @media (min-width: 768px) {
+          .cal-day-cell {
+            min-height: 230px !important;
+          }
+          .cal-day-number {
+            font-size: 4.08rem !important;
+            top: 10px !important;
+            left: 10px !important;
+          }
+          .cal-no-event-label {
+            font-size: 1.74rem !important;
+          }
+          .cal-weekday-header {
+            font-size: 3.9rem !important;
+            padding: 1.2rem 0.3rem !important;
+          }
+          .cal-month-title {
+            font-size: 7.5rem !important;
+          }
         }
       `}</style>
     </div>
