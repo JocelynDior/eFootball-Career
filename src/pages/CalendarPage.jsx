@@ -296,16 +296,16 @@ export default function CalendarPage() {
               <div key={`${year}-${month}`} style={{ ...GLASS, borderRadius: "1.8rem", overflow: "hidden", marginBottom: "2.5rem", boxShadow: "0 20px 60px rgba(0,0,0,0.4)", animation: `cardIn 0.65s ${mi * 0.07}s both` }}>
                 <div style={{ padding: "1rem 1.6rem", background: "rgba(0,0,0,0.98)", borderBottom: "2px solid rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
                   <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: "4px", background: "linear-gradient(180deg, #fff, rgba(255,255,255,0.1))" }} />
-                  <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.5rem", letterSpacing: "0.04em", color: "#fff", margin: 0, textAlign: "center" }}>{MONTH_NAMES[month].toUpperCase()} {year}</h2>
+                  <h2 className="cal-month-title" style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.5rem", letterSpacing: "0.04em", color: "#fff", margin: 0, textAlign: "center" }}>{MONTH_NAMES[month].toUpperCase()} {year}</h2>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", background: "rgba(255,255,255,0.05)", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
                   {WEEKDAYS.map((w, i) => (
-                    <div key={i} style={{ padding: "0.65rem 0.3rem", textAlign: "center", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.3rem", color: "#fff", letterSpacing: "0.08em" }}>{w}</div>
+                    <div key={i} className="cal-weekday-header" style={{ padding: "0.65rem 0.3rem", textAlign: "center", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.3rem", color: "#fff", letterSpacing: "0.08em" }}>{w}</div>
                   ))}
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
                   {Array.from({ length: swd }).map((_, i) => (
-                    <div key={`e-${i}`} style={{ background: "rgba(0,0,0,0.55)", border: "1px solid rgba(255,255,255,0.03)", minHeight: "115px" }} />
+                    <div key={`e-${i}`} className="cal-day-cell" style={{ background: "rgba(0,0,0,0.55)", border: "1px solid rgba(255,255,255,0.03)", minHeight: "115px" }} />
                   ))}
                   {Array.from({ length: dim }, (_, di) => {
                     const d = di + 1;
@@ -319,7 +319,7 @@ export default function CalendarPage() {
                       <div
                         key={d}
                         onClick={() => { if (hasEvent) openDayModal(ds); }}
-                        style={{ position: "relative", border: "1px solid rgba(255,255,255,0.05)", background: "rgba(26,26,26,0.45)", minHeight: "115px", cursor: hasEvent ? "pointer" : "default", transition: "background 0.2s, border-color 0.25s", opacity: selectedTeam && !visibleInFilter ? 0.25 : 1, overflow: "hidden" }}
+                        className="cal-day-cell" style={{ position: "relative", border: "1px solid rgba(255,255,255,0.05)", background: "rgba(26,26,26,0.45)", minHeight: "115px", cursor: hasEvent ? "pointer" : "default", transition: "background 0.2s, border-color 0.25s", opacity: selectedTeam && !visibleInFilter ? 0.25 : 1, overflow: "hidden" }}
                         onMouseOver={e => { if (hasEvent) { e.currentTarget.style.background = "rgba(184,150,12,0.3)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.15)"; } }}
                         onMouseOut={e => { if (hasEvent) { e.currentTarget.style.background = "rgba(26,26,26,0.45)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.05)"; } }}
                       >
@@ -340,9 +340,9 @@ export default function CalendarPage() {
                             <div style={{ position: "absolute", top: "5px", right: "5px", width: "7px", height: "7px", background: "#fff", borderRadius: "50%", boxShadow: "0 0 6px rgba(255,255,255,0.8)", animation: "dotPulse 2.2s ease-in-out infinite", zIndex: 2 }} />
                           </>
                         )}
-                        <div style={{ position: "absolute", top: "6px", left: "6px", zIndex: 3, fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.36rem", fontWeight: 700, color: "#fff", textShadow: "0 1px 4px rgba(0,0,0,0.9)", letterSpacing: "0.03em" }}>{d}</div>
+                        <div className="cal-day-number" style={{ position: "absolute", top: "6px", left: "6px", zIndex: 3, fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.36rem", fontWeight: 700, color: "#fff", textShadow: "0 1px 4px rgba(0,0,0,0.9)", letterSpacing: "0.03em" }}>{d}</div>
                         {!hasEvent && (
-                          <div style={{ position: "absolute", bottom: "6px", left: 0, right: 0, textAlign: "center", fontSize: "0.58rem", color: "rgba(255,255,255,0.2)", fontStyle: "italic" }}>No event</div>
+                          <div className="cal-no-event-label" style={{ position: "absolute", bottom: "6px", left: 0, right: 0, textAlign: "center", fontSize: "0.58rem", color: "rgba(255,255,255,0.2)", fontStyle: "italic" }}>No event</div>
                         )}
                       </div>
                     );
@@ -465,6 +465,26 @@ export default function CalendarPage() {
           width: 100%;
           height: 100%;
           object-fit: cover;
+        }
+        @media (min-width: 768px) {
+          .cal-day-cell {
+            min-height: 230px !important;
+          }
+          .cal-day-number {
+            font-size: 4.08rem !important;
+            top: 10px !important;
+            left: 10px !important;
+          }
+          .cal-no-event-label {
+            font-size: 1.74rem !important;
+          }
+          .cal-weekday-header {
+            font-size: 3.9rem !important;
+            padding: 1.2rem 0.3rem !important;
+          }
+          .cal-month-title {
+            font-size: 7.5rem !important;
+          }
         }
       `}</style>
     </div>
