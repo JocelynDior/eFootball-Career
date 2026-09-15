@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { useAdmin } from "../context/AdminContext";
+import { useAIAgentPanel } from "../context/AIAgentPanelContext";
 import { useState } from "react";
 
 const menuItems = [
@@ -16,6 +17,7 @@ const menuItems = [
 export default function SideMenu({ open, onClose }) {
   const navigate = useNavigate();
   const { isAdmin, loginAdmin, logoutAdmin, manager, logoutManager } = useAdmin();
+  const { openPanel } = useAIAgentPanel();
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [keyInput, setKeyInput] = useState("");
   const [keyError, setKeyError] = useState("");
@@ -191,6 +193,30 @@ export default function SideMenu({ open, onClose }) {
               }}
             >{item.label}</div>
           ))}
+
+          {/* ── Admin AI Assistant (admin only) ── */}
+          {isAdmin && (
+            <div
+              onClick={() => { openPanel(); onClose(); }}
+              style={{
+                padding: "32px 36px", margin: "12px 0",
+                background: "rgba(255,20,147,0.06)", backdropFilter: "blur(10px)",
+                border: "1px solid rgba(255,20,147,0.15)", borderRadius: "20px",
+                cursor: "pointer", color: "#fff", fontWeight: 700, fontSize: "2.8rem",
+                transition: "all 0.2s",
+              }}
+              onMouseOver={e => {
+                e.currentTarget.style.background = "rgba(255,20,147,0.16)";
+                e.currentTarget.style.transform = "translateX(6px)";
+                e.currentTarget.style.borderColor = "rgba(255,20,147,0.4)";
+              }}
+              onMouseOut={e => {
+                e.currentTarget.style.background = "rgba(255,20,147,0.06)";
+                e.currentTarget.style.transform = "translateX(0)";
+                e.currentTarget.style.borderColor = "rgba(255,20,147,0.15)";
+              }}
+            >🤖 Admin AI Assistant</div>
+          )}
 
           {/* ── Manager sign-out ── */}
           {manager && !isAdmin && (
