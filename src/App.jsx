@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
 import { useEffect } from "react";
 import { AdminProvider } from "./context/AdminContext";
 import { MusicProvider } from "./context/MusicContext";
+import { AIAgentPanelProvider } from "./context/AIAgentPanelContext";
 import BackgroundMusic from "./components/BackgroundMusic";
 import SoundEffects from "./components/SoundEffects";
 import BottomNavBar from "./components/BottomNavBar";
@@ -146,11 +147,13 @@ function AppInner() {
 export default function App() {
   return (
     <AdminProvider>
-      <MusicProvider>
-        <BrowserRouter>
-          <AppInner />
-        </BrowserRouter>
-      </MusicProvider>
+      <AIAgentPanelProvider>
+        <MusicProvider>
+          <BrowserRouter>
+            <AppInner />
+          </BrowserRouter>
+        </MusicProvider>
+      </AIAgentPanelProvider>
     </AdminProvider>
   );
 }
