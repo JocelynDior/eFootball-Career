@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { db, PATHS } from "../firebase";
-import { ref, push, set, onValue } from "firebase/database";
+import { ref, push, set, onValue, get } from "firebase/database";
 import { getTeamIcon } from "../utils/teamIcons";
 
 const inputStyle = {
@@ -32,6 +32,7 @@ export default function AddTeamModal({ league, season, team = null, onClose }) {
     pts: team?.pts ?? team?.points        ?? 0,
   });
   const [saving, setSaving] = useState(false);
+  const [autoCalcing, setAutoCalcing] = useState(false);
   const [status, setStatus] = useState("");
 
   useEffect(() => {
@@ -47,6 +48,64 @@ export default function AddTeamModal({ league, season, team = null, onClose }) {
 
   function handleChange(field, val) {
     setForm(prev => ({ ...prev, [field]: val }));
+  }
+
+  async function handleAutoCalculate() {
+    if (!form.name.trim()) { setStatus("Please select a team first."); return; }
+    setAutoCalcing(true);
+    setStatus("");
+    try {
+      const snap = await get(ref(db, PATHS.results(league, season)));
+      const resultsVal = snap.val() || {};
+
+      const stats = { p: 0, w: 0, d: 0, l: 0, gs: 0, gc: 0, gd: 0, pts: 0 };
+      const teamName = form.name.trim();
+
+      for (const result of Object.values(resultsVal)) {
+        if (!result?.homeTeam || !result?.awayTeam) continue;
+        if (result.status && result.status !== "approved") continue;
+
+        const isHome = result.homeTeam === teamName;
+        const isAway = result.awayTeam === teamName;
+        if (!isHome && !isAway) continue;
+
+        const ft = result.forfeitType || "none";
+
+        if (ft === "no_contest") {
+          stats.p += 1;
+          stats.l += 1;
+
+        } else if (ft === "forfeit_win") {
+          // homeTeam field holds the winner
+          stats.p += 1;
+          if (isHome) { stats.w += 1; stats.pts += 3; }
+          else        { stats.l += 1; }
+
+        } else {
+          const hs = Number(result.homeScore) || 0;
+          const as = Number(result.awayScore) || 0;
+          stats.p += 1;
+
+          if (isHome) {
+            stats.gs += hs; stats.gc += as; stats.gd += hs - as;
+            if (hs > as)      { stats.w += 1; stats.pts += 3; }
+            else if (hs < as) { stats.l += 1; }
+            else              { stats.d += 1; stats.pts += 1; }
+          } else {
+            stats.gs += as; stats.gc += hs; stats.gd += as - hs;
+            if (as > hs)      { stats.w += 1; stats.pts += 3; }
+            else if (as < hs) { stats.l += 1; }
+            else              { stats.d += 1; stats.pts += 1; }
+          }
+        }
+      }
+
+      setForm(prev => ({ ...prev, ...stats }));
+      setStatus(`✅ Calculated from ${stats.p} result${stats.p !== 1 ? "s" : ""} found.`);
+    } catch (e) {
+      setStatus("Error: " + e.message);
+    }
+    setAutoCalcing(false);
   }
 
   async function handleSave() {
@@ -102,6 +161,27 @@ export default function AddTeamModal({ league, season, team = null, onClose }) {
             <option key={c.name} value={c.name}>{c.name}</option>
           ))}
         </select>
+      </div>
+
+      {/* Auto Calculate */}
+      <div style={{ marginBottom: 16 }}>
+        <button
+          onClick={handleAutoCalculate}
+          disabled={autoCalcing || !form.name.trim()}
+          style={{
+            width: "100%", padding: "12px 16px",
+            background: autoCalcing ? "rgba(255,20,147,0.1)" : "rgba(255,20,147,0.15)",
+            border: "1px solid rgba(255,20,147,0.5)",
+            borderRadius: 10, color: "#FF1493",
+            fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.05rem",
+            letterSpacing: 1.5, cursor: autoCalcing || !form.name.trim() ? "not-allowed" : "pointer",
+            opacity: !form.name.trim() ? 0.4 : 1,
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+            transition: "opacity 0.2s",
+          }}
+        >
+          {autoCalcing ? "⏳ Calculating..." : "⚡ AUTO CALCULATE FROM RESULTS"}
+        </button>
       </div>
 
       {/* Stats grid */}
