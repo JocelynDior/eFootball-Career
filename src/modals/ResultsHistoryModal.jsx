@@ -36,7 +36,12 @@ export default function ResultsHistoryModal({ league, season, onClose }) {
     if (!window.confirm(`Revoke result: ${item.homeTeam} ${item.homeScore} - ${item.awayScore} ${item.awayTeam}?\n\nThis will reverse all table stats, scorer and assist contributions.`)) return;
     setRevoking(item.key);
     try {
-      // Reverse table
+      // Delete the result FIRST — recalculateTable() reads every result
+      // currently in the DB, so if we recalc before deleting, this match
+      // is still counted and the table doesn't actually change.
+      await remove(ref(db, `${PATHS.results(league, season)}/${item.key}`));
+
+      // Now recalculate the table with the match gone
       await reverseResultFromTable(league, season, item.homeTeam, item.awayTeam, item.homeScore, item.awayScore, item.forfeitType);
 
       // Reverse top scorers
@@ -66,9 +71,6 @@ export default function ResultsHistoryModal({ league, season, onClose }) {
           }
         }
       }
-
-      // Delete result
-      await remove(ref(db, `${PATHS.results(league, season)}/${item.key}`));
     } catch (e) {
       alert("Error revoking: " + e.message);
     }
@@ -153,7 +155,7 @@ export default function ResultsHistoryModal({ league, season, onClose }) {
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={() => setReviewing(item)} style={{ flex: 1, padding: "9px 0", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 10, color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "0.85rem" }}>🔍 Review</button>
-            <button onClick={() => handleRevoke(item)} disabled={revoking === item.key} style={{ flex: 1, padding: "9px 0", background: "rgba(220,50,50,0.15)", border: "1px solid rgba(220,50,50,0.3)", borderRadius: 10, color: "#ff6b6b", fontWeight: 700, cursor: revoking === item.key ? "not-allowed" : "pointer", fontSize: "0.85rem", opacity: revoking === item.key ? 0.6 : 1 }}>
+            <button onClick={() => handleRevoke(item)} disabled={!!revoking} style={{ flex: 1, padding: "9px 0", background: "rgba(220,50,50,0.15)", border: "1px solid rgba(220,50,50,0.3)", borderRadius: 10, color: "#ff6b6b", fontWeight: 700, cursor: revoking ? "not-allowed" : "pointer", fontSize: "0.85rem", opacity: revoking ? 0.6 : 1 }}>
               {revoking === item.key ? "Revoking..." : "🗑️ Revoke"}
             </button>
           </div>
