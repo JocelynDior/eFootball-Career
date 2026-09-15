@@ -128,16 +128,13 @@ export default function AddResultModal({ league, season, teams, result = null, o
       };
 
       if (isEdit) {
-        setStatus("Reversing old table stats...");
-        await reverseResultFromTable(
-          league, season,
-          result.homeTeam, result.awayTeam,
-          result.homeScore, result.awayScore,
-          result.forfeitType || "none"
-        );
-        setStatus("Applying new stats...");
-        await applyResultToTable(league, season, homeTeam, awayTeam, finalHomeScore, finalAwayScore, forfeitType);
+        // Write the edited result FIRST — recalculateTable() rebuilds the
+        // whole table from whatever is currently in the DB, so it has to
+        // run AFTER the new data is saved, not before.
+        setStatus("Saving result...");
         await set(ref(db, `${PATHS.results(league, season)}/${result.key}`), data);
+        setStatus("Recalculating table...");
+        await applyResultToTable(league, season);
       } else {
         await push(ref(db, PATHS.results(league, season)), data);
         await applyResultToTable(league, season, homeTeam, awayTeam, finalHomeScore, finalAwayScore, forfeitType);
