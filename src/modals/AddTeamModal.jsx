@@ -34,6 +34,7 @@ export default function AddTeamModal({ league, season, team = null, onClose }) {
   const [saving, setSaving] = useState(false);
   const [autoCalcing, setAutoCalcing] = useState(false);
   const [status, setStatus] = useState("");
+  const [matchLog, setMatchLog] = useState([]);
 
   useEffect(() => {
     const unsub = onValue(ref(db, "career_team_management"), snap => {
@@ -54,12 +55,14 @@ export default function AddTeamModal({ league, season, team = null, onClose }) {
     if (!form.name.trim()) { setStatus("Please select a team first."); return; }
     setAutoCalcing(true);
     setStatus("");
+    setMatchLog([]);
     try {
       const snap = await get(ref(db, PATHS.results(league, season)));
       const resultsVal = snap.val() || {};
 
       const stats = { p: 0, w: 0, d: 0, l: 0, gs: 0, gc: 0, gd: 0, pts: 0 };
       const teamName = form.name.trim();
+      const log = [];
 
       for (const result of Object.values(resultsVal)) {
         if (!result?.homeTeam || !result?.awayTeam) continue;
@@ -70,16 +73,23 @@ export default function AddTeamModal({ league, season, team = null, onClose }) {
         if (!isHome && !isAway) continue;
 
         const ft = result.forfeitType || "none";
+        const opponent = isHome ? result.awayTeam : result.homeTeam;
+        const side = isHome ? "H" : "A";
 
         if (ft === "no_contest") {
           stats.p += 1;
           stats.l += 1;
+          log.push({ opponent, side, outcome: "L", score: "F-F", type: "No Contest" });
 
         } else if (ft === "forfeit_win") {
-          // homeTeam field holds the winner
           stats.p += 1;
-          if (isHome) { stats.w += 1; stats.pts += 3; }
-          else        { stats.l += 1; }
+          if (isHome) {
+            stats.w += 1; stats.pts += 3;
+            log.push({ opponent, side, outcome: "W", score: "3-0 (F)", type: "Forfeit" });
+          } else {
+            stats.l += 1;
+            log.push({ opponent, side, outcome: "L", score: "0-3 (F)", type: "Forfeit" });
+          }
 
         } else {
           const hs = Number(result.homeScore) || 0;
@@ -88,19 +98,20 @@ export default function AddTeamModal({ league, season, team = null, onClose }) {
 
           if (isHome) {
             stats.gs += hs; stats.gc += as; stats.gd += hs - as;
-            if (hs > as)      { stats.w += 1; stats.pts += 3; }
-            else if (hs < as) { stats.l += 1; }
-            else              { stats.d += 1; stats.pts += 1; }
+            if (hs > as)      { stats.w += 1; stats.pts += 3; log.push({ opponent, side, outcome: "W", score: `${hs}-${as}`, type: "Normal" }); }
+            else if (hs < as) { stats.l += 1;                 log.push({ opponent, side, outcome: "L", score: `${hs}-${as}`, type: "Normal" }); }
+            else              { stats.d += 1; stats.pts += 1; log.push({ opponent, side, outcome: "D", score: `${hs}-${as}`, type: "Normal" }); }
           } else {
             stats.gs += as; stats.gc += hs; stats.gd += as - hs;
-            if (as > hs)      { stats.w += 1; stats.pts += 3; }
-            else if (as < hs) { stats.l += 1; }
-            else              { stats.d += 1; stats.pts += 1; }
+            if (as > hs)      { stats.w += 1; stats.pts += 3; log.push({ opponent, side, outcome: "W", score: `${hs}-${as}`, type: "Normal" }); }
+            else if (as < hs) { stats.l += 1;                 log.push({ opponent, side, outcome: "L", score: `${hs}-${as}`, type: "Normal" }); }
+            else              { stats.d += 1; stats.pts += 1; log.push({ opponent, side, outcome: "D", score: `${hs}-${as}`, type: "Normal" }); }
           }
         }
       }
 
       setForm(prev => ({ ...prev, ...stats }));
+      setMatchLog(log);
       setStatus(`✅ Calculated from ${stats.p} result${stats.p !== 1 ? "s" : ""} found.`);
     } catch (e) {
       setStatus("Error: " + e.message);
@@ -199,7 +210,32 @@ export default function AddTeamModal({ league, season, team = null, onClose }) {
         ))}
       </div>
 
-      {status && <div style={{ color: "#ff6b6b", fontSize: "0.85rem", marginBottom: 12 }}>{status}</div>}
+      {status && <div style={{ color: status.startsWith("✅") ? "#22c55e" : "#ff6b6b", fontSize: "0.85rem", marginBottom: 12 }}>{status}</div>}
+
+      {/* Match breakdown log */}
+      {matchLog.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>
+            Match Breakdown
+          </div>
+          <div style={{ maxHeight: 200, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+            {matchLog.map((m, i) => {
+              const outcomeColor = m.outcome === "W" ? "#22c55e" : m.outcome === "L" ? "#ef4444" : "#f59e0b";
+              return (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "7px 12px" }}>
+                  <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1rem", color: outcomeColor, minWidth: 16 }}>{m.outcome}</span>
+                  <span style={{ color: "rgba(255,255,255,0.35)", fontSize: "0.75rem", minWidth: 18 }}>{m.side}</span>
+                  <span style={{ color: "#fff", fontSize: "0.85rem", flex: 1 }}>vs {m.opponent}</span>
+                  <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.82rem" }}>{m.score}</span>
+                  {m.type !== "Normal" && (
+                    <span style={{ color: "rgba(255,255,255,0.3)", fontSize: "0.72rem" }}>{m.type}</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 12 }}>
         <button onClick={handleSave} disabled={saving} style={{ flex: 1, padding: 14, background: "#FF1493", border: "none", borderRadius: 12, color: "#fff", fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}>
