@@ -195,21 +195,6 @@ export default function AddTeamModal({ league, season, team = null, onClose }) {
         </button>
       </div>
 
-      {/* Stats grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
-        {statFields.map(([field, lbl]) => (
-          <div key={field}>
-            <label style={labelStyle}>{lbl}</label>
-            <input
-              type="number"
-              value={form[field]}
-              onChange={e => handleChange(field, e.target.value)}
-              style={inputStyle}
-            />
-          </div>
-        ))}
-      </div>
-
       {status && <div style={{ color: status.startsWith("✅") ? "#22c55e" : "#ff6b6b", fontSize: "0.85rem", marginBottom: 12 }}>{status}</div>}
 
       {/* Match breakdown log */}
@@ -218,7 +203,7 @@ export default function AddTeamModal({ league, season, team = null, onClose }) {
           <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>
             Match Breakdown
           </div>
-          <div style={{ maxHeight: 200, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ maxHeight: 220, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
             {matchLog.map((m, i) => {
               const outcomeColor = m.outcome === "W" ? "#22c55e" : m.outcome === "L" ? "#ef4444" : "#f59e0b";
               return (
@@ -236,6 +221,21 @@ export default function AddTeamModal({ league, season, team = null, onClose }) {
           </div>
         </div>
       )}
+
+      {/* Stats grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+        {statFields.map(([field, lbl]) => (
+          <div key={field}>
+            <label style={labelStyle}>{lbl}</label>
+            <input
+              type="number"
+              value={form[field]}
+              onChange={e => handleChange(field, e.target.value)}
+              style={inputStyle}
+            />
+          </div>
+        ))}
+      </div>
 
       <div style={{ display: "flex", gap: 12 }}>
         <button onClick={handleSave} disabled={saving} style={{ flex: 1, padding: 14, background: "#FF1493", border: "none", borderRadius: 12, color: "#fff", fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}>
