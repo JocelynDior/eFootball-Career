@@ -84,16 +84,20 @@ export default function AddTeamModal({ league, season, team = null, onClose }) {
           log.push({ opponent, side, outcome: "L", score: "F-F", type: "No Contest" });
 
         } else if (ft === "forfeit_win") {
-          // homeTeam is ALWAYS the winner in Firebase for forfeit_win
-          // so we check result.homeTeam, not the actual home/away position
+          // The winner is NOT always homeTeam — AddResultModal keeps
+          // homeTeam/awayTeam as whichever teams were picked, and encodes
+          // the winner via the score (3-0 home win, 0-3 away win). So the
+          // winner has to be worked out the same way as a normal match.
           stats.p += 1;
-          const won = result.homeTeam === teamName;
+          const hs = Number(result.homeScore) || 0;
+          const as = Number(result.awayScore) || 0;
+          const won = isHome ? hs > as : as > hs;
           if (won) {
             stats.w += 1; stats.pts += 3;
-            log.push({ opponent, side, outcome: "W", score: "3-0 (F)", type: "Forfeit" });
+            log.push({ opponent, side, outcome: "W", score: `${hs}-${as} (F)`, type: "Forfeit" });
           } else {
             stats.l += 1;
-            log.push({ opponent, side, outcome: "L", score: "0-3 (F)", type: "Forfeit" });
+            log.push({ opponent, side, outcome: "L", score: `${hs}-${as} (F)`, type: "Forfeit" });
           }
 
         } else {
