@@ -52,10 +52,24 @@ export async function recalculateTable(league, season) {
       away.p += 1; away.l += 1;
 
     } else if (ft === 'forfeit_win') {
-      // homeTeam stored as winner — winner gets W+3pts, loser gets L
-      // Forfeit goals do NOT count toward gs/gc/gd
-      home.p += 1; home.w += 1; home.pts += 3;
-      away.p += 1; away.l += 1;
+      // The winner is NOT always homeTeam — AddResultModal keeps homeTeam/
+      // awayTeam as whichever teams were selected, and encodes the winner
+      // via the score (3-0 for a home win, 0-3 for an away win). So we have
+      // to compare scores here, same as a normal match.
+      // Forfeit goals do NOT count toward gs/gc/gd.
+      const hs = Number(result.homeScore) || 0;
+      const as = Number(result.awayScore) || 0;
+
+      home.p += 1;
+      away.p += 1;
+
+      if (hs > as) {
+        home.w += 1; home.pts += 3;
+        away.l += 1;
+      } else {
+        away.w += 1; away.pts += 3;
+        home.l += 1;
+      }
 
     } else {
       // Normal match
