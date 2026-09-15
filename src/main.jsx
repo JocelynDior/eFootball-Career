@@ -34,11 +34,15 @@ createRoot(document.getElementById("root")).render(
   </StrictMode>
 );
 
-// Register service worker for PWA
+// Register service worker — checks for updates on every revisit
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/service-worker.js').catch(err => {
+  window.addEventListener('load', async () => {
+    try {
+      const reg = await navigator.serviceWorker.register('/service-worker.js');
+      // Force an update check every time the user opens the app
+      reg.update().catch(() => {});
+    } catch (err) {
       console.log('Service Worker registration failed:', err);
-    });
+    }
   });
 }
