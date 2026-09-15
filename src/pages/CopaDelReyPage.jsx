@@ -27,8 +27,7 @@ import MatchdayCountdowns from "../components/MatchdayCountdowns";
 import { applyResultToTable } from "../utils/tableLogic";
 
 const LEAGUE = "copadelrey";
-const LEAGUE_NAME = "Copa del Rey";
-// Must match the tournament name substring in career_calendarEvents
+const LEAGUE_NAME = "Copa Del Rey";
 const TOURNAMENT_NAME_KEY = "copa del rey";
 
 function getSASTNow() { return new Date(Date.now() + 2 * 60 * 60 * 1000); }
@@ -59,8 +58,6 @@ async function updateTopStat(league, season, pathKey, playerName, count, imageUr
 }
 
 // ── Matchday number resolver ──────────────────────────────────────────────────
-// Reads career_calendarEvents, finds all unique dates with fixtures for this
-// tournament (sorted ascending), returns the 1-based index of the given dateStr.
 function useMatchdayNumber(dateStr) {
   const [md, setMd] = useState(null);
   useEffect(() => {
@@ -327,7 +324,7 @@ export default function CopaDelReyPage() {
               />
             )}
             {tab === "main" && tabMode === "groupStage" && <GroupStageModal league={LEAGUE} season={season} />}
-            {tab === "fixtures" && <FixturesList tournamentName="Copa del Rey" />}
+            {tab === "fixtures" && <FixturesList tournamentName="Copa Del Rey" />}
             {tab === "results" && (
               <>
                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
