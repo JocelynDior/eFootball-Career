@@ -149,23 +149,75 @@ export default function AddTeamModal({ league, season, team = null, onClose }) {
     ["gs", "Goals Scored"], ["gc", "Goals Conceded"], ["gd", "Goal Difference"], ["pts", "Points"],
   ];
 
+  // If we have a log, show a dedicated fullscreen-style log view
+  if (matchLog.length > 0) {
+    return (
+      <div style={{ fontFamily: "'Inter', sans-serif", fontSize: "14px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+          <button
+            onClick={() => setMatchLog([])}
+            style={{ background: "none", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: "1.2rem", padding: 0 }}
+          >←</button>
+          <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", margin: 0 }}>
+            MATCH BREAKDOWN — {form.name}
+          </h3>
+        </div>
+
+        <div style={{ color: status.startsWith("✅") ? "#22c55e" : "#ff6b6b", fontSize: "0.8rem", marginBottom: 12 }}>{status}</div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
+          {matchLog.map((m, i) => {
+            const outcomeColor = m.outcome === "W" ? "#22c55e" : m.outcome === "L" ? "#ef4444" : "#f59e0b";
+            return (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(255,255,255,0.05)", border: `1px solid ${outcomeColor}33`, borderRadius: 8, padding: "8px 12px" }}>
+                <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.1rem", color: outcomeColor, minWidth: 20, fontWeight: 700 }}>{m.outcome}</span>
+                <span style={{ color: "rgba(255,255,255,0.35)", fontSize: "0.7rem", minWidth: 16 }}>{m.side}</span>
+                <span style={{ color: "#fff", fontSize: "0.85rem", flex: 1 }}>vs {m.opponent}</span>
+                <span style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.8rem", fontWeight: 600 }}>{m.score}</span>
+                {m.type !== "Normal" && (
+                  <span style={{ color: "rgba(255,255,255,0.3)", fontSize: "0.7rem" }}>{m.type}</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            onClick={() => setMatchLog([])}
+            style={{ flex: 1, padding: "12px", background: "#FF1493", border: "none", borderRadius: 10, color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "0.9rem" }}
+          >
+            ← Back to Edit
+          </button>
+          <button
+            onClick={async () => { setMatchLog([]); await handleSave(); }}
+            disabled={saving}
+            style={{ flex: 1, padding: "12px", background: "rgba(34,197,94,0.2)", border: "1px solid rgba(34,197,94,0.5)", borderRadius: 10, color: "#22c55e", fontWeight: 700, cursor: "pointer", fontSize: "0.9rem" }}
+          >
+            {saving ? "Saving..." : "Save Stats"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div>
-      <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: 20 }}>
+    <div style={{ fontFamily: "'Inter', sans-serif", fontSize: "14px" }}>
+      <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", marginBottom: 16 }}>
         {isEdit ? "✏️ Edit Team" : "➕ Add Team"}
       </h3>
 
       {/* Team dropdown */}
       <label style={labelStyle}>Team</label>
-      <div style={{ position: "relative", marginBottom: 16 }}>
+      <div style={{ position: "relative", marginBottom: 12 }}>
         {selectedIcon && (
-          <img src={selectedIcon} alt="" style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", width: 28, height: 28, objectFit: "contain", zIndex: 2, pointerEvents: "none" }} />
+          <img src={selectedIcon} alt="" style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", width: 24, height: 24, objectFit: "contain", zIndex: 2, pointerEvents: "none" }} />
         )}
         <select
           value={form.name}
           onChange={e => handleChange("name", e.target.value)}
           disabled={isEdit}
-          style={{ ...inputStyle, paddingLeft: selectedIcon ? 48 : 14, cursor: isEdit ? "not-allowed" : "pointer", opacity: isEdit ? 0.7 : 1 }}
+          style={{ ...inputStyle, fontSize: "0.85rem", padding: "8px 12px", paddingLeft: selectedIcon ? 44 : 12, cursor: isEdit ? "not-allowed" : "pointer", opacity: isEdit ? 0.7 : 1 }}
         >
           <option value="">— Select a team —</option>
           {clubs.map(c => (
@@ -175,73 +227,45 @@ export default function AddTeamModal({ league, season, team = null, onClose }) {
       </div>
 
       {/* Auto Calculate */}
-      <div style={{ marginBottom: 16 }}>
-        <button
-          onClick={handleAutoCalculate}
-          disabled={autoCalcing || !form.name.trim()}
-          style={{
-            width: "100%", padding: "12px 16px",
-            background: autoCalcing ? "rgba(255,20,147,0.1)" : "rgba(255,20,147,0.15)",
-            border: "1px solid rgba(255,20,147,0.5)",
-            borderRadius: 10, color: "#FF1493",
-            fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.05rem",
-            letterSpacing: 1.5, cursor: autoCalcing || !form.name.trim() ? "not-allowed" : "pointer",
-            opacity: !form.name.trim() ? 0.4 : 1,
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-            transition: "opacity 0.2s",
-          }}
-        >
-          {autoCalcing ? "⏳ Calculating..." : "⚡ AUTO CALCULATE FROM RESULTS"}
-        </button>
-      </div>
+      <button
+        onClick={handleAutoCalculate}
+        disabled={autoCalcing || !form.name.trim()}
+        style={{
+          width: "100%", padding: "10px 16px", marginBottom: 12,
+          background: "rgba(255,20,147,0.15)",
+          border: "1px solid rgba(255,20,147,0.5)",
+          borderRadius: 10, color: "#FF1493",
+          fontFamily: "'Bebas Neue', sans-serif", fontSize: "0.95rem",
+          letterSpacing: 1.5, cursor: autoCalcing || !form.name.trim() ? "not-allowed" : "pointer",
+          opacity: !form.name.trim() ? 0.4 : 1,
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+        }}
+      >
+        {autoCalcing ? "⏳ Calculating..." : "⚡ AUTO CALCULATE FROM RESULTS"}
+      </button>
 
-      {status && <div style={{ color: status.startsWith("✅") ? "#22c55e" : "#ff6b6b", fontSize: "0.85rem", marginBottom: 12 }}>{status}</div>}
-
-      {/* Match breakdown log */}
-      {matchLog.length > 0 && (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>
-            Match Breakdown
-          </div>
-          <div style={{ maxHeight: 220, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
-            {matchLog.map((m, i) => {
-              const outcomeColor = m.outcome === "W" ? "#22c55e" : m.outcome === "L" ? "#ef4444" : "#f59e0b";
-              return (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "7px 12px" }}>
-                  <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1rem", color: outcomeColor, minWidth: 16 }}>{m.outcome}</span>
-                  <span style={{ color: "rgba(255,255,255,0.35)", fontSize: "0.75rem", minWidth: 18 }}>{m.side}</span>
-                  <span style={{ color: "#fff", fontSize: "0.85rem", flex: 1 }}>vs {m.opponent}</span>
-                  <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.82rem" }}>{m.score}</span>
-                  {m.type !== "Normal" && (
-                    <span style={{ color: "rgba(255,255,255,0.3)", fontSize: "0.72rem" }}>{m.type}</span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {status && <div style={{ color: status.startsWith("✅") ? "#22c55e" : "#ff6b6b", fontSize: "0.8rem", marginBottom: 10 }}>{status}</div>}
 
       {/* Stats grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
         {statFields.map(([field, lbl]) => (
           <div key={field}>
-            <label style={labelStyle}>{lbl}</label>
+            <label style={{ ...labelStyle, fontSize: "0.65rem" }}>{lbl}</label>
             <input
               type="number"
               value={form[field]}
               onChange={e => handleChange(field, e.target.value)}
-              style={inputStyle}
+              style={{ ...inputStyle, fontSize: "0.85rem", padding: "8px 12px" }}
             />
           </div>
         ))}
       </div>
 
-      <div style={{ display: "flex", gap: 12 }}>
-        <button onClick={handleSave} disabled={saving} style={{ flex: 1, padding: 14, background: "#FF1493", border: "none", borderRadius: 12, color: "#fff", fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}>
+      <div style={{ display: "flex", gap: 10 }}>
+        <button onClick={handleSave} disabled={saving} style={{ flex: 1, padding: "12px", background: "#FF1493", border: "none", borderRadius: 10, color: "#fff", fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1, fontSize: "0.9rem" }}>
           {saving ? "Saving..." : "Save"}
         </button>
-        <button onClick={onClose} style={{ flex: 1, padding: 14, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, color: "#fff", cursor: "pointer" }}>
+        <button onClick={onClose} style={{ flex: 1, padding: "12px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 10, color: "#fff", cursor: "pointer", fontSize: "0.9rem" }}>
           Cancel
         </button>
       </div>
