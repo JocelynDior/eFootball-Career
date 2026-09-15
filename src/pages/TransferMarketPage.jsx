@@ -1022,8 +1022,8 @@ export default function TransferMarketPage() {
       )}
 
       <div style={{ padding: "24px 20px 80px" }}>
-        {/* ── Buy / Loan buttons — managers only ── */}
-        {!isAdmin && (
+        {/* ── Buy / Loan buttons — managers only, and only while the window is open ── */}
+        {!isAdmin && windowOpen && (
           <div style={{ display: "flex", gap: "12px", marginBottom: "20px" }}>
             <button
               onClick={() => { setBuySellMode("buy"); setShowBuySellModal(true); }}
@@ -1214,8 +1214,8 @@ export default function TransferMarketPage() {
               </div>
             )}
 
-            {/* Request auction bar — manager only */}
-            {!isAdmin && (
+            {/* Request auction bar — manager only, and only while the window is open */}
+            {!isAdmin && windowOpen && (
               <div
                 onClick={() => setShowRequestAuction(true)}
                 style={{ width: "100%", boxSizing: "border-box", padding: "16px 20px", background: "linear-gradient(135deg, rgba(255,170,0,0.18), rgba(255,170,0,0.06))", border: "1px solid rgba(255,170,0,0.5)", borderRadius: "14px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", marginBottom: "16px", transition: "all 0.2s" }}
