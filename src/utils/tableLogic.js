@@ -1,17 +1,17 @@
 import { db, PATHS } from '../firebase';
 import { ref, get, set } from 'firebase/database';
 
+// ── Debounce map: one pending recalc per league+season ────────────────────────
+const pendingRecalc = {};
+
 // ── Recalculate the entire table from scratch from all results ────────────────
-// This is called every time a result is submitted or deleted.
-// The table is always a direct reflection of the results — nothing can drift.
-//
 // Rules:
 //  - normal match:   gs, gc, gd, w/d/l, pts all count normally
-//  - forfeit_win:    w/l and pts count, but gs/gc/gd do NOT (forfeit goals don't count)
+//  - forfeit_win:    w/l and pts count, but gs/gc/gd do NOT
 //  - no_contest:     l for both, no pts, no gs/gc/gd
 
 export async function recalculateTable(league, season) {
-  // Load current table entries (to get team names and preserve non-stat fields like icon)
+  // Load current table entries (to get team names and preserve non-stat fields)
   const tableSnap = await get(ref(db, PATHS.table(league, season)));
   const tableVal  = tableSnap.val() || {};
 
@@ -25,7 +25,6 @@ export async function recalculateTable(league, season) {
     if (!val?.name) continue;
     teamMap[val.name] = {
       key,
-      // Preserve non-stat fields
       name:  val.name,
       icon:  val.icon  || '',
       color: val.color || '',
@@ -47,22 +46,14 @@ export async function recalculateTable(league, season) {
     const ft = result.forfeitType || 'none';
 
     if (ft === 'no_contest') {
-      // Both teams get a loss, no goals, no pts
       home.p += 1; home.l += 1;
       away.p += 1; away.l += 1;
 
     } else if (ft === 'forfeit_win') {
-      // The winner is NOT always homeTeam — AddResultModal keeps homeTeam/
-      // awayTeam as whichever teams were selected, and encodes the winner
-      // via the score (3-0 for a home win, 0-3 for an away win). So we have
-      // to compare scores here, same as a normal match.
-      // Forfeit goals do NOT count toward gs/gc/gd.
       const hs = Number(result.homeScore) || 0;
       const as = Number(result.awayScore) || 0;
-
       home.p += 1;
       away.p += 1;
-
       if (hs > as) {
         home.w += 1; home.pts += 3;
         away.l += 1;
@@ -72,29 +63,17 @@ export async function recalculateTable(league, season) {
       }
 
     } else {
-      // Normal match
       const hs = Number(result.homeScore) || 0;
       const as = Number(result.awayScore) || 0;
-
-      home.p  += 1;
-      home.gs += hs;
-      home.gc += as;
-      home.gd += hs - as;
-
-      away.p  += 1;
-      away.gs += as;
-      away.gc += hs;
-      away.gd += as - hs;
-
+      home.p  += 1; home.gs += hs; home.gc += as; home.gd += hs - as;
+      away.p  += 1; away.gs += as; away.gc += hs; away.gd += as - hs;
       if (hs > as) {
-        home.w   += 1; home.pts += 3;
-        away.l   += 1;
+        home.w += 1; home.pts += 3; away.l += 1;
       } else if (hs < as) {
-        away.w   += 1; away.pts += 3;
-        home.l   += 1;
+        away.w += 1; away.pts += 3; home.l += 1;
       } else {
-        home.d   += 1; home.pts += 1;
-        away.d   += 1; away.pts += 1;
+        home.d += 1; home.pts += 1;
+        away.d += 1; away.pts += 1;
       }
     }
   }
@@ -108,14 +87,35 @@ export async function recalculateTable(league, season) {
   await Promise.all(writes);
 }
 
-// ── Convenience wrappers kept for backwards compatibility ─────────────────────
-// All callers (SubmitResultModal, PendingFixturesModal, league pages) can keep
-// calling applyResultToTable — it now just triggers a full recalculation.
+// ── Debounced recalculate: collapses rapid successive calls into one ──────────
+// This prevents race conditions where multiple submissions fire recalculate
+// before Firebase has finished writing the previous result.
+function debouncedRecalculate(league, season, delayMs = 600) {
+  const key = `${league}_${season}`;
+  if (pendingRecalc[key]) {
+    clearTimeout(pendingRecalc[key]);
+  }
+  return new Promise((resolve, reject) => {
+    pendingRecalc[key] = setTimeout(async () => {
+      delete pendingRecalc[key];
+      try {
+        await recalculateTable(league, season);
+        resolve();
+      } catch (e) {
+        reject(e);
+      }
+    }, delayMs);
+  });
+}
+
+// ── Convenience wrappers ──────────────────────────────────────────────────────
+// All callers keep using applyResultToTable / reverseResultFromTable.
+// Now debounced to prevent race conditions on rapid submissions.
 
 export async function applyResultToTable(league, season) {
-  await recalculateTable(league, season);
+  await debouncedRecalculate(league, season);
 }
 
 export async function reverseResultFromTable(league, season) {
-  await recalculateTable(league, season);
+  await debouncedRecalculate(league, season);
 }
