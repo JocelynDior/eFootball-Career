@@ -39,6 +39,7 @@ export default function AddTeamModal({ league, season, team = null, onClose }) {
   const [autoCalcOpen, setAutoCalcOpen] = useState(false);
   const [matchLog, setMatchLog] = useState([]);
   const [calcStats, setCalcStats] = useState(null);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   useEffect(() => {
     const unsub = onValue(ref(db, "career_team_management"), snap => {
@@ -138,7 +139,14 @@ export default function AddTeamModal({ league, season, team = null, onClose }) {
         gs: +form.gs, gc: +form.gc, gd: +form.gd, pts: +form.pts,
       };
       if (isEdit) await set(ref(db, `${PATHS.table(league, season)}/${team.key}`), data);
-      else await push(ref(db, PATHS.table(league, season)), data);
+      else {
+        await push(ref(db, PATHS.table(league, season)), data);
+        // If team doesn't exist in career_team_management, add it
+        const exists = clubs.find(c => c.name.trim().toLowerCase() === form.name.trim().toLowerCase());
+        if (!exists) {
+          await push(ref(db, "career_team_management"), { name: form.name.trim() });
+        }
+      }
       onClose();
     } catch (e) {
       setStatus("Error: " + e.message);
@@ -178,17 +186,32 @@ export default function AddTeamModal({ league, season, team = null, onClose }) {
           {selectedIcon && (
             <img src={selectedIcon} alt="" style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", width: 28, height: 28, objectFit: "contain", zIndex: 2, pointerEvents: "none" }} />
           )}
-          <select
+          <input
+            type="text"
             value={form.name}
-            onChange={e => handleChange("name", e.target.value)}
+            onChange={e => { handleChange("name", e.target.value); setShowSuggestions(true); }}
+            onFocus={() => setShowSuggestions(true)}
+            onBlur={() => setTimeout(() => setShowSuggestions(false), 180)}
             disabled={isEdit}
-            style={{ ...inputStyle, paddingLeft: selectedIcon ? 48 : 14, cursor: isEdit ? "not-allowed" : "pointer", opacity: isEdit ? 0.7 : 1 }}
-          >
-            <option value="">— Select a team —</option>
-            {clubs.map(c => (
-              <option key={c.name} value={c.name}>{c.name}</option>
-            ))}
-          </select>
+            placeholder="Type new team or select existing..."
+            style={{ ...inputStyle, paddingLeft: selectedIcon ? 48 : 14, cursor: isEdit ? "not-allowed" : "text", opacity: isEdit ? 0.7 : 1 }}
+          />
+          {showSuggestions && !isEdit && (
+            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 99999, background: "rgba(0,0,20,0.99)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: 10, overflow: "hidden", boxShadow: "0 12px 40px rgba(0,0,0,0.7)", maxHeight: 220, overflowY: "auto" }}>
+              {clubs.filter(c => !form.name || c.name.toLowerCase().includes(form.name.toLowerCase())).length === 0 && (
+                <div style={{ padding: "10px 14px", color: "rgba(255,255,255,0.4)", fontSize: "0.82rem" }}>No existing teams match — a new team will be created</div>
+              )}
+              {clubs.filter(c => !form.name || c.name.toLowerCase().includes(form.name.toLowerCase())).map(c => {
+                const icon = getTeamIcon(c.name);
+                return (
+                  <div key={c.name} onMouseDown={() => { handleChange("name", c.name); setShowSuggestions(false); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", background: form.name === c.name ? "rgba(255,20,147,0.15)" : "transparent", transition: "background 0.15s" }} onMouseOver={e => e.currentTarget.style.background = "rgba(255,255,255,0.08)"} onMouseOut={e => e.currentTarget.style.background = form.name === c.name ? "rgba(255,20,147,0.15)" : "transparent"}>
+                    {icon ? <img src={icon} alt="" style={{ width: 26, height: 26, objectFit: "contain", borderRadius: 4, flexShrink: 0 }} /> : <div style={{ width: 26, height: 26, background: "rgba(255,255,255,0.08)", borderRadius: 4, flexShrink: 0 }} />}
+                    <span style={{ color: "#fff", fontSize: "0.88rem", fontWeight: 600 }}>{c.name}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <button
