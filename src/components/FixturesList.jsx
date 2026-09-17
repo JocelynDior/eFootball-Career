@@ -116,7 +116,7 @@ export default function FixturesList({ tournamentName }) {
           if (!tourn?.name) continue;
           const normalized = tourn.name.trim().toLowerCase().replace(/\s+/g, " ");
           if (normalized !== normalizedTarget) continue;
-          if (tourn.bracketImageUrl) bracketUrl = tourn.bracketImageUrl;
+          if (tourn.bracketImageUrl && !bracketUrl) bracketUrl = tourn.bracketImageUrl;
           for (const [fixKey, fix] of Object.entries(tourn.fixtures || {})) {
             if (fix?.home && fix?.away) {
               fixtures.push({
@@ -261,8 +261,10 @@ export default function FixturesList({ tournamentName }) {
     <div>
       {/* Bracket image */}
       {bracketImageUrl && (
-        <div style={{ marginBottom: 24, borderRadius: 16, overflow: "hidden", border: "1px solid rgba(255,20,147,0.25)" }}>
-          <img src={bracketImageUrl} alt="Tournament bracket" style={{ width: "100%", display: "block", objectFit: "contain", maxHeight: 400 }} />
+        <div style={{ width: "100%", position: "relative", overflow: "hidden", marginBottom: 24 }}>
+          <div style={{ width: "100%", aspectRatio: "16/6", position: "relative" }}>
+            <img src={bracketImageUrl} alt="Tournament bracket" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+          </div>
         </div>
       )}
       {/* Filter bar */}
