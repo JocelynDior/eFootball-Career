@@ -479,7 +479,7 @@ export default function AdminCalendarPage() {
   }
 
   async function saveFix() {
-    if (!fixHome || !fixAway) {
+    if (!fixStage && !fixHome && !fixAway) {
       showToast("Select both teams", "error");
       return;
     }
@@ -489,7 +489,7 @@ export default function AdminCalendarPage() {
     if (fixAwayIcon) await saveTeamIcon(fixAway, fixAwayIcon);
     if (oldHome && (oldHome !== fixHome || fixHomeIcon)) await syncTeam(oldHome, fixHome, fixHomeIcon);
     if (oldAway && (oldAway !== fixAway || fixAwayIcon)) await syncTeam(oldAway, fixAway, fixAwayIcon);
-    const fix = { home: fixHome, homeIcon: fixHomeIcon, away: fixAway, awayIcon: fixAwayIcon, ...(fixStage ? { stage: fixStage } : {}) };
+    const fix = { ...(fixHome ? { home: fixHome, homeIcon: fixHomeIcon } : {}), ...(fixAway ? { away: fixAway, awayIcon: fixAwayIcon } : {}), ...(fixStage ? { stage: fixStage } : {}) };
     const updated = JSON.parse(JSON.stringify(tempTournaments));
     if (!updated[fixTournIdx].fixtures) updated[fixTournIdx].fixtures = [];
     if (fixIdx !== null) updated[fixTournIdx].fixtures[fixIdx] = fix;
@@ -677,9 +677,9 @@ export default function AdminCalendarPage() {
                     <div style={{ color: "#fff", fontWeight: 700, fontSize: "3rem" }}>{t.name}</div>
                     {t.description && <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "2.16rem", marginTop: "0.2rem" }}>{t.description}</div>}
                   </div>
-                  <label style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", padding: "4px 10px", borderRadius: "12px", cursor: "pointer", fontSize: "0.7rem", fontWeight: 700 }}> 🖼 <input type="file" accept="image/*" style={{ display: "none" }} onChange={async e => { const f = e.target.files[0]; if (!f) return; try { const url = await uploadToImgBB(f); const u = JSON.parse(JSON.stringify(tempTournaments)); u[ti].iconUrl = url; setTempTournaments(u); showToast("Icon uploaded ✓", "success"); } catch { showToast("Upload failed", "error"); } }} />
+                  <label style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", padding: "4px 10px", borderRadius: "12px", cursor: "pointer", fontSize: "0.7rem", fontWeight: 700 }}> 🖼 <input type="file" accept="image/*" style={{ display: "none" }} onChange={async e => { const f = e.target.files[0]; if (!f) return; try { const url = await uploadToImgBB(f); const u = JSON.parse(JSON.stringify(tempTournaments)); u[ti].iconUrl = url; setTempTournaments(u); showToast("Icon uploaded ✓", "success"); } catch(err) { console.error("Icon upload error:", err); showToast("Icon upload failed: " + (err.message || "unknown error"), "error"); } }} />
                   </label>
-                  <label style={{ background: "rgba(255,20,147,0.15)", border: "1px solid rgba(255,20,147,0.4)", color: "#fff", padding: "4px 10px", borderRadius: "12px", cursor: "pointer", fontSize: "0.7rem", fontWeight: 700 }} title="Upload bracket image"> 🏆 <input type="file" accept="image/*" style={{ display: "none" }} onChange={async e => { const f = e.target.files[0]; if (!f) return; try { const url = await uploadToImgBB(f); const u = JSON.parse(JSON.stringify(tempTournaments)); u[ti].bracketImageUrl = url; setTempTournaments(u); showToast("Bracket uploaded ✓", "success"); } catch { showToast("Upload failed", "error"); } }} />
+                  <label style={{ background: "rgba(255,20,147,0.15)", border: "1px solid rgba(255,20,147,0.4)", color: "#fff", padding: "4px 10px", borderRadius: "12px", cursor: "pointer", fontSize: "0.7rem", fontWeight: 700 }} title="Upload bracket image"> 🏆 <input type="file" accept="image/*" style={{ display: "none" }} onChange={async e => { const f = e.target.files[0]; if (!f) return; try { const url = await uploadToImgBB(f); const u = JSON.parse(JSON.stringify(tempTournaments)); u[ti].bracketImageUrl = url; setTempTournaments(u); showToast("Bracket uploaded ✓", "success"); } catch(err) { console.error("Bracket upload error:", err); showToast("Bracket upload failed: " + (err.message || "unknown error"), "error"); } }} />
                   </label>
                   {t.bracketImageUrl && <img src={t.bracketImageUrl} alt="bracket" style={{ width: "38px", height: "38px", objectFit: "cover", borderRadius: "6px", border: "1px solid rgba(255,20,147,0.4)" }} />}
                   <button onClick={() => setTempTournaments(ts => ts.filter((_, i) => i !== ti))} style={{ background: "rgba(255,0,0,0.3)", border: "none", color: "#fff", width: "28px", height: "28px", borderRadius: "50%", cursor: "pointer", fontSize: "0.8rem" }}>🗑</button>
