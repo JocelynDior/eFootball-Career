@@ -26,9 +26,9 @@ import LeagueTableHeader from "../components/LeagueTableHeader";
 import MatchdayCountdowns from "../components/MatchdayCountdowns";
 import { applyResultToTable } from "../utils/tableLogic";
 
-const LEAGUE = "coppaitalia";
-const LEAGUE_NAME = "Coppa Italia";
-const TOURNAMENT_NAME_KEY = "coppa italia";
+const LEAGUE = "copadelrey";
+const LEAGUE_NAME = "Copa Del Rey";
+const TOURNAMENT_NAME_KEY = "copa del rey";
 
 function getSASTNow() { return new Date(Date.now() + 2 * 60 * 60 * 1000); }
 function getSASTDateStr(offsetDays = 0) {
@@ -135,7 +135,7 @@ function Countdown({ title, startMs, durationMs, accent = "#FF1493", matchday })
   );
 }
 
-export default function CoppaItaliaPage() {
+export default function CopaDelReyPage() {
   const { isAdmin } = useAdmin();
   const [season, setSeason] = useState("1");
 
@@ -325,7 +325,7 @@ export default function CoppaItaliaPage() {
       <div style={{ padding: "0 20px 40px" }}>
         {loading || tabLoading ? <LoadingSpinner /> : (
           <>
-            {tab === "fixtures" && <FixturesList tournamentName="Coppa Italia" />}
+            {tab === "fixtures" && <FixturesList tournamentName="Copa Del Rey" />}
             {tab === "results" && (
               <>
                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
