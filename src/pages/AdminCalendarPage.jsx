@@ -18,6 +18,7 @@ const MONTH_NAMES = [
 const TOURNAMENT_OPTIONS = [
   "Premier League","La Liga","Serie A","Bundesliga","Ligue 1",
   "Champions League","Europa League","Club World Cup","Super Cup","Tokyo Pre Season",
+  "FA Cup","Copa Del Rey","Coppa Italia","DFB Pokal","Coupe de France",
 ];
 
 function fmtYMD(y, m, d) {
@@ -221,6 +222,7 @@ export default function AdminCalendarPage() {
   const [fixAway, setFixAway] = useState("");
   const [fixHomeIcon, setFixHomeIcon] = useState("");
   const [fixAwayIcon, setFixAwayIcon] = useState("");
+  const [fixStage, setFixStage] = useState("");
   // Tournament add form
   const [showAddTournForm, setShowAddTournForm] = useState(false);
   const [newTournName, setNewTournName] = useState("");
@@ -252,7 +254,7 @@ export default function AdminCalendarPage() {
     });
 
     // Also pull all teams from every league table so TeamPicker is complete
-    const LEAGUE_KEYS = ["premier", "laliga", "seriea", "bundesliga", "ligue1", "championsleague", "europa", "clubworldcup", "supercup", "tokyo"];
+    const LEAGUE_KEYS = ["premier", "laliga", "seriea", "bundesliga", "ligue1", "championsleague", "europa", "clubworldcup", "supercup", "tokyo", "facup", "copadelrey", "coppaitalia", "dfbpokal", "coupesdefrance"];
     const leagueUnsubs = LEAGUE_KEYS.map(league =>
       onValue(ref(db, `career_${league}/seasons`), snap => {
         const seasons = snap.val();
@@ -472,6 +474,7 @@ export default function AdminCalendarPage() {
     setFixAway(f.away || "");
     setFixHomeIcon(getTeamIcon(f.home) || f.homeIcon || "");
     setFixAwayIcon(getTeamIcon(f.away) || f.awayIcon || "");
+    setFixStage(f.stage || "");
     setFixModalOpen(true);
   }
 
@@ -486,7 +489,7 @@ export default function AdminCalendarPage() {
     if (fixAwayIcon) await saveTeamIcon(fixAway, fixAwayIcon);
     if (oldHome && (oldHome !== fixHome || fixHomeIcon)) await syncTeam(oldHome, fixHome, fixHomeIcon);
     if (oldAway && (oldAway !== fixAway || fixAwayIcon)) await syncTeam(oldAway, fixAway, fixAwayIcon);
-    const fix = { home: fixHome, homeIcon: fixHomeIcon, away: fixAway, awayIcon: fixAwayIcon };
+    const fix = { home: fixHome, homeIcon: fixHomeIcon, away: fixAway, awayIcon: fixAwayIcon, ...(fixStage ? { stage: fixStage } : {}) };
     const updated = JSON.parse(JSON.stringify(tempTournaments));
     if (!updated[fixTournIdx].fixtures) updated[fixTournIdx].fixtures = [];
     if (fixIdx !== null) updated[fixTournIdx].fixtures[fixIdx] = fix;
@@ -676,6 +679,9 @@ export default function AdminCalendarPage() {
                   </div>
                   <label style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", padding: "4px 10px", borderRadius: "12px", cursor: "pointer", fontSize: "0.7rem", fontWeight: 700 }}> 🖼 <input type="file" accept="image/*" style={{ display: "none" }} onChange={async e => { const f = e.target.files[0]; if (!f) return; try { const url = await uploadToImgBB(f); const u = JSON.parse(JSON.stringify(tempTournaments)); u[ti].iconUrl = url; setTempTournaments(u); showToast("Icon uploaded ✓", "success"); } catch { showToast("Upload failed", "error"); } }} />
                   </label>
+                  <label style={{ background: "rgba(255,20,147,0.15)", border: "1px solid rgba(255,20,147,0.4)", color: "#fff", padding: "4px 10px", borderRadius: "12px", cursor: "pointer", fontSize: "0.7rem", fontWeight: 700 }} title="Upload bracket image"> 🏆 <input type="file" accept="image/*" style={{ display: "none" }} onChange={async e => { const f = e.target.files[0]; if (!f) return; try { const url = await uploadToImgBB(f); const u = JSON.parse(JSON.stringify(tempTournaments)); u[ti].bracketImageUrl = url; setTempTournaments(u); showToast("Bracket uploaded ✓", "success"); } catch { showToast("Upload failed", "error"); } }} />
+                  </label>
+                  {t.bracketImageUrl && <img src={t.bracketImageUrl} alt="bracket" style={{ width: "38px", height: "38px", objectFit: "cover", borderRadius: "6px", border: "1px solid rgba(255,20,147,0.4)" }} />}
                   <button onClick={() => setTempTournaments(ts => ts.filter((_, i) => i !== ti))} style={{ background: "rgba(255,0,0,0.3)", border: "none", color: "#fff", width: "28px", height: "28px", borderRadius: "50%", cursor: "pointer", fontSize: "0.8rem" }}>🗑</button>
                 </div>
                 {(t.fixtures || []).map((f, fi) => {
@@ -687,7 +693,7 @@ export default function AdminCalendarPage() {
                         {hi && <img src={hi} alt="" style={{ width: "38px", height: "38px", objectFit: "contain", borderRadius: "6px", flexShrink: 0 }} />}
                         <span style={{ color: "#fff", fontSize: "2.34rem", fontWeight: 600, wordBreak: "break-word", lineHeight: 1.3 }}>{f.home}</span>
                       </div>
-                      <div style={{ textAlign: "center", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", color: "#fff", fontWeight: 700 }}>vs</div>
+                      <div style={{ textAlign: "center" }}><div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", color: "#fff", fontWeight: 700 }}>vs</div>{f.stage && <div style={{ fontSize: "0.6rem", color: "#FF1493", fontWeight: 700, letterSpacing: 0.5, marginTop: 2 }}>{f.stage}</div>}</div>
                       <div style={{ display: "flex", alignItems: "center", gap: "8px", flexDirection: "row-reverse", minWidth: 0 }}>
                         {ai && <img src={ai} alt="" style={{ width: "38px", height: "38px", objectFit: "contain", borderRadius: "6px", flexShrink: 0 }} />}
                         <span style={{ color: "#fff", fontSize: "2.34rem", fontWeight: 600, wordBreak: "break-word", lineHeight: 1.3, textAlign: "right" }}>{f.away}</span>
@@ -749,7 +755,25 @@ export default function AdminCalendarPage() {
             {fixAwayIcon && <img src={fixAwayIcon} alt="" style={{ width: "40px", height: "40px", objectFit: "contain", borderRadius: "6px", display: "block", marginTop: "6px" }} />}
           </div>
         </div>
-        <div style={{ display: "flex", gap: "0.6rem", marginTop: "1.2rem" }}>
+        <div style={{ marginTop: "1.2rem" }}>
+          <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "0.6rem", fontWeight: 700, color: "rgba(255,255,255,0.5)", marginBottom: "6px", letterSpacing: "0.1em" }}>STAGE / PHASE (OPTIONAL)</div>
+          <select value={fixStage} onChange={e => setFixStage(e.target.value)} style={{ width: "100%", padding: "10px 14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: 10, color: "#fff", fontFamily: "inherit", fontSize: "0.9rem", outline: "none", marginBottom: "1rem", cursor: "pointer" }}>
+            <option value="">— No stage —</option>
+            <option value="Round of 32 1st Leg">Round of 32 1st Leg</option>
+            <option value="Round of 32 2nd Leg">Round of 32 2nd Leg</option>
+            <option value="Round of 16 1st Leg">Round of 16 1st Leg</option>
+            <option value="Round of 16 2nd Leg">Round of 16 2nd Leg</option>
+            <option value="Round of 16">Round of 16</option>
+            <option value="Quarter Final 1st Leg">Quarter Final 1st Leg</option>
+            <option value="Quarter Final 2nd Leg">Quarter Final 2nd Leg</option>
+            <option value="Quarter Final">Quarter Final</option>
+            <option value="Semi Final 1st Leg">Semi Final 1st Leg</option>
+            <option value="Semi Final 2nd Leg">Semi Final 2nd Leg</option>
+            <option value="Semi Final">Semi Final</option>
+            <option value="Final">Final</option>
+          </select>
+        </div>
+        <div style={{ display: "flex", gap: "0.6rem" }}>
           <button onClick={saveFix} style={btnStyle("gold")}>💾 Save Fixture</button>
           <button onClick={() => setFixModalOpen(false)} style={btnStyle("outline")}>Cancel</button>
         </div>
