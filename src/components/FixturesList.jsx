@@ -118,9 +118,9 @@ export default function FixturesList({ tournamentName }) {
           if (normalized !== normalizedTarget) continue;
           if (tourn.bracketImageUrl && !bracketUrl) bracketUrl = tourn.bracketImageUrl;
           for (const [fixKey, fix] of Object.entries(tourn.fixtures || {})) {
-            if (fix?.home && fix?.away) {
+            if (fix?.home || fix?.away || fix?.stage) {
               fixtures.push({
-                date: dateKey, home: fix.home, away: fix.away,
+                date: dateKey, home: fix.home || "", away: fix.away || "",
                 tournament: tourn.name,
                 stage: fix.stage || "",
                 dateKey, tournKey, fixKey,
