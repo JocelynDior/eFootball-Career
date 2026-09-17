@@ -140,7 +140,7 @@ export default function CoupesDeFrancePage() {
   const [season, setSeason] = useState("1");
 
   const [seasons, setSeasons] = useState(["1"]);
-  const [tab, setTab] = useState("main");
+  const [tab, setTab] = useState("fixtures");
   const [teams, setTeams] = useState([]);
   const [results, setResults] = useState([]);
   const [pending, setPending] = useState([]);
@@ -242,7 +242,6 @@ export default function CoupesDeFrancePage() {
   const D48 = 48 * 3600000;
 
   const TABS = [
-    { id: "main", label: tabMode === "groupStage" ? "GROUP STAGE" : "TABLE" },
     { id: "fixtures", label: "FIXTURES" },
     { id: "results", label: "RESULTS" },
     { id: "scorers", label: "TOP SCORERS" },
@@ -263,8 +262,18 @@ export default function CoupesDeFrancePage() {
           onPrev={() => { const i = seasons.indexOf(season); if (i > 0) setSeason(seasons[i - 1]); }}
           onNext={() => { const i = seasons.indexOf(season); if (i < seasons.length - 1) setSeason(seasons[i + 1]); }}
           onAdd={handleAddSeason}
-          onRename={() => {}}
-          onSetActive={() => {}}
+          onRename={async () => {
+            const newName = prompt(`Rename Season ${season} to:`);
+            if (!newName) return;
+            const updated = seasons.map(s => s === season ? newName : s);
+            setSeasons(updated);
+            setSeason(newName);
+            await set(ref(db, `career_${LEAGUE}_settings/seasons`), updated);
+          }}
+          onSetActive={async () => {
+            await set(ref(db, `career_${LEAGUE}_settings/activeSeason`), season);
+            showToast ? showToast(`Season ${season} set as active ✓`, "success") : alert(`Season ${season} set as active`);
+          }}
           onMenuOpen={isAdmin ? () => setAdminOpen(true) : undefined}
         />
 
@@ -316,14 +325,6 @@ export default function CoupesDeFrancePage() {
       <div style={{ padding: "0 20px 40px" }}>
         {loading || tabLoading ? <LoadingSpinner /> : (
           <>
-            {tab === "main" && tabMode === "table" && (
-              <LeagueTable league={LEAGUE} season={season} teams={teams}
-                onEdit={isAdmin ? setEditTeam : undefined}
-                onDelete={isAdmin ? async k => { if (confirm("Delete?")) await remove(ref(db, `${PATHS.table(LEAGUE, season)}/${k}`)); } : undefined}
-                results={results}
-              />
-            )}
-            {tab === "main" && tabMode === "groupStage" && <GroupStageModal league={LEAGUE} season={season} />}
             {tab === "fixtures" && <FixturesList tournamentName="Coupe de France" />}
             {tab === "results" && (
               <>
