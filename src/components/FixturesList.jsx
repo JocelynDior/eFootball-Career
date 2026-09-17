@@ -96,6 +96,7 @@ export default function FixturesList({ tournamentName }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [fullyLoaded, setFullyLoaded] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [bracketImageUrl, setBracketImageUrl] = useState("");
   const [selectedFixture, setSelectedFixture] = useState(null);
   const [showFilter, setShowFilter] = useState(false);
   const timerRef = useRef(null);
@@ -108,17 +109,20 @@ export default function FixturesList({ tournamentName }) {
     const unsub = onValue(ref(db, "career_calendarEvents"), snap => {
       const data = snap.val() || {};
       const fixtures = [];
+      let bracketUrl = "";
       for (const [dateKey, dateData] of Object.entries(data)) {
         if (!dateData?.tournaments) continue;
         for (const [tournKey, tourn] of Object.entries(dateData.tournaments)) {
           if (!tourn?.name) continue;
           const normalized = tourn.name.trim().toLowerCase().replace(/\s+/g, " ");
           if (normalized !== normalizedTarget) continue;
+          if (tourn.bracketImageUrl) bracketUrl = tourn.bracketImageUrl;
           for (const [fixKey, fix] of Object.entries(tourn.fixtures || {})) {
             if (fix?.home && fix?.away) {
               fixtures.push({
                 date: dateKey, home: fix.home, away: fix.away,
                 tournament: tourn.name,
+                stage: fix.stage || "",
                 dateKey, tournKey, fixKey,
               });
             }
@@ -127,6 +131,7 @@ export default function FixturesList({ tournamentName }) {
       }
       // Don't sort here — we'll sort by bucket grouping instead
       setAllFixtures(fixtures);
+      setBracketImageUrl(bracketUrl);
       setVisibleCount(BATCH);
       setFullyLoaded(false);
       setInitialLoading(false);
@@ -254,6 +259,12 @@ export default function FixturesList({ tournamentName }) {
 
   return (
     <div>
+      {/* Bracket image */}
+      {bracketImageUrl && (
+        <div style={{ marginBottom: 24, borderRadius: 16, overflow: "hidden", border: "1px solid rgba(255,20,147,0.25)" }}>
+          <img src={bracketImageUrl} alt="Tournament bracket" style={{ width: "100%", display: "block", objectFit: "contain", maxHeight: 400 }} />
+        </div>
+      )}
       {/* Filter bar */}
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
         <button
@@ -314,6 +325,9 @@ export default function FixturesList({ tournamentName }) {
               onMouseOut={e => e.currentTarget.style.background = GLASS.background}
             >
               <div style={{ position: "absolute", top: 10, right: 14, color: "rgba(255,255,255,0.2)", fontSize: "0.7rem", letterSpacing: 1 }}>TAP FOR DETAILS</div>
+              {fix.stage && (
+                <div style={{ marginBottom: 10, textAlign: "center", color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1rem", letterSpacing: 2 }}>{fix.stage}</div>
+              )}
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20 }}>
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 12, textAlign: "center" }}>
