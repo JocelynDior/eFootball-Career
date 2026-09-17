@@ -331,19 +331,21 @@ export default function FixturesList({ tournamentName }) {
                 <div style={{ marginBottom: 10, textAlign: "center", color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1rem", letterSpacing: 2 }}>{fix.stage}</div>
               )}
 
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20 }}>
-                <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 12, textAlign: "center" }}>
-                  <TeamBadge teamName={fix.home} iconUrl={resolveIcon(fix.home)} size={80} />
-                  <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", color: "#fff", letterSpacing: 1, lineHeight: 1.1 }}>{fix.home}</span>
+              {(fix.home || fix.away) ? (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20 }}>
+                  <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 12, textAlign: "center" }}>
+                    <TeamBadge teamName={fix.home} iconUrl={resolveIcon(fix.home)} size={80} />
+                    <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", color: "#fff", letterSpacing: 1, lineHeight: 1.1 }}>{fix.home}</span>
+                  </div>
+                  <div style={{ flexShrink: 0 }}>
+                    <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", color: "rgba(255,255,255,0.4)", letterSpacing: 6 }}>VS</span>
+                  </div>
+                  <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 12, textAlign: "center" }}>
+                    <TeamBadge teamName={fix.away} iconUrl={resolveIcon(fix.away)} size={80} />
+                    <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", color: "#fff", letterSpacing: 1, lineHeight: 1.1 }}>{fix.away}</span>
+                  </div>
                 </div>
-                <div style={{ flexShrink: 0 }}>
-                  <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", color: "rgba(255,255,255,0.4)", letterSpacing: 6 }}>VS</span>
-                </div>
-                <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 12, textAlign: "center" }}>
-                  <TeamBadge teamName={fix.away} iconUrl={resolveIcon(fix.away)} size={80} />
-                  <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", color: "#fff", letterSpacing: 1, lineHeight: 1.1 }}>{fix.away}</span>
-                </div>
-              </div>
+              ) : null}
 
               {isAdmin && (
                 <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
