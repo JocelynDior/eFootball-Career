@@ -435,8 +435,9 @@ export default function AdminCalendarPage() {
 
   async function saveEvent() {
     const validPairs = tempEventPairs.filter(p => p.name || p.iconUrl);
-    if (!validPairs.length) {
-      showToast("Enter at least one event name", "error");
+    const validTournaments = (tempTournaments || []).filter(t => t.name);
+    if (!validPairs.length && !validTournaments.length) {
+      showToast("Enter at least one event or tournament", "error");
       return;
     }
     setSaving(true);
