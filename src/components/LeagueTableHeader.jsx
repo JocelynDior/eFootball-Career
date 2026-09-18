@@ -1,8 +1,11 @@
 import { useAdmin } from "../context/AdminContext";
+import { db } from "../firebase";
+import { ref, set, get } from "firebase/database";
 
 // Drop-in replacement for SeasonSelector — now lives inside the table header bar
 export default function LeagueTableHeader({
   title,
+  league,
   currentSeason,
   seasons,
   onPrev,
@@ -10,7 +13,7 @@ export default function LeagueTableHeader({
   onAdd,
   onRename,
   onSetActive,
-  onMenuOpen, // callback for 3-dot menu
+  onMenuOpen,
 }) {
   const { isAdmin } = useAdmin();
   const idx = seasons.indexOf(currentSeason);
@@ -91,7 +94,23 @@ export default function LeagueTableHeader({
         {/* Admin season controls */}
         {isAdmin && (
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {[["+ New", onAdd], ["Rename", onRename], ["Set Active", onSetActive]].map(([label, fn]) => (
+            {[
+              ["+ New", onAdd],
+              ["Rename", league ? async () => {
+                const newName = prompt(`Rename Season ${currentSeason} to:`);
+                if (!newName || !newName.trim()) return;
+                const snap = await get(ref(db, `career_${league}_settings/seasons`));
+                const list = (snap.val() || []).map(String);
+                const updated = list.map(s => s === String(currentSeason) ? newName.trim() : s);
+                await set(ref(db, `career_${league}_settings/seasons`), updated);
+                if (onRename) onRename(newName.trim());
+              } : onRename],
+              ["Set Active", league ? async () => {
+                await set(ref(db, `career_${league}_settings/activeSeason`), currentSeason);
+                alert(`Season ${currentSeason} set as active ✓`);
+                if (onSetActive) onSetActive(currentSeason);
+              } : onSetActive],
+            ].map(([label, fn]) => (
               <button key={label} onClick={fn} style={{
                 background: "rgba(255,20,147,0.12)",
                 border: "1px solid rgba(255,20,147,0.3)",
