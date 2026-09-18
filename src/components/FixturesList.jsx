@@ -1,9 +1,14 @@
 import { useState, useEffect, useRef } from "react";
 import { db } from "../firebase";
-import { ref, onValue, remove } from "firebase/database";
+import { ref, onValue, remove, set } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
 import Modal from "./Modal";
 import MatchDetailsModal from "../modals/MatchDetailsModal";
+import { uploadToImgBB } from "../utils/imgUpload";
+
+function slugifyLeagueKey(name) {
+  return (name || "").trim().toLowerCase().replace(/\s+/g, "-");
+}
 
 const GLASS = {
   background: "rgba(255,255,255,0.04)",
@@ -97,11 +102,14 @@ export default function FixturesList({ tournamentName }) {
   const [fullyLoaded, setFullyLoaded] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [bracketImageUrl, setBracketImageUrl] = useState("");
+  const [bracketUploading, setBracketUploading] = useState(false);
   const [selectedFixture, setSelectedFixture] = useState(null);
   const [showFilter, setShowFilter] = useState(false);
   const timerRef = useRef(null);
+  const bracketFileRef = useRef(null);
 
   const normalizedTarget = (tournamentName || "").trim().toLowerCase().replace(/\s+/g, " ");
+  const leagueKey = slugifyLeagueKey(tournamentName);
 
   useEffect(() => {
     if (!normalizedTarget) return;
@@ -109,7 +117,6 @@ export default function FixturesList({ tournamentName }) {
     const unsub = onValue(ref(db, "career_calendarEvents"), snap => {
       const data = snap.val() || {};
       const fixtures = [];
-      let bracketUrl = "";
       try {
         for (const [dateKey, dateData] of Object.entries(data)) {
           if (!dateData?.tournaments) continue;
@@ -117,9 +124,6 @@ export default function FixturesList({ tournamentName }) {
             if (typeof tourn?.name !== "string" || !tourn.name.trim()) continue;
             const normalized = tourn.name.trim().toLowerCase().replace(/\s+/g, " ");
             if (normalized !== normalizedTarget) continue;
-            if (typeof tourn.bracketImageUrl === "string" && tourn.bracketImageUrl && !bracketUrl) {
-              bracketUrl = tourn.bracketImageUrl;
-            }
             for (const [fixKey, fix] of Object.entries(tourn.fixtures || {})) {
               if (fix?.home || fix?.away || fix?.stage) {
                 fixtures.push({
@@ -137,13 +141,37 @@ export default function FixturesList({ tournamentName }) {
       }
       // Don't sort here — we'll sort by bucket grouping instead
       setAllFixtures(fixtures);
-      setBracketImageUrl(bracketUrl);
       setVisibleCount(BATCH);
       setFullyLoaded(false);
       setInitialLoading(false);
     });
     return () => unsub();
   }, [normalizedTarget]);
+
+  // Bracket image lives in its own dedicated path, independent of calendar data
+  useEffect(() => {
+    if (!leagueKey) return;
+    const unsub = onValue(ref(db, `career_fixtureBracketImages/${leagueKey}`), snap => {
+      const val = snap.val();
+      setBracketImageUrl(typeof val === "string" ? val : "");
+    });
+    return () => unsub();
+  }, [leagueKey]);
+
+  async function handleBracketFileChange(e) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !leagueKey) return;
+    setBracketUploading(true);
+    try {
+      const url = await uploadToImgBB(file);
+      await set(ref(db, `career_fixtureBracketImages/${leagueKey}`), url);
+    } catch (err) {
+      alert("Bracket image upload failed: " + err.message);
+    } finally {
+      setBracketUploading(false);
+    }
+  }
 
   useEffect(() => {
     const unsub = onValue(ref(db, "career_team_management"), snap => {
@@ -274,7 +302,32 @@ export default function FixturesList({ tournamentName }) {
         </div>
       )}
       {/* Filter bar */}
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginBottom: 16 }}>
+        {isAdmin && (
+          <>
+            <input
+              ref={bracketFileRef}
+              type="file"
+              accept="image/*"
+              style={{ display: "none" }}
+              onChange={handleBracketFileChange}
+            />
+            <button
+              onClick={() => bracketFileRef.current?.click()}
+              disabled={bracketUploading}
+              style={{
+                background: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.2)",
+                borderRadius: 30, color: "#fff", padding: "10px 20px",
+                cursor: bracketUploading ? "default" : "pointer", fontFamily: "inherit", fontSize: "0.9rem",
+                display: "flex", alignItems: "center", gap: 8,
+                opacity: bracketUploading ? 0.6 : 1,
+              }}
+            >
+              🖼️ {bracketUploading ? "Uploading..." : "Add Image"}
+            </button>
+          </>
+        )}
         <button
           onClick={() => setShowFilter(v => !v)}
           style={{
@@ -324,20 +377,24 @@ export default function FixturesList({ tournamentName }) {
             {getDateLabel(dateStr)}
           </div>
 
-          {grouped[dateStr].map((fix) => (
+          {grouped[dateStr].map((fix) => {
+            const hasTeams = !!(fix.home || fix.away);
+            return (
             <div
               key={`${fix.dateKey}-${fix.tournKey}-${fix.fixKey}`}
-              onClick={() => setSelectedFixture(fix)}
-              style={{ ...GLASS, borderRadius: 20, padding: "28px 32px", marginBottom: 14, cursor: "pointer", transition: "all 0.2s", position: "relative" }}
-              onMouseOver={e => e.currentTarget.style.background = "rgba(255,20,147,0.08)"}
-              onMouseOut={e => e.currentTarget.style.background = GLASS.background}
+              onClick={hasTeams ? () => setSelectedFixture(fix) : undefined}
+              style={{ ...GLASS, borderRadius: 20, padding: "28px 32px", marginBottom: 14, cursor: hasTeams ? "pointer" : "default", transition: "all 0.2s", position: "relative" }}
+              onMouseOver={hasTeams ? e => e.currentTarget.style.background = "rgba(255,20,147,0.08)" : undefined}
+              onMouseOut={hasTeams ? e => e.currentTarget.style.background = GLASS.background : undefined}
             >
-              <div style={{ position: "absolute", top: 10, right: 14, color: "rgba(255,255,255,0.2)", fontSize: "0.7rem", letterSpacing: 1 }}>TAP FOR DETAILS</div>
+              {hasTeams && (
+                <div style={{ position: "absolute", top: 10, right: 14, color: "rgba(255,255,255,0.2)", fontSize: "0.7rem", letterSpacing: 1 }}>TAP FOR DETAILS</div>
+              )}
               {fix.stage && (
-                <div style={{ marginBottom: 10, textAlign: "center", color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1rem", letterSpacing: 2 }}>{fix.stage}</div>
+                <div style={{ marginBottom: hasTeams ? 10 : 0, textAlign: "center", color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: hasTeams ? "1rem" : "2.75rem", letterSpacing: hasTeams ? 2 : 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fix.stage}</div>
               )}
 
-              {(fix.home || fix.away) ? (
+              {hasTeams ? (
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20 }}>
                   <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 12, textAlign: "center" }}>
                     <TeamBadge teamName={fix.home} iconUrl={resolveIcon(fix.home)} size={80} />
@@ -364,7 +421,8 @@ export default function FixturesList({ tournamentName }) {
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       ))}
 
