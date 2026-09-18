@@ -324,7 +324,7 @@ export default function ClubWorldCupPage() {
               />
             )}
             {tab === "main" && tabMode === "groupStage" && <GroupStageModal league={LEAGUE} season={season} />}
-            {tab === "fixtures" && <FixturesList tournamentName="Premier League" />}
+            {tab === "fixtures" && <FixturesList tournamentName="Club World Cup" />}
             {tab === "results" && (
               <>
                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
