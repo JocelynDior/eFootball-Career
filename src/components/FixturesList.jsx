@@ -110,24 +110,30 @@ export default function FixturesList({ tournamentName }) {
       const data = snap.val() || {};
       const fixtures = [];
       let bracketUrl = "";
-      for (const [dateKey, dateData] of Object.entries(data)) {
-        if (!dateData?.tournaments) continue;
-        for (const [tournKey, tourn] of Object.entries(dateData.tournaments)) {
-          if (!tourn?.name) continue;
-          const normalized = tourn.name.trim().toLowerCase().replace(/\s+/g, " ");
-          if (normalized !== normalizedTarget) continue;
-          if (tourn.bracketImageUrl && !bracketUrl) bracketUrl = tourn.bracketImageUrl;
-          for (const [fixKey, fix] of Object.entries(tourn.fixtures || {})) {
-            if (fix?.home || fix?.away || fix?.stage) {
-              fixtures.push({
-                date: dateKey, home: fix.home || "", away: fix.away || "",
-                tournament: tourn.name,
-                stage: fix.stage || "",
-                dateKey, tournKey, fixKey,
-              });
+      try {
+        for (const [dateKey, dateData] of Object.entries(data)) {
+          if (!dateData?.tournaments) continue;
+          for (const [tournKey, tourn] of Object.entries(dateData.tournaments)) {
+            if (typeof tourn?.name !== "string" || !tourn.name.trim()) continue;
+            const normalized = tourn.name.trim().toLowerCase().replace(/\s+/g, " ");
+            if (normalized !== normalizedTarget) continue;
+            if (typeof tourn.bracketImageUrl === "string" && tourn.bracketImageUrl && !bracketUrl) {
+              bracketUrl = tourn.bracketImageUrl;
+            }
+            for (const [fixKey, fix] of Object.entries(tourn.fixtures || {})) {
+              if (fix?.home || fix?.away || fix?.stage) {
+                fixtures.push({
+                  date: dateKey, home: fix.home || "", away: fix.away || "",
+                  tournament: tourn.name,
+                  stage: fix.stage || "",
+                  dateKey, tournKey, fixKey,
+                });
+              }
             }
           }
         }
+      } catch (err) {
+        console.error("FixturesList: failed to process calendar data", err);
       }
       // Don't sort here — we'll sort by bucket grouping instead
       setAllFixtures(fixtures);
