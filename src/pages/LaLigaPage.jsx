@@ -25,6 +25,7 @@ import LeagueHeadlineSlideshow from "../components/LeagueHeadlineSlideshow";
 import LeagueTableHeader from "../components/LeagueTableHeader";
 import MatchdayCountdowns from "../components/MatchdayCountdowns";
 import { applyResultToTable } from "../utils/tableLogic";
+import { renameSeason, setActiveSeason, deleteSeason } from "../utils/seasonActions";
 
 const LEAGUE = "laliga";
 const LEAGUE_NAME = "La Liga";
@@ -266,8 +267,9 @@ export default function LaLigaPage() {
           onPrev={() => { const i = seasons.indexOf(season); if (i > 0) setSeason(seasons[i - 1]); }}
           onNext={() => { const i = seasons.indexOf(season); if (i < seasons.length - 1) setSeason(seasons[i + 1]); }}
           onAdd={handleAddSeason}
-          onRename={() => {}}
-          onSetActive={() => {}}
+          onRename={() => renameSeason(LEAGUE, season, seasons, setSeasons, setSeason)}
+          onSetActive={() => setActiveSeason(LEAGUE, season)}
+          onDelete={() => deleteSeason(LEAGUE, TOURNAMENT_NAME_KEY, season, seasons, setSeasons, setSeason)}
           onMenuOpen={isAdmin ? () => setAdminOpen(true) : undefined}
         />
 
