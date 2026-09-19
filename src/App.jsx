@@ -6,6 +6,7 @@ import { AIAgentPanelProvider } from "./context/AIAgentPanelContext";
 import BackgroundMusic from "./components/BackgroundMusic";
 import SoundEffects from "./components/SoundEffects";
 import BottomNavBar from "./components/BottomNavBar";
+import AutoRefresher from "./components/AutoRefresher";
 import FeedPage from "./pages/FeedPage";
 import PremierLeaguePage from "./pages/PremierLeaguePage";
 import LaLigaPage from "./pages/LaLigaPage";
@@ -99,6 +100,7 @@ function AppInner() {
       <BackgroundMusic />
       <SoundEffects />
       <InactivityWatcher />
+      <AutoRefresher />
       <Routes>
         <Route path="/" element={<FeedPage />} />
 
