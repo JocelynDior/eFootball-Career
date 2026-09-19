@@ -5,6 +5,7 @@ import { applyResultToTable } from "../utils/tableLogic";
 import { getSASTToday } from "../utils/sastTime";
 import { useAdmin } from "../context/AdminContext";
 import { uploadToImgBB } from "../utils/imgUpload";
+import { CUP_LEAGUES, CUP_STAGES, DOMESTIC_LEAGUE_KEYS } from "../utils/cupConfig";
 
 // ── League → tournament name mapping ──────────────────────────────────────────
 // Keys match the LEAGUE constants used in each page
@@ -107,12 +108,33 @@ async function detectHomeAway(league, myTeam, opponent) {
   return { homeTeam: myTeam, awayTeam: opponent };
 }
 
+// ── Combined opponent pool for cup competitions: every team currently in the
+// active-season table of each of the 5 domestic leagues, deduped & sorted ───
+async function fetchCupOpponentPool() {
+  const names = new Set();
+  for (const leagueKey of DOMESTIC_LEAGUE_KEYS) {
+    try {
+      const settingsSnap = await get(ref(db, `career_${leagueKey}_settings/activeSeason`));
+      const activeSeason = settingsSnap.val() || "1";
+      const tableSnap = await get(ref(db, PATHS.table(leagueKey, activeSeason)));
+      const table = tableSnap.val() || {};
+      for (const t of Object.values(table)) {
+        if (t?.name) names.add(t.name);
+      }
+    } catch {
+      // one league failing shouldn't block the others
+    }
+  }
+  return Array.from(names).sort();
+}
+
 // ── Check for existing result (symmetric team pair) ───────────────────────────
-async function findExistingResult(league, season, myTeam, opponent, matchday) {
+async function findExistingResult(league, season, myTeam, opponent, roundValue, isCup) {
   const snap = await get(ref(db, PATHS.results(league, season)));
   const data = snap.val() || {};
   for (const [key, val] of Object.entries(data)) {
-    if (String(val.md) !== String(matchday)) continue;
+    const roundMatches = isCup ? String(val.stage) === String(roundValue) : String(val.md) === String(roundValue);
+    if (!roundMatches) continue;
     const sameTeams =
       (val.homeTeam === myTeam && val.awayTeam === opponent) ||
       (val.homeTeam === opponent && val.awayTeam === myTeam);
@@ -219,6 +241,85 @@ function MatchdayPicker({ matchday, setMatchday, prevMatchday, currMatchday }) {
         </div>
       )}
     </div>
+  );
+}
+
+// ── Opponent + stage/matchday picker — cup competitions get a free opponent
+// dropdown + stage select; leagues keep the scheduled-fixture card picker ────
+function OpponentAndRoundPicker({
+  isCup, opponent, setOpponent, others, cupOpponentsLoading,
+  matchday, setMatchday, date, setDate,
+  fixturesLoading, myFixtures, handleFixtureSelect, currMatchday, prevMatchday,
+}) {
+  if (isCup) {
+    return (
+      <>
+        <label style={labelStyle}>Opponent <span style={{ color: "#ff6b6b" }}>*</span></label>
+        <select value={opponent} onChange={e => setOpponent(e.target.value)} style={inputStyle} disabled={cupOpponentsLoading}>
+          <option value="">{cupOpponentsLoading ? "Loading teams..." : "— Select opponent —"}</option>
+          {others.map(name => <option key={name} value={name}>{name}</option>)}
+        </select>
+
+        <label style={labelStyle}>Stage <span style={{ color: "#ff6b6b" }}>*</span></label>
+        <select value={matchday} onChange={e => setMatchday(e.target.value)} style={inputStyle}>
+          <option value="">— Select stage —</option>
+          {CUP_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+
+        <label style={labelStyle}>Date</label>
+        <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <label style={labelStyle}>Select Your Fixture</label>
+      {fixturesLoading ? (
+        <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.85rem", marginBottom: 14 }}>Loading fixtures...</div>
+      ) : myFixtures.length === 0 ? (
+        <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, padding: "16px", marginBottom: 14, color: "rgba(255,255,255,0.4)", fontSize: "0.85rem", textAlign: "center" }}>
+          No scheduled fixtures found for your team in the current or previous matchday.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
+          {myFixtures.map((fix, i) => {
+            const isSelected = opponent === fix.opponent && date === fix.date;
+            const mdNum = fix.slot === "current" ? currMatchday : prevMatchday;
+            const slotLabel = fix.slot === "current" ? "📅 Current Matchday" : "⏮ Previous Matchday";
+            return (
+              <button
+                key={i}
+                onClick={() => handleFixtureSelect(fix)}
+                style={{
+                  width: "100%", padding: "14px 18px", borderRadius: 14, cursor: "pointer",
+                  border: `2px solid ${isSelected ? "#FF1493" : "rgba(255,20,147,0.25)"}`,
+                  background: isSelected ? "rgba(255,20,147,0.15)" : "rgba(255,255,255,0.04)",
+                  textAlign: "left", color: "#fff", fontFamily: "inherit",
+                  transition: "all 0.15s",
+                }}
+              >
+                <div style={{ color: isSelected ? "#FF1493" : "rgba(255,255,255,0.45)", fontSize: "0.72rem", fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>
+                  {slotLabel}{mdNum != null ? ` — MD ${mdNum}` : ""}
+                </div>
+                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.2rem", letterSpacing: 1 }}>
+                  {fix.home} <span style={{ color: "#FF1493" }}>vs</span> {fix.away}
+                </div>
+                <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "0.75rem", marginTop: 4 }}>{fix.date}</div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Static matchday label */}
+      {matchday && (
+        <div style={{ background: "rgba(255,20,147,0.08)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 10, padding: "10px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: 1 }}>Matchday</span>
+          <span style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: 1 }}>{matchday}</span>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -335,22 +436,37 @@ function ForbiddenResultsManager({ league, teams, onClose }) {
 
 // ── Admin: Enter Result Directly ──────────────────────────────────────────────
 function AdminEnterResultView({ league, season, teams, forbiddenList, onClose }) {
+  const isCup = CUP_LEAGUES.has(league);
   const [homeTeam, setHomeTeam]   = useState("");
   const [awayTeam, setAwayTeam]   = useState("");
   const [homeScore, setHomeScore] = useState(0);
   const [awayScore, setAwayScore] = useState(0);
-  const [matchday, setMatchday]   = useState("");
+  const [matchday, setMatchday]   = useState(""); // stage string for cups, matchday number for leagues
   const [date, setDate]           = useState(getSASTToday());
   const [matchType, setMatchType] = useState("normal");
   const [saving, setSaving]       = useState(false);
   const [status, setStatus]       = useState("");
 
-  const teamNames = teams.map(t => t.name).sort();
+  const [cupOpponents, setCupOpponents] = useState([]);
+  const [cupOpponentsLoading, setCupOpponentsLoading] = useState(true);
+  useEffect(() => {
+    if (!isCup) { setCupOpponentsLoading(false); return; }
+    let cancelled = false;
+    setCupOpponentsLoading(true);
+    fetchCupOpponentPool().then(names => {
+      if (cancelled) return;
+      setCupOpponents(names);
+      setCupOpponentsLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [isCup]);
+
+  const teamNames = isCup ? cupOpponents : teams.map(t => t.name).sort();
 
   async function handleSubmit() {
     if (!homeTeam || !awayTeam) { setStatus("Select both teams."); return; }
     if (homeTeam === awayTeam)  { setStatus("Teams must be different."); return; }
-    if (!matchday)              { setStatus("Matchday is required."); return; }
+    if (!matchday)              { setStatus(isCup ? "Stage is required." : "Matchday is required."); return; }
 
     const isForfeit   = matchType === "forfeit";
     const isNoContest = matchType === "no_contest";
@@ -371,7 +487,8 @@ function AdminEnterResultView({ league, season, teams, forbiddenList, onClose })
       await push(ref(db, PATHS.results(league, season)), {
         homeTeam, awayTeam, homeScore: finalHome, awayScore: finalAway,
         forfeitType, matchType,
-        md: Number(matchday), date,
+        ...(isCup ? { stage: matchday } : { md: Number(matchday) }),
+        date,
         goalScorers: { home: [], away: [] },
         assists: { home: [], away: [] },
         submittedBy: "admin",
@@ -406,15 +523,15 @@ function AdminEnterResultView({ league, season, teams, forbiddenList, onClose })
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <div>
           <label style={labelStyle}>Home Team</label>
-          <select value={homeTeam} onChange={e => setHomeTeam(e.target.value)} style={inputStyle}>
-            <option value="">— Select —</option>
+          <select value={homeTeam} onChange={e => setHomeTeam(e.target.value)} style={inputStyle} disabled={isCup && cupOpponentsLoading}>
+            <option value="">{isCup && cupOpponentsLoading ? "Loading teams..." : "— Select —"}</option>
             {teamNames.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
         <div>
           <label style={labelStyle}>Away Team</label>
-          <select value={awayTeam} onChange={e => setAwayTeam(e.target.value)} style={inputStyle}>
-            <option value="">— Select —</option>
+          <select value={awayTeam} onChange={e => setAwayTeam(e.target.value)} style={inputStyle} disabled={isCup && cupOpponentsLoading}>
+            <option value="">{isCup && cupOpponentsLoading ? "Loading teams..." : "— Select —"}</option>
             {teamNames.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
@@ -433,8 +550,20 @@ function AdminEnterResultView({ league, season, teams, forbiddenList, onClose })
         </div>
       )}
 
-      <label style={labelStyle}>Matchday</label>
-      <input type="number" min={1} value={matchday} onChange={e => setMatchday(e.target.value)} placeholder="e.g. 5" style={inputStyle} />
+      {isCup ? (
+        <>
+          <label style={labelStyle}>Stage</label>
+          <select value={matchday} onChange={e => setMatchday(e.target.value)} style={inputStyle}>
+            <option value="">— Select stage —</option>
+            {CUP_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </>
+      ) : (
+        <>
+          <label style={labelStyle}>Matchday</label>
+          <input type="number" min={1} value={matchday} onChange={e => setMatchday(e.target.value)} placeholder="e.g. 5" style={inputStyle} />
+        </>
+      )}
 
       <label style={labelStyle}>Date</label>
       <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} />
@@ -457,6 +586,7 @@ function AdminEnterResultView({ league, season, teams, forbiddenList, onClose })
 export default function SubmitResultModal({ league, season, teams, onClose, prevMatchday, currMatchday }) {
   const { manager, isAdmin } = useAdmin();
   const myTeam = manager?.team || "";
+  const isCup = CUP_LEAGUES.has(league);
 
   const [forbiddenList, setForbiddenList] = useState([]);
   useEffect(() => {
@@ -473,12 +603,16 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
   const [opponent,   setOpponent]   = useState("");
   const [myScore,    setMyScore]    = useState(0);
   const [oppScore,   setOppScore]   = useState(0);
-  const [matchday,   setMatchday]   = useState("");
+  const [matchday,   setMatchday]   = useState(""); // holds a stage string for cups, a matchday number for leagues
   const [date,       setDate]       = useState(getSASTToday());
 
-  // Fixtures from pending sections (today + yesterday) for opponent card selection
+  // Fixtures from pending sections (today + yesterday) for opponent card selection — leagues only
   const [myFixtures, setMyFixtures] = useState([]); // [{opponent, home, away, date, matchday, slot}]
   const [fixturesLoading, setFixturesLoading] = useState(true);
+
+  // Combined domestic-league team pool for cup opponent picking
+  const [cupOpponents, setCupOpponents] = useState([]);
+  const [cupOpponentsLoading, setCupOpponentsLoading] = useState(true);
 
   const [scorers,  setScorers]  = useState([]);
   const [assists,  setAssists]  = useState([]);
@@ -503,7 +637,23 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
   const [status,     setStatus]     = useState("");
   const [confirming, setConfirming] = useState(false);
 
-  const others = teams.filter(t => t.name !== myTeam).map(t => t.name).sort();
+  const others = isCup
+    ? cupOpponents.filter(n => n.toLowerCase() !== myTeam.toLowerCase())
+    : teams.filter(t => t.name !== myTeam).map(t => t.name).sort();
+
+  // Cup competitions: load the combined domestic-league opponent pool once
+  useEffect(() => {
+    if (!isCup) { setCupOpponentsLoading(false); return; }
+    let cancelled = false;
+    setCupOpponentsLoading(true);
+    fetchCupOpponentPool().then(names => {
+      if (cancelled) return;
+      setCupOpponents(names);
+      setCupOpponentsLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [isCup]);
+
 
   // Load existing scorers/assists for player picker
   useEffect(() => {
@@ -518,9 +668,9 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
     });
   }, [league, season]);
 
-  // Load fixtures from today + yesterday where myTeam appears
+  // Load fixtures from today + yesterday where myTeam appears — leagues only
   useEffect(() => {
-    if (!myTeam || !league) return;
+    if (!myTeam || !league || isCup) { setFixturesLoading(false); return; }
     const tournamentName = LEAGUE_TOURNAMENT[league] || "";
     const todayStr     = getSASTDateStr(0);
     const yesterdayStr = getSASTDateStr(-1);
@@ -555,11 +705,17 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
     return () => unsub();
   }, [myTeam, league]);
 
-  // Detect home/away as soon as opponent is selected — does NOT wait for matchday
+  // Detect home/away as soon as opponent is selected — does NOT wait for matchday.
+  // Cups have no scheduled fixture to look up, so just default to myTeam as home.
   useEffect(() => {
     if (!opponent || !myTeam) {
       setDetectedHome(null);
       setDetectedAway(null);
+      return;
+    }
+    if (isCup) {
+      setDetectedHome(myTeam);
+      setDetectedAway(opponent);
       return;
     }
     let cancelled = false;
@@ -569,9 +725,9 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
       setDetectedAway(homeAway.awayTeam);
     });
     return () => { cancelled = true; };
-  }, [opponent, myTeam, league]);
+  }, [opponent, myTeam, league, isCup]);
 
-  // Check for duplicate / second manager once opponent AND matchday are both set
+  // Check for duplicate / second manager once opponent AND stage/matchday are both set
   useEffect(() => {
     if (!opponent || !matchday || matchType !== "normal") {
       setExistingResult(null);
@@ -581,7 +737,7 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
     }
     let cancelled = false;
     setCheckingDuplicate(true);
-    findExistingResult(league, season, myTeam, opponent, matchday).then(existing => {
+    findExistingResult(league, season, myTeam, opponent, matchday, isCup).then(existing => {
       if (cancelled) return;
       if (existing) {
         setExistingResult(existing);
@@ -597,7 +753,7 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
       setCheckingDuplicate(false);
     });
     return () => { cancelled = true; };
-  }, [opponent, matchday, matchType, league, season, myTeam, detectedHome]);
+  }, [opponent, matchday, matchType, league, season, myTeam, detectedHome, isCup]);
 
   function handleMatchImageChange(e) {
     const f = e.target.files[0]; if (!f) return;
@@ -656,7 +812,7 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
 
   function handleSubmitClick() {
     if (!opponent)  { setStatus("Please select an opponent."); return; }
-    if (!matchday)  { setStatus("Please select a matchday."); return; }
+    if (!matchday)  { setStatus(isCup ? "Please select a stage." : "Please select a matchday."); return; }
     if (!matchImage) { setStatus("A match image is required."); return; }
     setStatus(""); setConfirming(true);
   }
@@ -665,7 +821,7 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
     setSaving(true);
     try {
       // Fresh Firebase check at submit time — prevents race-condition duplicates
-      const existingNow = await findExistingResult(league, season, myTeam, opponent, matchday);
+      const existingNow = await findExistingResult(league, season, myTeam, opponent, matchday, isCup);
       const isSecondNow = !!existingNow;
 
       const scorersData = scorers.map(s => ({ player: s.player, goals: s.goals, team: myTeam }));
@@ -736,7 +892,8 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
           homeTeam, awayTeam, homeScore, awayScore,
           forfeitType: isForfeit ? "forfeit_win" : "none",
           matchType:   isForfeit ? "forfeit"      : "normal",
-          md: +matchday, date, matchImageUrl,
+          ...(isCup ? { stage: matchday } : { md: +matchday }),
+          date, matchImageUrl,
           goalScorers: { home: iAmHome ? scorersData : [], away: iAmHome ? [] : scorersData },
           assists:     { home: iAmHome ? assistsData : [], away: iAmHome ? [] : assistsData },
           submittedBy:  manager?.uid || myTeam,
@@ -865,7 +1022,7 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
           </div>
           <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.85rem" }}>
             {isForfeit ? "Forfeit Win" : isSecondManager ? "Adding your scorers to existing result" : "Normal Match"}
-            &nbsp;·&nbsp; Matchday {matchday} &nbsp;·&nbsp; {date}
+            &nbsp;·&nbsp; {isCup ? matchday : `Matchday ${matchday}`} &nbsp;·&nbsp; {date}
           </div>
           {!isForfeit && scorers.length > 0 && (
             <div style={{ marginTop: 10, fontSize: "0.85rem", color: "rgba(255,255,255,0.6)" }}>
@@ -913,52 +1070,13 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
         <div style={{ background: "rgba(255,20,147,0.1)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, padding: "12px 16px", marginBottom: 16, color: "#FF1493", fontWeight: 700 }}>
           Your Team: {myTeam}
         </div>
-        {/* Fixture cards — opponent selection */}
-        <label style={labelStyle}>Select Your Fixture</label>
-        {fixturesLoading ? (
-          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.85rem", marginBottom: 14 }}>Loading fixtures...</div>
-        ) : myFixtures.length === 0 ? (
-          <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, padding: "16px", marginBottom: 14, color: "rgba(255,255,255,0.4)", fontSize: "0.85rem", textAlign: "center" }}>
-            No scheduled fixtures found for your team in the current or previous matchday.
-          </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
-            {myFixtures.map((fix, i) => {
-              const isSelected = opponent === fix.opponent && date === fix.date;
-              const mdNum = fix.slot === "current" ? currMatchday : prevMatchday;
-              const slotLabel = fix.slot === "current" ? "📅 Current Matchday" : "⏮ Previous Matchday";
-              return (
-                <button
-                  key={i}
-                  onClick={() => handleFixtureSelect(fix)}
-                  style={{
-                    width: "100%", padding: "14px 18px", borderRadius: 14, cursor: "pointer",
-                    border: `2px solid ${isSelected ? "#FF1493" : "rgba(255,20,147,0.25)"}`,
-                    background: isSelected ? "rgba(255,20,147,0.15)" : "rgba(255,255,255,0.04)",
-                    textAlign: "left", color: "#fff", fontFamily: "inherit",
-                    transition: "all 0.15s",
-                  }}
-                >
-                  <div style={{ color: isSelected ? "#FF1493" : "rgba(255,255,255,0.45)", fontSize: "0.72rem", fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>
-                    {slotLabel}{mdNum != null ? ` — MD ${mdNum}` : ""}
-                  </div>
-                  <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.2rem", letterSpacing: 1 }}>
-                    {fix.home} <span style={{ color: "#FF1493" }}>vs</span> {fix.away}
-                  </div>
-                  <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "0.75rem", marginTop: 4 }}>{fix.date}</div>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Static matchday label */}
-        {matchday && (
-          <div style={{ background: "rgba(255,20,147,0.08)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 10, padding: "10px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: 1 }}>Matchday</span>
-            <span style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: 1 }}>{matchday}</span>
-          </div>
-        )}
+        <OpponentAndRoundPicker
+          isCup={isCup} opponent={opponent} setOpponent={setOpponent}
+          others={others} cupOpponentsLoading={cupOpponentsLoading}
+          matchday={matchday} setMatchday={setMatchday} date={date} setDate={setDate}
+          fixturesLoading={fixturesLoading} myFixtures={myFixtures}
+          handleFixtureSelect={handleFixtureSelect} currMatchday={currMatchday} prevMatchday={prevMatchday}
+        />
 
         <div style={{ border: "2px dashed rgba(255,20,147,0.5)", borderRadius: 14, padding: "16px", marginBottom: 16, background: "rgba(255,20,147,0.05)" }}>
           <div style={{ color: "#FF1493", fontWeight: 700, fontSize: "0.9rem", marginBottom: 8 }}>📸 Match Image <span style={{ color: "#ff6b6b" }}>* Required</span></div>
@@ -978,7 +1096,7 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
         <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
           <button onClick={() => {
             if (!opponent)  { setStatus("Please select an opponent."); return; }
-            if (!matchday)  { setStatus("Please select a matchday."); return; }
+            if (!matchday)  { setStatus(isCup ? "Please select a stage." : "Please select a matchday."); return; }
             if (!matchImage) { setStatus("A match image is required."); return; }
             setStatus(""); setConfirming(true);
           }} style={{ flex: 1, padding: 14, background: "#FF1493", border: "none", borderRadius: 12, color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem" }}>Submit Forfeit</button>
@@ -1011,52 +1129,13 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
         Your Team: {myTeam}
       </div>
 
-      {/* Fixture cards — opponent selection */}
-      <label style={labelStyle}>Select Your Fixture</label>
-      {fixturesLoading ? (
-        <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.85rem", marginBottom: 14 }}>Loading fixtures...</div>
-      ) : myFixtures.length === 0 ? (
-        <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, padding: "16px", marginBottom: 14, color: "rgba(255,255,255,0.4)", fontSize: "0.85rem", textAlign: "center" }}>
-          No scheduled fixtures found for your team in the current or previous matchday.
-        </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
-          {myFixtures.map((fix, i) => {
-            const isSelected = opponent === fix.opponent && date === fix.date;
-            const mdNum = fix.slot === "current" ? currMatchday : prevMatchday;
-            const slotLabel = fix.slot === "current" ? "📅 Current Matchday" : "⏮ Previous Matchday";
-            return (
-              <button
-                key={i}
-                onClick={() => handleFixtureSelect(fix)}
-                style={{
-                  width: "100%", padding: "14px 18px", borderRadius: 14, cursor: "pointer",
-                  border: `2px solid ${isSelected ? "#FF1493" : "rgba(255,20,147,0.25)"}`,
-                  background: isSelected ? "rgba(255,20,147,0.15)" : "rgba(255,255,255,0.04)",
-                  textAlign: "left", color: "#fff", fontFamily: "inherit",
-                  transition: "all 0.15s",
-                }}
-              >
-                <div style={{ color: isSelected ? "#FF1493" : "rgba(255,255,255,0.45)", fontSize: "0.72rem", fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>
-                  {slotLabel}{mdNum != null ? ` — MD ${mdNum}` : ""}
-                </div>
-                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.2rem", letterSpacing: 1 }}>
-                  {fix.home} <span style={{ color: "#FF1493" }}>vs</span> {fix.away}
-                </div>
-                <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "0.75rem", marginTop: 4 }}>{fix.date}</div>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Static matchday label */}
-      {matchday && (
-        <div style={{ background: "rgba(255,20,147,0.08)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 10, padding: "10px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: 1 }}>Matchday</span>
-          <span style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: 1 }}>{matchday}</span>
-        </div>
-      )}
+      <OpponentAndRoundPicker
+        isCup={isCup} opponent={opponent} setOpponent={setOpponent}
+        others={others} cupOpponentsLoading={cupOpponentsLoading}
+        matchday={matchday} setMatchday={setMatchday} date={date} setDate={setDate}
+        fixturesLoading={fixturesLoading} myFixtures={myFixtures}
+        handleFixtureSelect={handleFixtureSelect} currMatchday={currMatchday} prevMatchday={prevMatchday}
+      />
 
       {checkingDuplicate && (
         <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", marginBottom: 10 }}>🔍 Checking for existing result...</div>
