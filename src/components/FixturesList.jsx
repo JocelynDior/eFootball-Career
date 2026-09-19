@@ -373,8 +373,10 @@ export default function FixturesList({ tournamentName }) {
 
       {sortedDates.map(dateStr => (
         <div key={dateStr} style={{ marginBottom: 32 }}>
-          <div style={{ display: "inline-block", background: "rgba(255,20,147,0.15)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 30, padding: "6px 20px", marginBottom: 16, color: "#FF1493", fontWeight: 700, fontSize: "0.85rem", letterSpacing: 1 }}>
-            {getDateLabel(dateStr)}
+          <div style={{ textAlign: "center", marginBottom: 16 }}>
+            <span style={{ display: "inline-block", background: "rgba(255,20,147,0.15)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 30, padding: "10px 32px", color: "#FF1493", fontWeight: 700, fontSize: "2.55rem", letterSpacing: 2, whiteSpace: "nowrap" }}>
+              {getDateLabel(dateStr)}
+            </span>
           </div>
 
           {grouped[dateStr].map((fix) => {
@@ -391,7 +393,7 @@ export default function FixturesList({ tournamentName }) {
                 <div style={{ position: "absolute", top: 10, right: 14, color: "rgba(255,255,255,0.2)", fontSize: "0.7rem", letterSpacing: 1 }}>TAP FOR DETAILS</div>
               )}
               {fix.stage && (
-                <div style={{ marginBottom: hasTeams ? 10 : 0, textAlign: "center", color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: hasTeams ? "1rem" : "2.75rem", letterSpacing: hasTeams ? 2 : 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fix.stage}</div>
+                <div style={{ marginBottom: hasTeams ? 10 : 0, textAlign: "center", color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: hasTeams ? "2rem" : "2.75rem", letterSpacing: hasTeams ? 2 : 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fix.stage}</div>
               )}
 
               {hasTeams ? (
