@@ -25,6 +25,7 @@ import LeagueHeadlineSlideshow from "../components/LeagueHeadlineSlideshow";
 import LeagueTableHeader from "../components/LeagueTableHeader";
 import MatchdayCountdowns from "../components/MatchdayCountdowns";
 import { applyResultToTable } from "../utils/tableLogic";
+import { renameSeason, setActiveSeason, deleteSeason } from "../utils/seasonActions";
 
 const LEAGUE = "facup";
 const LEAGUE_NAME = "FA Cup";
@@ -262,18 +263,9 @@ export default function FACupPage() {
           onPrev={() => { const i = seasons.indexOf(season); if (i > 0) setSeason(seasons[i - 1]); }}
           onNext={() => { const i = seasons.indexOf(season); if (i < seasons.length - 1) setSeason(seasons[i + 1]); }}
           onAdd={handleAddSeason}
-          onRename={async () => {
-            const newName = prompt(`Rename Season ${season} to:`);
-            if (!newName) return;
-            const updated = seasons.map(s => s === season ? newName : s);
-            setSeasons(updated);
-            setSeason(newName);
-            await set(ref(db, `career_${LEAGUE}_settings/seasons`), updated);
-          }}
-          onSetActive={async () => {
-            await set(ref(db, `career_${LEAGUE}_settings/activeSeason`), season);
-            showToast ? showToast(`Season ${season} set as active ✓`, "success") : alert(`Season ${season} set as active`);
-          }}
+          onRename={() => renameSeason(LEAGUE, season, seasons, setSeasons, setSeason)}
+          onSetActive={() => setActiveSeason(LEAGUE, season)}
+          onDelete={() => deleteSeason(LEAGUE, TOURNAMENT_NAME_KEY, season, seasons, setSeasons, setSeason)}
           onMenuOpen={isAdmin ? () => setAdminOpen(true) : undefined}
         />
 
