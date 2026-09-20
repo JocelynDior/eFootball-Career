@@ -58,28 +58,29 @@ async function updateTopStat(league, season, pathKey, playerName, count, imageUr
   }
 }
 
-// ── Matchday number resolver ──────────────────────────────────────────────────
-function useMatchdayNumber(dateStr) {
-  const [md, setMd] = useState(null);
+// ── Stage resolver — cup competitions show the day's stage instead of a matchday number ──
+function useStageForDate(dateStr) {
+  const [stage, setStage] = useState(null);
   useEffect(() => {
     const unsub = onValue(ref(db, "career_calendarEvents"), snap => {
       const data = snap.val() || {};
-      const dates = new Set();
-      for (const [date, dayData] of Object.entries(data)) {
-        for (const tourn of Object.values(dayData?.tournaments || {})) {
+      const dayData = data[dateStr];
+      let found = null;
+      if (dayData?.tournaments) {
+        for (const tourn of Object.values(dayData.tournaments)) {
           if ((tourn?.name || "").toLowerCase().includes(TOURNAMENT_NAME_KEY)) {
-            const hasFixtures = Object.values(tourn?.fixtures || {}).some(f => f?.home && f?.away);
-            if (hasFixtures) dates.add(date);
+            for (const fix of Object.values(tourn?.fixtures || {})) {
+              if (fix?.stage) { found = fix.stage; break; }
+            }
           }
+          if (found) break;
         }
       }
-      const sorted = [...dates].sort();
-      const idx = sorted.indexOf(dateStr);
-      setMd(idx >= 0 ? idx + 1 : null);
+      setStage(found);
     });
     return () => unsub();
   }, [dateStr]);
-  return md;
+  return stage;
 }
 
 // ── Countdown card ────────────────────────────────────────────────────────────
@@ -127,7 +128,7 @@ function Countdown({ title, startMs, durationMs, accent = "#FF1493", matchday })
         fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.3rem",
         color: urgency, letterSpacing: 2,
       }}>
-        {matchday !== null && matchday !== undefined ? `MATCHDAY ${matchday}` : "—"}
+        {matchday || "TBD"}
       </div>
       <div style={{ width: "100%", height: 6, background: "rgba(255,255,255,0.06)", borderRadius: 3 }}>
         <div style={{ width: `${parts.pct * 100}%`, height: "100%", background: urgency, borderRadius: 3, transition: "width 1s linear" }} />
@@ -160,8 +161,8 @@ export default function CoppaItaliaPage() {
 
   const todayStr = getSASTDateStr(0);
   const yesterdayStr = getSASTDateStr(-1);
-  const todayMd = useMatchdayNumber(todayStr);
-  const yesterdayMd = useMatchdayNumber(yesterdayStr);
+  const todayMd = useStageForDate(todayStr);
+  const yesterdayMd = useStageForDate(yesterdayStr);
 
   useEffect(() => {
     const unsub = onValue(ref(db, `career_${LEAGUE}_settings`), snap => {
