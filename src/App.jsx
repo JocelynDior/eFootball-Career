@@ -3,6 +3,8 @@ import { useEffect } from "react";
 import { AdminProvider } from "./context/AdminContext";
 import { MusicProvider } from "./context/MusicContext";
 import { AIAgentPanelProvider } from "./context/AIAgentPanelContext";
+import { ToastProvider } from "./context/ToastContext";
+import ErrorBoundary from "./components/ErrorBoundary";
 import BackgroundMusic from "./components/BackgroundMusic";
 import SoundEffects from "./components/SoundEffects";
 import BottomNavBar from "./components/BottomNavBar";
@@ -160,14 +162,18 @@ function AppInner() {
 
 export default function App() {
   return (
-    <AdminProvider>
-      <AIAgentPanelProvider>
-        <MusicProvider>
-          <BrowserRouter>
-            <AppInner />
-          </BrowserRouter>
-        </MusicProvider>
-      </AIAgentPanelProvider>
-    </AdminProvider>
+    <ErrorBoundary>
+      <ToastProvider>
+        <AdminProvider>
+          <AIAgentPanelProvider>
+            <MusicProvider>
+              <BrowserRouter>
+                <AppInner />
+              </BrowserRouter>
+            </MusicProvider>
+          </AIAgentPanelProvider>
+        </AdminProvider>
+      </ToastProvider>
+    </ErrorBoundary>
   );
 }
