@@ -184,14 +184,31 @@ function FlipCard({ slot, mode, isHovered, onHoverEnter, onHoverLeave, onClick, 
 }
 
 // ── Main Grid ─────────────────────────────────────────────────────────────────
+// Circle/orbit size scales with the real viewport instead of staying fixed —
+// small on a phone, meaningfully bigger on a wide desktop monitor.
+function useResponsiveGridSize() {
+  const compute = () => {
+    const vw = typeof window !== "undefined" ? window.innerWidth : 1200;
+    const circleSize = Math.round(Math.min(300, Math.max(120, vw * 0.17)));
+    const radius      = Math.round(Math.min(560, Math.max(200, vw * 0.34)));
+    return { circleSize, radius };
+  };
+  const [dims, setDims] = useState(compute);
+  useEffect(() => {
+    function onResize() { setDims(compute()); }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return dims;
+}
+
 export default function LeagueGrid({ onClose }) {
   const navigate = useNavigate();
   const [hoveredId, setHoveredId]   = useState(null);
   const [mode, setMode]             = useState(0); // 0=leagues, 1=cups, 2=super cups
   const [switching, setSwitching]   = useState(false); // pulse animation on switch btn
 
-  const circleSize  = 240;
-  const radius      = 480;
+  const { circleSize, radius } = useResponsiveGridSize();
   const containerSize = (radius + circleSize) * 2 + 20;
   const center = containerSize / 2;
 
