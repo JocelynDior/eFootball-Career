@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { db } from "../firebase";
 import { ref, onValue, set, get, push, remove } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
+import { useToast } from "../context/ToastContext";
 import Navbar from "./Navbar";
 import BackgroundVideo from "./BackgroundVideo";
 import LeagueHeadlineSlideshow from "./LeagueHeadlineSlideshow";
@@ -10,8 +11,8 @@ import LoadingSpinner from "./LoadingSpinner";
 import { uploadToImgBB } from "../utils/imgUpload";
 import { renameSeason, setActiveSeason } from "../utils/seasonActions";
 
-async function deleteSuperCupSeason(league, season, seasons, setSeasons, setSeason) {
-  if (seasons.length <= 1) { alert("Can't delete the only season."); return; }
+async function deleteSuperCupSeason(league, season, seasons, setSeasons, setSeason, showToast) {
+  if (seasons.length <= 1) { showToast("Can't delete the only season.", "error"); return; }
   if (!confirm(`Delete Season ${season}? This permanently removes its photo(s). This cannot be undone.`)) return;
   try {
     await remove(ref(db, `career_${league}/seasons/season_${season}`));
@@ -20,7 +21,7 @@ async function deleteSuperCupSeason(league, season, seasons, setSeasons, setSeas
     setSeason(updated[0]);
     await set(ref(db, `career_${league}_settings/seasons`), updated);
   } catch (e) {
-    alert("Error deleting season: " + e.message);
+    showToast("Error deleting season: " + e.message, "error");
   }
 }
 
@@ -43,6 +44,7 @@ function WinnerCircle({ img, label }) {
 // Simplified headline uploader — same Firebase schema as LeagueAdminSettingsModal's
 // SlideshowManager (career_${league}_settings/headlines), but scoped to just this page.
 function HeadlineManager({ league, onClose }) {
+  const { showToast } = useToast();
   const [slides, setSlides] = useState([]);
   const [uploading, setUploading] = useState(false);
   const basePath = `career_${league}_settings/headlines`;
@@ -64,7 +66,7 @@ function HeadlineManager({ league, onClose }) {
       const url = await uploadToImgBB(f);
       await push(ref(db, basePath), { imageUrl: url, caption: "" });
     } catch (err) {
-      alert("Upload failed: " + err.message);
+      showToast("Upload failed: " + err.message, "error");
     } finally {
       setUploading(false);
     }
@@ -105,6 +107,7 @@ function HeadlineManager({ league, onClose }) {
 }
 
 function PhotoSlideshow({ league, season, isAdmin }) {
+  const { showToast } = useToast();
   const [photos, setPhotos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [idx, setIdx] = useState(0);
@@ -130,7 +133,7 @@ function PhotoSlideshow({ league, season, isAdmin }) {
       const url = await uploadToImgBB(f);
       await push(ref(db, `career_${league}/seasons/season_${season}/photos`), { url, uploadedAt: Date.now() });
     } catch (err) {
-      alert("Upload failed: " + err.message);
+      showToast("Upload failed: " + err.message, "error");
     } finally {
       setUploading(false);
     }
@@ -201,6 +204,7 @@ function PhotoSlideshow({ league, season, isAdmin }) {
 
 export default function SuperCupTemplate({ league, name, emoji, left, right }) {
   const { isAdmin } = useAdmin();
+  const { showToast } = useToast();
   const [seasons, setSeasons] = useState([]);
   const [season, setSeason] = useState("1");
   const [loading, setLoading] = useState(true);
@@ -221,7 +225,7 @@ export default function SuperCupTemplate({ league, name, emoji, left, right }) {
     const n = prompt("New season number:");
     if (!n || !n.trim()) return;
     const trimmed = n.trim();
-    if (seasons.includes(trimmed)) { alert(`Season "${trimmed}" already exists.`); return; }
+    if (seasons.includes(trimmed)) { showToast(`Season "${trimmed}" already exists.`, "error"); return; }
     const updated = [...seasons, trimmed];
     setSeasons(updated);
     setSeason(trimmed);
@@ -265,7 +269,7 @@ export default function SuperCupTemplate({ league, name, emoji, left, right }) {
               onAdd={isAdmin ? handleAddSeason : undefined}
               onRename={() => renameSeason(league, season, seasons, setSeasons, setSeason)}
               onSetActive={() => setActiveSeason(league, season)}
-              onDelete={() => deleteSuperCupSeason(league, season, seasons, setSeasons, setSeason)}
+              onDelete={() => deleteSuperCupSeason(league, season, seasons, setSeasons, setSeason, showToast)}
             />
 
             <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 40, margin: "32px 0" }}>
