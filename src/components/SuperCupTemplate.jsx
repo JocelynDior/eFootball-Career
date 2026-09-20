@@ -26,16 +26,80 @@ async function deleteSuperCupSeason(league, season, seasons, setSeasons, setSeas
 
 function WinnerCircle({ img, label }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
       <div style={{
-        width: 120, height: 120, borderRadius: "50%", overflow: "hidden",
-        border: "4px solid rgba(255,20,147,0.5)", background: "rgba(0,0,40,0.85)",
-        boxShadow: "0 0 28px rgba(255,20,147,0.3)",
+        width: 360, height: 360, borderRadius: "50%", overflow: "hidden",
+        border: "6px solid rgba(255,20,147,0.5)", background: "rgba(0,0,40,0.85)",
+        boxShadow: "0 0 50px rgba(255,20,147,0.35)",
       }}>
         <img src={img} alt={label} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
       </div>
-      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.1rem", letterSpacing: 3, color: "#FF1493" }}>WINNER</div>
-      <div style={{ fontSize: "0.8rem", color: "rgba(255,255,255,0.5)", textAlign: "center" }}>{label}</div>
+      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", letterSpacing: 4, color: "#FF1493" }}>WINNER</div>
+      <div style={{ fontSize: "1.1rem", color: "rgba(255,255,255,0.5)", textAlign: "center" }}>{label}</div>
+    </div>
+  );
+}
+
+// Simplified headline uploader — same Firebase schema as LeagueAdminSettingsModal's
+// SlideshowManager (career_${league}_settings/headlines), but scoped to just this page.
+function HeadlineManager({ league, onClose }) {
+  const [slides, setSlides] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const basePath = `career_${league}_settings/headlines`;
+
+  useEffect(() => {
+    const unsub = onValue(ref(db, basePath), snap => {
+      const d = snap.val();
+      setSlides(d ? Object.entries(d).map(([k, v]) => ({ id: k, ...v })) : []);
+    });
+    return () => unsub();
+  }, [basePath]);
+
+  async function handleUpload(e) {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    setUploading(true);
+    try {
+      const url = await uploadToImgBB(f);
+      await push(ref(db, basePath), { imageUrl: url, caption: "" });
+    } catch (err) {
+      alert("Upload failed: " + err.message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleDelete(id) {
+    if (!confirm("Remove this headline image?")) return;
+    await remove(ref(db, `${basePath}/${id}`));
+  }
+
+  return (
+    <div style={{
+      background: "rgba(0,0,40,0.95)", border: "1px solid rgba(255,20,147,0.3)",
+      borderRadius: 16, padding: 20, margin: "16px auto", maxWidth: 900,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", margin: 0 }}>🎞️ Manage Headline Image</h3>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: "1.2rem" }}>✖</button>
+      </div>
+
+      {slides.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
+          {slides.map(s => (
+            <div key={s.id} style={{ position: "relative", borderRadius: 12, overflow: "hidden" }}>
+              <img src={s.imageUrl} alt="" style={{ width: "100%", aspectRatio: "16/6", objectFit: "cover", display: "block" }} />
+              <button onClick={() => handleDelete(s.id)} style={{ position: "absolute", top: 8, right: 8, background: "rgba(200,0,0,0.85)", color: "#fff", border: "none", borderRadius: "50%", width: 28, height: 28, cursor: "pointer" }}>✖</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "14px", background: "rgba(255,20,147,0.08)", border: "1px dashed rgba(255,20,147,0.4)", borderRadius: 12, cursor: uploading ? "default" : "pointer", color: "rgba(255,255,255,0.7)" }}>
+        {uploading ? "Uploading..." : "+ Add headline image"}
+        <input type="file" accept="image/*" onChange={handleUpload} style={{ display: "none" }} disabled={uploading} />
+      </label>
     </div>
   );
 }
@@ -80,13 +144,13 @@ function PhotoSlideshow({ league, season, isAdmin }) {
   if (loading) return null;
 
   return (
-    <div style={{ marginTop: 28 }}>
+    <div style={{ width: "100%", marginTop: 28 }}>
       {photos.length === 0 ? (
         isAdmin ? (
           <label style={{
             display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-            gap: 10, cursor: uploading ? "default" : "pointer", padding: "48px 20px",
-            background: "rgba(255,20,147,0.06)", border: "2px dashed rgba(255,20,147,0.4)", borderRadius: 16,
+            gap: 10, cursor: uploading ? "default" : "pointer", padding: "48px 20px", width: "100%", boxSizing: "border-box",
+            background: "rgba(255,20,147,0.06)", border: "2px dashed rgba(255,20,147,0.4)",
             color: "rgba(255,255,255,0.6)",
           }}>
             <span style={{ fontSize: "2rem" }}>📷</span>
@@ -97,11 +161,11 @@ function PhotoSlideshow({ league, season, isAdmin }) {
           <div style={{ textAlign: "center", color: "rgba(255,255,255,0.3)", padding: "40px 0" }}>No photo uploaded yet for this season.</div>
         )
       ) : (
-        <div style={{ position: "relative" }}>
+        <div style={{ position: "relative", width: "100%" }}>
           <img
             src={photos[idx].url}
             alt=""
-            style={{ width: "100%", height: "auto", display: "block", borderRadius: 16 }}
+            style={{ width: "100%", height: "auto", display: "block" }}
             key={photos[idx].key}
           />
           {isAdmin && (
@@ -122,10 +186,12 @@ function PhotoSlideshow({ league, season, isAdmin }) {
             </>
           )}
           {isAdmin && (
-            <label style={{ display: "inline-flex", alignItems: "center", gap: 8, marginTop: 14, cursor: uploading ? "default" : "pointer", color: "rgba(255,255,255,0.5)", fontSize: "0.85rem" }}>
-              + Add another photo
-              <input type="file" accept="image/*" onChange={handleUpload} style={{ display: "none" }} disabled={uploading} />
-            </label>
+            <div style={{ textAlign: "center" }}>
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 8, marginTop: 14, cursor: uploading ? "default" : "pointer", color: "rgba(255,255,255,0.5)", fontSize: "0.85rem" }}>
+                + Add another photo
+                <input type="file" accept="image/*" onChange={handleUpload} style={{ display: "none" }} disabled={uploading} />
+              </label>
+            </div>
           )}
         </div>
       )}
@@ -138,6 +204,7 @@ export default function SuperCupTemplate({ league, name, emoji, left, right }) {
   const [seasons, setSeasons] = useState([]);
   const [season, setSeason] = useState("1");
   const [loading, setLoading] = useState(true);
+  const [headlineManagerOpen, setHeadlineManagerOpen] = useState(false);
 
   useEffect(() => {
     const unsub = onValue(ref(db, `career_${league}_settings/seasons`), snap => {
@@ -167,8 +234,21 @@ export default function SuperCupTemplate({ league, name, emoji, left, right }) {
     <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif" }}>
       <BackgroundVideo />
       <Navbar />
+
       <LeagueHeadlineSlideshow league={league} />
-      <div style={{ maxWidth: "900px", margin: "0 auto", padding: "24px 32px 60px" }}>
+      {isAdmin && (
+        <div style={{ textAlign: "center", margin: "8px 0" }}>
+          <button
+            onClick={() => setHeadlineManagerOpen(v => !v)}
+            style={{ background: "rgba(255,20,147,0.12)", border: "1px solid rgba(255,20,147,0.3)", color: "rgba(255,255,255,0.7)", padding: "6px 16px", borderRadius: 20, fontSize: "0.75rem", fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
+          >
+            🎞️ {headlineManagerOpen ? "Close" : "Manage Headline Image"}
+          </button>
+        </div>
+      )}
+      {headlineManagerOpen && <HeadlineManager league={league} onClose={() => setHeadlineManagerOpen(false)} />}
+
+      <div style={{ maxWidth: "900px", margin: "0 auto", padding: "24px 32px 0" }}>
         <div style={{ textAlign: "center", marginBottom: 24 }}>
           <div style={{ fontSize: "3rem", marginBottom: 6 }}>{emoji}</div>
           <h1 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.6rem", letterSpacing: 5, color: "#FF1493", margin: 0, textShadow: "0 0 30px rgba(255,20,147,0.5)" }}>{name}</h1>
@@ -188,15 +268,16 @@ export default function SuperCupTemplate({ league, name, emoji, left, right }) {
               onDelete={() => deleteSuperCupSeason(league, season, seasons, setSeasons, setSeason)}
             />
 
-            <div style={{ display: "flex", justifyContent: "center", gap: 60, margin: "28px 0" }}>
+            <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 40, margin: "32px 0" }}>
               <WinnerCircle img={left.img} label={left.label} />
+              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: 2, color: "rgba(255,255,255,0.45)" }}>VS</div>
               <WinnerCircle img={right.img} label={right.label} />
             </div>
-
-            <PhotoSlideshow league={league} season={season} isAdmin={isAdmin} />
           </>
         )}
       </div>
+
+      {!loading && <PhotoSlideshow league={league} season={season} isAdmin={isAdmin} />}
     </div>
   );
 }
