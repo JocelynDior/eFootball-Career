@@ -1,45 +1,65 @@
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
+import { SUPER_CUPS } from "../utils/superCupConfig";
 
-// Each slot: front = league, back = cup (null = no flip for that position)
+// Each slot: front = league, back = cup (null = no flip), superCup = domestic Super Cup (only the 5 paired slots)
 const SLOTS = [
   {
     front: { id: "premier",    name: "Premier League",   path: "/premier-league",   img: "/images/leagues/Chat-GPT-Image-Aug-16-2026-01-49-28-AM.png" },
     back:  { id: "facup",      name: "FA Cup",           path: "/fa-cup",            img: "/images/leagues/62902133-af8f-469e-a866-bbc254222694.png" },
+    superCup: { id: "communityshield", name: SUPER_CUPS.communityshield.name, path: SUPER_CUPS.communityshield.path, img: SUPER_CUPS.communityshield.gridIcon },
   },
   {
     front: { id: "laliga",     name: "La Liga",          path: "/la-liga",           img: "/images/leagues/Chat-GPT-Image-Aug-16-2026-01-57-59-AM.png" },
     back:  { id: "copadelrey", name: "Copa del Rey",     path: "/copa-del-rey",      img: "/images/leagues/b9e2de24-7373-436f-bba6-cb097088a374.png" },
+    superCup: { id: "supercopa", name: SUPER_CUPS.supercopa.name, path: SUPER_CUPS.supercopa.path, img: SUPER_CUPS.supercopa.gridIcon },
   },
   {
     front: { id: "seriea",     name: "Serie A",          path: "/serie-a",           img: "/images/leagues/69132ef8-dee8-4910-baa6-21d60a54db45 (1).png" },
     back:  { id: "coppaitalia",name: "Coppa Italia",     path: "/coppa-italia",      img: "/images/leagues/6e746ba3-b3ca-4b77-bf8c-91107b7bb520.png" },
+    superCup: { id: "supercoppa", name: SUPER_CUPS.supercoppa.name, path: SUPER_CUPS.supercoppa.path, img: SUPER_CUPS.supercoppa.gridIcon },
   },
   {
     front: { id: "bundesliga", name: "Bundesliga",       path: "/bundesliga",        img: "/images/leagues/Chat-GPT-Image-Aug-17-2026-01-09-40-AM-1.png" },
     back:  { id: "dfbpokal",   name: "DFB Pokal",        path: "/dfb-pokal",         img: "/images/leagues/78ca6619-65fb-4d26-80c8-0e0a989571f0.png" },
+    superCup: { id: "dflsupercup", name: SUPER_CUPS.dflsupercup.name, path: SUPER_CUPS.dflsupercup.path, img: SUPER_CUPS.dflsupercup.gridIcon },
   },
   {
     front: { id: "ligue1",     name: "Ligue 1",          path: "/ligue-1",           img: "/images/leagues/Chat-GPT-Image-Aug-17-2026-01-05-16-AM.png" },
     back:  { id: "coupedefrance", name: "Coupe de France", path: "/coupe-de-france", img: "/images/leagues/b49e5dc4-5041-4c43-99a6-fe3b413db5b7.png" },
+    superCup: { id: "tropheedeschampions", name: SUPER_CUPS.tropheedeschampions.name, path: SUPER_CUPS.tropheedeschampions.path, img: SUPER_CUPS.tropheedeschampions.gridIcon },
   },
   {
     front: { id: "ucl",        name: "Champions League", path: "/champions-league",  img: "/images/leagues/Chat-GPT-Image-Aug-16-2026-01-59-24-AM.png" },
     back: null,
+    superCup: null,
   },
   {
     front: { id: "uel",        name: "Europa League",    path: "/europa-league",     img: "/images/leagues/Gemini-Generated-Image-2gc5l72gc5l72gc5.jpg" },
     back: null,
+    superCup: null,
   },
   {
     front: { id: "cwc",        name: "Club World Cup",   path: "/club-world-cup",    img: "/images/leagues/5ef5dd0d-4bf3-4e2d-a696-5627906c6977.jpg" },
     back: null,
+    superCup: null,
   },
   {
     front: { id: "sc",         name: "UEFA Super Cup",   path: "/super-cup",         img: "/images/leagues/2c4467ee-57b6-4438-86cd-372a9928ab63.jpg" },
     back: null,
+    superCup: null,
   },
 ];
+
+const MODE_LABELS = ["LEAGUES", "CUPS", "SUPER CUPS"];
+
+// Which content a slot should show for a given mode (0=league,1=cup,2=super cup),
+// falling back to the front face when a slot has no content for that mode.
+function contentForMode(slot, mode) {
+  if (mode === 1 && slot.back) return slot.back;
+  if (mode === 2 && slot.superCup) return slot.superCup;
+  return slot.front;
+}
 
 function getCirclePosition(index, total, radiusPx) {
   const angle = (index / total) * 2 * Math.PI - Math.PI / 2;
@@ -50,9 +70,10 @@ function getCirclePosition(index, total, radiusPx) {
 }
 
 // ── Single flip card ──────────────────────────────────────────────────────────
-function FlipCard({ slot, isFlipped, isHovered, onHoverEnter, onHoverLeave, onClick, circleSize }) {
-  const active = isFlipped && slot.back ? slot.back : slot.front;
-  const showFlippable = !!slot.back;
+function FlipCard({ slot, mode, isHovered, onHoverEnter, onHoverLeave, onClick, circleSize }) {
+  const physicallyFlipped = mode === 1 && !!slot.back;
+  const frontContent = mode === 2 && slot.superCup ? slot.superCup : slot.front;
+  const showFlippable = !!slot.back && mode !== 2;
 
   return (
     <div
@@ -75,7 +96,7 @@ function FlipCard({ slot, isFlipped, isHovered, onHoverEnter, onHoverLeave, onCl
           position: "relative",
           transformStyle: "preserve-3d",
           transition: "transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
-          transform: isFlipped && slot.back ? "rotateY(180deg)" : "rotateY(0deg)",
+          transform: physicallyFlipped ? "rotateY(180deg)" : "rotateY(0deg)",
         }}
       >
         {/* FRONT */}
@@ -95,8 +116,8 @@ function FlipCard({ slot, isFlipped, isHovered, onHoverEnter, onHoverLeave, onCl
           transition: "border 0.25s, box-shadow 0.25s",
           display: "flex", alignItems: "center", justifyContent: "center",
         }}>
-          <img src={slot.front.img} alt={slot.front.name} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
-          {isHovered && !isFlipped && (
+          <img src={frontContent.img} alt={frontContent.name} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} key={frontContent.id} />
+          {isHovered && !physicallyFlipped && (
             <div style={{
               position: "absolute", bottom: 10, left: "50%", transform: "translateX(-50%)",
               background: "rgba(0,0,0,0.75)", backdropFilter: "blur(6px)",
@@ -104,7 +125,7 @@ function FlipCard({ slot, isFlipped, isHovered, onHoverEnter, onHoverLeave, onCl
               fontSize: "1.1rem", letterSpacing: 1,
               padding: "4px 12px", borderRadius: 20,
               whiteSpace: "nowrap", pointerEvents: "none",
-            }}>{slot.front.name}</div>
+            }}>{frontContent.name}</div>
           )}
           {showFlippable && (
             <div style={{
@@ -137,7 +158,7 @@ function FlipCard({ slot, isFlipped, isHovered, onHoverEnter, onHoverLeave, onCl
             display: "flex", alignItems: "center", justifyContent: "center",
           }}>
             <img src={slot.back.img} alt={slot.back.name} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
-            {isHovered && isFlipped && (
+            {isHovered && physicallyFlipped && (
               <div style={{
                 position: "absolute", bottom: 10, left: "50%", transform: "translateX(-50%)",
                 background: "rgba(0,0,0,0.75)", backdropFilter: "blur(6px)",
@@ -166,7 +187,7 @@ function FlipCard({ slot, isFlipped, isHovered, onHoverEnter, onHoverLeave, onCl
 export default function LeagueGrid({ onClose }) {
   const navigate = useNavigate();
   const [hoveredId, setHoveredId]   = useState(null);
-  const [flipped, setFlipped]       = useState(false); // global flip state
+  const [mode, setMode]             = useState(0); // 0=leagues, 1=cups, 2=super cups
   const [switching, setSwitching]   = useState(false); // pulse animation on switch btn
 
   const circleSize  = 240;
@@ -176,12 +197,12 @@ export default function LeagueGrid({ onClose }) {
 
   function handleSwitch() {
     setSwitching(true);
-    setFlipped(f => !f);
+    setMode(m => (m + 1) % 3);
     setTimeout(() => setSwitching(false), 600);
   }
 
   function handleNav(slot) {
-    const target = flipped && slot.back ? slot.back : slot.front;
+    const target = contentForMode(slot, mode);
     navigate(target.path);
     if (onClose) onClose();
   }
@@ -230,7 +251,7 @@ export default function LeagueGrid({ onClose }) {
           marginTop: 4,
           opacity: 0.75,
           transition: "transform 0.6s",
-          transform: flipped ? "rotate(180deg)" : "rotate(0deg)",
+          transform: `rotate(${mode * 120}deg)`,
           display: "inline-block",
         }}>⇄</span>
         <span style={{
@@ -241,16 +262,16 @@ export default function LeagueGrid({ onClose }) {
           opacity: 0.6,
           marginTop: 2,
         }}>
-          {flipped ? "CUPS" : "LEAGUES"}
+          {MODE_LABELS[mode]}
         </span>
       </div>
 
-      {/* ── League/Cup orbit circles ── */}
+      {/* ── League/Cup/Super Cup orbit circles ── */}
       {SLOTS.map((slot, i) => {
         const { x, y } = getCirclePosition(i, SLOTS.length, radius);
         const cx = center + x - circleSize / 2;
         const cy = center + y - circleSize / 2;
-        const activeId = flipped && slot.back ? slot.back.id : slot.front.id;
+        const activeId = contentForMode(slot, mode).id;
         const isHovered = hoveredId === activeId;
 
         return (
@@ -269,7 +290,7 @@ export default function LeagueGrid({ onClose }) {
           >
             <FlipCard
               slot={slot}
-              isFlipped={flipped}
+              mode={mode}
               isHovered={isHovered}
               onHoverEnter={() => setHoveredId(activeId)}
               onHoverLeave={() => setHoveredId(null)}
