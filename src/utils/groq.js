@@ -1,26 +1,49 @@
-const GROQ_API_KEY = import.meta.env.VITE_Career_Groq1;
+const GROQ_API_KEYS = [
+  { name: "VITE_Career_Groq1", key: import.meta.env.VITE_Career_Groq1 },
+  { name: "VITE_CareerMode1", key: import.meta.env.VITE_CareerMode1 },
+  { name: "VITE_CareerMode2", key: import.meta.env.VITE_CareerMode2 },
+  { name: "VITE_CareerMode3", key: import.meta.env.VITE_CareerMode3 },
+].filter((entry) => entry.key);
+
 const GROQ_MODEL = "qwen/qwen3.6-27b";
 const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
 
 export async function askGroq(systemPrompt, userPrompt) {
-  const res = await fetch(GROQ_ENDPOINT, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${GROQ_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: GROQ_MODEL,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      temperature: 0.3,
-    }),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error?.message || "Groq API error");
-  return data.choices[0].message.content;
+  const failures = [];
+
+  for (const { name, key } of GROQ_API_KEYS) {
+    try {
+      const res = await fetch(GROQ_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+          model: GROQ_MODEL,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          temperature: 0.3,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        failures.push({ name, message: data.error?.message || "Groq API error" });
+        continue;
+      }
+      return data.choices[0].message.content;
+    } catch (err) {
+      failures.push({ name, message: err.message || "Network error" });
+    }
+  }
+
+  // All keys failed — report each one
+  const errorReport = failures
+    .map((f) => `[${f.name}]: ${f.message}`)
+    .join("\n");
+  throw new Error(`All API keys failed:\n${errorReport}`);
 }
 
 function cleanGroqResponse(raw) {
