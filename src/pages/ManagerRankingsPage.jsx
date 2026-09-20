@@ -428,7 +428,7 @@ export default function ManagerRankingsPage() {
       setLoadingPct(5);
       setLoadingPhase("Loading manager profiles...");
 
-      const validEntries = entries.filter(([, acc]) => acc && (!acc.role || acc.role === "manager"));
+      const validEntries = entries.filter(([, acc]) => acc && acc.team);
       const total = validEntries.length;
       const list = [];
 
