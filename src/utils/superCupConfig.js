@@ -15,13 +15,21 @@ const ICONS = {
   uel:       "/images/leagues/Gemini-Generated-Image-2gc5l72gc5l72gc5.jpg",
 };
 
+const NEW_SUPERCUP_ICONS = {
+  supercopa:           "/images/leagues/491c7be1-e0cd-4bec-8a3b-e60e90c1cbb6.png",
+  communityshield:     "/images/leagues/9679789a-272f-4661-9615-5b6a2a60c683.png",
+  supercoppa:          "/images/leagues/aff0ba04-2f2c-4033-8f50-c8d7ab60e2cb.png",
+  dflsupercup:         "/images/leagues/c9d7b2aa-36b1-4383-9703-9988568aee34.png",
+  tropheedeschampions: "/images/leagues/e0b9a669-8d0a-4c65-b462-fbe11a8453c0.png",
+};
+
 export const SUPER_CUPS = {
   communityshield: {
     league: "communityshield",
     name: "Community Shield",
     emoji: "🛡️",
     path: "/community-shield",
-    gridIcon: ICONS.premier, // placeholder — no dedicated Community Shield badge image yet
+    gridIcon: NEW_SUPERCUP_ICONS.communityshield,
     left:  { img: ICONS.premier,    label: "Premier League" },
     right: { img: ICONS.facup,      label: "FA Cup" },
   },
@@ -30,7 +38,7 @@ export const SUPER_CUPS = {
     name: "Supercopa de España",
     emoji: "🛡️",
     path: "/supercopa-de-espana",
-    gridIcon: ICONS.laliga, // placeholder — no dedicated Supercopa badge image yet
+    gridIcon: NEW_SUPERCUP_ICONS.supercopa,
     left:  { img: ICONS.laliga,     label: "La Liga" },
     right: { img: ICONS.copadelrey, label: "Copa del Rey" },
   },
@@ -39,7 +47,7 @@ export const SUPER_CUPS = {
     name: "Supercoppa Italiana",
     emoji: "🛡️",
     path: "/supercoppa-italiana",
-    gridIcon: ICONS.seriea, // placeholder — no dedicated Supercoppa badge image yet
+    gridIcon: NEW_SUPERCUP_ICONS.supercoppa,
     left:  { img: ICONS.seriea,     label: "Serie A" },
     right: { img: ICONS.coppaitalia,label: "Coppa Italia" },
   },
@@ -48,7 +56,7 @@ export const SUPER_CUPS = {
     name: "DFL-Supercup",
     emoji: "🛡️",
     path: "/dfl-supercup",
-    gridIcon: ICONS.bundesliga, // placeholder — no dedicated DFL-Supercup badge image yet
+    gridIcon: NEW_SUPERCUP_ICONS.dflsupercup,
     left:  { img: ICONS.bundesliga, label: "Bundesliga" },
     right: { img: ICONS.dfbpokal,   label: "DFB Pokal" },
   },
@@ -57,7 +65,7 @@ export const SUPER_CUPS = {
     name: "Trophée des Champions",
     emoji: "🛡️",
     path: "/trophee-des-champions",
-    gridIcon: ICONS.ligue1, // placeholder — no dedicated Trophée des Champions badge image yet
+    gridIcon: NEW_SUPERCUP_ICONS.tropheedeschampions,
     left:  { img: ICONS.ligue1,     label: "Ligue 1" },
     right: { img: ICONS.coupedefrance, label: "Coupe de France" },
   },
