@@ -17,6 +17,11 @@ import ChampionsLeaguePage from "./pages/ChampionsLeaguePage";
 import EuropaLeaguePage from "./pages/EuropaLeaguePage";
 import ClubWorldCupPage from "./pages/ClubWorldCupPage";
 import SuperCupPage from "./pages/SuperCupPage";
+import CommunityShieldPage from "./pages/CommunityShieldPage";
+import SupercopaPage from "./pages/SupercopaPage";
+import SupercoppaItalianaPage from "./pages/SupercoppaItalianaPage";
+import DFLSupercupPage from "./pages/DFLSupercupPage";
+import TropheeDesChampionsPage from "./pages/TropheeDesChampionsPage";
 import FACupPage from "./pages/FACupPage";
 import CopaDelReyPage from "./pages/CopaDelReyPage";
 import CoppaItaliaPage from "./pages/CoppaItaliaPage";
@@ -117,6 +122,13 @@ function AppInner() {
         <Route path="/coppa-italia"   element={<CoppaItaliaPage />} />
         <Route path="/dfb-pokal"      element={<DFBPokalPage />} />
         <Route path="/coupe-de-france" element={<CoupeeDeFrancePage />} />
+
+        {/* ── Domestic Super Cups ── */}
+        <Route path="/community-shield"      element={<CommunityShieldPage />} />
+        <Route path="/supercopa-de-espana"   element={<SupercopaPage />} />
+        <Route path="/supercoppa-italiana"   element={<SupercoppaItalianaPage />} />
+        <Route path="/dfl-supercup"          element={<DFLSupercupPage />} />
+        <Route path="/trophee-des-champions" element={<TropheeDesChampionsPage />} />
 
         {/* ── European / Global ── */}
         <Route path="/champions-league" element={<ChampionsLeaguePage />} />
