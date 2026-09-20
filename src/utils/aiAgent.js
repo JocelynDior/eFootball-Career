@@ -6,7 +6,13 @@
 // ─────────────────────────────────────────────────────────────────────────
 import { LEAGUE_MAP, getToolSchemas, isWriteTool, runReadTool, previewWriteTool, executeWriteTool } from "./aiAgentTools";
 
-const GROQ_API_KEY = import.meta.env.VITE_Career_Groq1;
+const GROQ_API_KEYS = [
+  { name: "VITE_Career_Groq1", key: import.meta.env.VITE_Career_Groq1 },
+  { name: "VITE_CareerMode1", key: import.meta.env.VITE_CareerMode1 },
+  { name: "VITE_CareerMode2", key: import.meta.env.VITE_CareerMode2 },
+  { name: "VITE_CareerMode3", key: import.meta.env.VITE_CareerMode3 },
+].filter((entry) => entry.key);
+
 const GROQ_MODEL = "openai/gpt-oss-120b"; // Groq's current recommended tool-use model (llama-3.3-70b-versatile was decommissioned Aug 16 2026)
 const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
 
@@ -24,21 +30,35 @@ Rules:
 5. Be concise. Use real numbers/names from tool results, never placeholders.`;
 
 async function callGroq(messages) {
-  const res = await fetch(GROQ_ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${GROQ_API_KEY}` },
-    body: JSON.stringify({
-      model: GROQ_MODEL,
-      messages,
-      tools: getToolSchemas(),
-      tool_choice: "auto",
-      temperature: 0.2,
-      max_tokens: 700, // Groq's TPM limit is checked against this declared value, not actual usage — keep it tight
-    }),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error?.message || "Groq API error");
-  return data.choices[0].message;
+  const failures = [];
+
+  for (const { name, key } of GROQ_API_KEYS) {
+    try {
+      const res = await fetch(GROQ_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
+        body: JSON.stringify({
+          model: GROQ_MODEL,
+          messages,
+          tools: getToolSchemas(),
+          tool_choice: "auto",
+          temperature: 0.2,
+          max_tokens: 700, // Groq's TPM limit is checked against this declared value, not actual usage — keep it tight
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        failures.push({ name, message: data.error?.message || "Groq API error" });
+        continue;
+      }
+      return data.choices[0].message;
+    } catch (err) {
+      failures.push({ name, message: err.message || "Network error" });
+    }
+  }
+
+  const errorReport = failures.map((f) => `[${f.name}]: ${f.message}`).join("\n");
+  throw new Error(`All API keys failed:\n${errorReport}`);
 }
 
 function safeParseArgs(raw) {
