@@ -7,7 +7,6 @@
 import { LEAGUE_MAP, getToolSchemas, isWriteTool, runReadTool, previewWriteTool, executeWriteTool } from "./aiAgentTools";
 
 const GROQ_API_KEYS = [
-  { name: "VITE_Career_Groq1", key: import.meta.env.VITE_Career_Groq1 },
   { name: "VITE_CareerMode1", key: import.meta.env.VITE_CareerMode1 },
   { name: "VITE_CareerMode2", key: import.meta.env.VITE_CareerMode2 },
   { name: "VITE_CareerMode3", key: import.meta.env.VITE_CareerMode3 },
