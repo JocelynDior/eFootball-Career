@@ -305,13 +305,115 @@ const READ_TOOLS = {
       const snap = await get(ref(db, PATHS.accounts));
       const val = snap.val() || {};
       const managers = Object.entries(val)
-        .filter(([, a]) => a.role === "manager")
+        .filter(([, a]) => a && a.team)
         .map(([uid, a]) => ({ uid, username: a.username, team: a.team || null, rank: a.rank || null }))
         .slice(0, 60);
       return { managers };
     },
   },
 };
+
+
+  get_stadium_info: {
+    schema: {
+      name: "get_stadium_info",
+      description: "Get a team's stadium info: name, capacity, ticket prices, expenses, upgrade requests.",
+      parameters: { type: "object", properties: { team: { type: "string" } }, required: ["team"] },
+    },
+    run: async ({ team }) => {
+      const teams = await getAllManagedTeamNames();
+      const resolved = resolveTeamName(team, teams) || team;
+      const snap = await get(ref(db, `career_team_management/${resolved}/stadium`));
+      return { team: resolved, stadium: snap.val() || null };
+    },
+  },
+
+  get_squad: {
+    schema: {
+      name: "get_squad",
+      description: "Get a team's full squad (players, positions, ratings, wages, contract end dates).",
+      parameters: { type: "object", properties: { team: { type: "string" } }, required: ["team"] },
+    },
+    run: async ({ team }) => {
+      const teams = await getAllManagedTeamNames();
+      const resolved = resolveTeamName(team, teams) || team;
+      const snap = await get(ref(db, `career_team_management/${resolved}/squad`));
+      const val = snap.val() || {};
+      const players = Object.entries(val).map(([k, v]) => ({ key: k, ...v }));
+      return { team: resolved, squad: players };
+    },
+  },
+
+  get_manager_rankings: {
+    schema: {
+      name: "get_manager_rankings",
+      description: "Get manager rankings: trophies, medals, individual awards, records, and stats for all managers or a specific one.",
+      parameters: { type: "object", properties: { team: { type: "string", description: "Optional: filter by team name" } } },
+    },
+    run: async ({ team }) => {
+      const snap = await get(ref(db, "career_rankings"));
+      const val = snap.val() || {};
+      let entries = Object.entries(val).map(([uid, v]) => ({ uid, ...v }));
+      if (team) entries = entries.filter(e => (e.team || "").toLowerCase().includes(team.toLowerCase()));
+      return { rankings: entries.slice(0, 30) };
+    },
+  },
+
+  get_pending_results: {
+    schema: {
+      name: "get_pending_results",
+      description: "Get pending (unapproved) match results for a league+season.",
+      parameters: { type: "object", properties: { league: { type: "string" }, season: { type: "string" } }, required: ["league", "season"] },
+    },
+    run: async ({ league, season }) => {
+      const key = resolveLeagueKey(league);
+      if (!key) return { error: `Unknown league "${league}".` };
+      const snap = await get(ref(db, `career_${key}/seasons/season_${season}/pending_results`));
+      const val = snap.val() || {};
+      const rows = Object.entries(val).map(([id, r]) => ({ id, ...r }));
+      return { league, season, pendingResults: rows };
+    },
+  },
+
+  get_manager_history: {
+    schema: {
+      name: "get_manager_history",
+      description: "Get manager history entries for a league+season (who managed which team).",
+      parameters: { type: "object", properties: { league: { type: "string" }, season: { type: "string" } }, required: ["league", "season"] },
+    },
+    run: async ({ league, season }) => {
+      const key = resolveLeagueKey(league);
+      if (!key) return { error: `Unknown league "${league}".` };
+      const snap = await get(ref(db, `career_${key}/seasons/season_${season}/manager_history`));
+      return { league, season, managerHistory: snap.val() || {} };
+    },
+  },
+
+  get_global_settings: {
+    schema: {
+      name: "get_global_settings",
+      description: "Get global app settings: background video, headlines, countdowns, league images, auction deadline.",
+      parameters: { type: "object", properties: {} },
+    },
+    run: async () => {
+      const snap = await get(ref(db, "career_global_settings"));
+      return { globalSettings: snap.val() || {} };
+    },
+  },
+
+  get_league_settings: {
+    schema: {
+      name: "get_league_settings",
+      description: "Get settings for a specific league: seasons list, rules, promotion/relegation zones, etc.",
+      parameters: { type: "object", properties: { league: { type: "string" } }, required: ["league"] },
+    },
+    run: async ({ league }) => {
+      const key = resolveLeagueKey(league);
+      if (!key) return { error: `Unknown league "${league}".` };
+      const snap = await get(ref(db, `career_${key}_settings`));
+      return { league, settings: snap.val() || {} };
+    },
+  },
 
 // ═══════════════════════════════════════════════════════════════════════
 // WRITE TOOLS — { schema, preview(args) -> {ok,summary,resolvedArgs,error}, execute(resolvedArgs) -> string }
@@ -601,6 +703,131 @@ const WRITE_TOOLS = {
     execute: async (r) => {
       await remove(ref(db, `${PATHS.transfers}/${r.section}/${r.entryId}`));
       return `Deleted entry from ${r.section}.`;
+    },
+  },
+
+
+  update_stadium: {
+    schema: {
+      name: "update_stadium",
+      description: "Update a team's stadium info (name, capacity, ticket price, VIP price, expenses per game, sponsorship deals). Needs confirmation.",
+      parameters: {
+        type: "object",
+        properties: {
+          team: { type: "string" },
+          stadiumName: { type: "string" },
+          capacity: { type: "number" },
+          ticketPrice: { type: "number" },
+          vipTicketPrice: { type: "number" },
+          stadiumExpensesPerGame: { type: "number" },
+          sponsorshipDeals: { type: "string" },
+        },
+        required: ["team"],
+      },
+    },
+    preview: async (args) => {
+      const teams = await getAllManagedTeamNames();
+      const resolved = resolveTeamName(args.team, teams) || args.team;
+      const snap = await get(ref(db, `career_team_management/${resolved}/stadium`));
+      const existing = snap.val() || {};
+      const updates = {};
+      if (args.stadiumName !== undefined) updates.stadiumName = args.stadiumName;
+      if (args.capacity !== undefined) updates.capacity = args.capacity;
+      if (args.ticketPrice !== undefined) updates.ticketPrice = args.ticketPrice;
+      if (args.vipTicketPrice !== undefined) updates.vipTicketPrice = args.vipTicketPrice;
+      if (args.stadiumExpensesPerGame !== undefined) updates.stadiumExpensesPerGame = args.stadiumExpensesPerGame;
+      if (args.sponsorshipDeals !== undefined) updates.sponsorshipDeals = args.sponsorshipDeals;
+      if (Object.keys(updates).length === 0) return { ok: false, error: "No fields to update — ask the user what they want to change." };
+      const resolvedArgs = { team: resolved, existing, updates };
+      const fields = Object.entries(updates).map(([k, v]) => `${k}: ${v}`).join(", ");
+      return { ok: true, resolvedArgs, summary: `Update stadium for ${resolved}: ${fields}.` };
+    },
+    execute: async (r) => {
+      await update(ref(db, `career_team_management/${r.team}/stadium`), r.updates);
+      return `Stadium updated for ${r.team}: ${Object.entries(r.updates).map(([k, v]) => `${k}=${v}`).join(", ")}.`;
+    },
+  },
+
+  update_manager_ranking: {
+    schema: {
+      name: "update_manager_ranking",
+      description: "Add or remove trophies, medals, individual awards, or records for a manager. Needs confirmation.",
+      parameters: {
+        type: "object",
+        properties: {
+          team: { type: "string", description: "The manager's team name" },
+          action: { type: "string", enum: ["add", "remove"] },
+          category: { type: "string", enum: ["trophies", "medals", "individualAwards", "records"] },
+          item: { type: "string", description: "The trophy/medal/award/record name or description" },
+        },
+        required: ["team", "action", "category", "item"],
+      },
+    },
+    preview: async (args) => {
+      const accSnap = await get(ref(db, "career_accounts"));
+      const accounts = accSnap.val() || {};
+      const entry = Object.entries(accounts).find(([, a]) => a.team && norm(a.team).includes(norm(args.team)));
+      if (!entry) return { ok: false, error: `Could not find a manager for team "${args.team}".` };
+      const [uid, acc] = entry;
+      const rankSnap = await get(ref(db, `career_rankings/${uid}/${args.category}`));
+      const current = Array.isArray(rankSnap.val()) ? rankSnap.val() : Object.values(rankSnap.val() || {});
+      let next;
+      if (args.action === "add") {
+        next = [...current, args.item];
+      } else {
+        const match = current.find(x => norm(String(x)).includes(norm(args.item)) || norm(args.item).includes(norm(String(x))));
+        if (!match) return { ok: false, error: `Could not find "${args.item}" in ${args.category} for ${acc.team}. Current: ${current.join(", ") || "(none)"}` };
+        next = current.filter(x => x !== match);
+      }
+      const resolvedArgs = { uid, team: acc.team, category: args.category, items: next };
+      return { ok: true, resolvedArgs, summary: `${args.action === "add" ? "Add" : "Remove"} ${args.category} entry for ${acc.team}: "${args.item}".` };
+    },
+    execute: async (r) => {
+      await set(ref(db, `career_rankings/${r.uid}/${r.category}`), r.items);
+      return `${r.category} updated for ${r.team}.`;
+    },
+  },
+
+  approve_pending_result: {
+    schema: {
+      name: "approve_pending_result",
+      description: "Approve a pending match result (moves it to approved results and recalculates the table). Needs confirmation.",
+      parameters: {
+        type: "object",
+        properties: {
+          league: { type: "string" },
+          season: { type: "string" },
+          homeTeam: { type: "string" },
+          awayTeam: { type: "string" },
+        },
+        required: ["league", "season", "homeTeam", "awayTeam"],
+      },
+    },
+    preview: async (args) => {
+      const key = resolveLeagueKey(args.league);
+      if (!key) return { ok: false, error: `Unknown league "${args.league}".` };
+      const snap = await get(ref(db, `career_${key}/seasons/season_${args.season}/pending_results`));
+      const val = snap.val() || {};
+      const matches = Object.entries(val).map(([id, r]) => ({ id, ...r })).filter(r =>
+        (norm(r.homeTeam).includes(norm(args.homeTeam)) || norm(args.homeTeam).includes(norm(r.homeTeam))) &&
+        (norm(r.awayTeam).includes(norm(args.awayTeam)) || norm(args.awayTeam).includes(norm(r.awayTeam)))
+      );
+      if (matches.length === 0) return { ok: false, error: `No pending result found for ${args.homeTeam} vs ${args.awayTeam} in ${args.league} season ${args.season}.` };
+      if (matches.length > 1) return { ok: false, error: `Found ${matches.length} matching pending results. Please specify more details.` };
+      const m = matches[0];
+      return {
+        ok: true,
+        resolvedArgs: { leagueKey: key, season: args.season, resultId: m.id, result: m },
+        summary: `Approve pending result: ${m.homeTeam} ${m.homeScore}-${m.awayScore} ${m.awayTeam} (${args.league} Season ${args.season}).`,
+      };
+    },
+    execute: async (r) => {
+      const approvedData = { ...r.result, status: "approved", approvedAt: Date.now() };
+      delete approvedData.id;
+      await push(ref(db, `career_${r.leagueKey}/seasons/season_${r.season}/results`), approvedData);
+      await remove(ref(db, `career_${r.leagueKey}/seasons/season_${r.season}/pending_results/${r.resultId}`));
+      await recalculateTable(r.leagueKey, r.season);
+      return `Pending result approved: ${r.result.homeTeam} ${r.result.homeScore}-${r.result.awayScore} ${r.result.awayTeam}. Table recalculated.`;
     },
   },
 
