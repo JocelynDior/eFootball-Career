@@ -101,8 +101,18 @@ export default function AIAgentWidget() {
   async function runTurn(text) {
     appendLog({ role: "user", text });
     setBusy(true);
-    // Build full conversation history so the agent remembers previous turns
-    const updatedMessages = [...messages, { role: "user", content: text }];
+
+    // Build chat history string from the display log and inject it with every message
+    const log = sessionRef.current.log;
+    const historyLines = log
+      .filter(m => m.role === "user" || m.role === "assistant")
+      .map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.text}`)
+      .join("\n");
+    const textWithHistory = historyLines
+      ? `This is our conversation history so far:\n${historyLines}\n\nUser's new message: ${text}`
+      : text;
+
+    const updatedMessages = [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: textWithHistory }];
     setMessages(updatedMessages);
     const result = await runAgentTurn(updatedMessages);
     handleResult(result, text);
