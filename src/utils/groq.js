@@ -4,7 +4,7 @@ const GROQ_API_KEYS = [
   { name: "VITE_CareerMode3", key: import.meta.env.VITE_CareerMode3 },
 ].filter((entry) => entry.key);
 
-const GROQ_MODEL = "qwen/qwen3.6-27b";
+const GROQ_MODEL = "openai/gpt-oss-120b";
 const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
 
 export async function askGroq(systemPrompt, userPrompt) {
