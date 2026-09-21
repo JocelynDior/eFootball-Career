@@ -29,20 +29,28 @@ export async function askGroq(systemPrompt, userPrompt) {
       });
       const data = await res.json();
       if (!res.ok) {
-        failures.push({ name, message: data.error?.message || "Groq API error" });
+        const err = data.error || {};
+        const detail = [
+          `HTTP ${res.status} ${res.statusText}`,
+          err.type ? `Type: ${err.type}` : null,
+          err.code ? `Code: ${err.code}` : null,
+          err.message ? `Message: ${err.message}` : null,
+          err.param ? `Param: ${err.param}` : null,
+        ].filter(Boolean).join(" | ");
+        failures.push({ name, detail });
         continue;
       }
       return data.choices[0].message.content;
     } catch (err) {
-      failures.push({ name, message: err.message || "Network error" });
+      failures.push({ name, detail: `Network/Parse Error: ${err.message || "Unknown error"}` });
     }
   }
 
-  // All keys failed — report each one
+  // All keys failed — report each one with full detail
   const errorReport = failures
-    .map((f) => `[${f.name}]: ${f.message}`)
-    .join("\n");
-  throw new Error(`All API keys failed:\n${errorReport}`);
+    .map((f, i) => `Key ${i + 1} [${f.name}]:\n  → ${f.detail}`)
+    .join("\n\n");
+  throw new Error(`All API keys failed:\n\n${errorReport}`);
 }
 
 function cleanGroqResponse(raw) {
