@@ -311,8 +311,6 @@ const READ_TOOLS = {
       return { managers };
     },
   },
-};
-
 
   get_stadium_info: {
     schema: {
@@ -414,6 +412,7 @@ const READ_TOOLS = {
       return { league, settings: snap.val() || {} };
     },
   },
+};
 
 // ═══════════════════════════════════════════════════════════════════════
 // WRITE TOOLS — { schema, preview(args) -> {ok,summary,resolvedArgs,error}, execute(resolvedArgs) -> string }
