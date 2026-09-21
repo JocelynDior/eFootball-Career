@@ -58,6 +58,14 @@ export function saveSessionLog(id, log) {
   writeAll(all);
 }
 
+export function saveSessionMessages(id, messages) {
+  const all = readAll();
+  const idx = all.findIndex(s => s.id === id);
+  if (idx === -1) return;
+  all[idx] = { ...all[idx], messages, updatedAt: Date.now() };
+  writeAll(all);
+}
+
 export function renameSession(id, title) {
   const all = readAll();
   const idx = all.findIndex(s => s.id === id);
