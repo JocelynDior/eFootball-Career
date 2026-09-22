@@ -92,10 +92,9 @@ export default function AdminFinanceModal({ onClose, defaultTeam }) {
   const needsWiki = isBroadcasting || isShirtSales;
 
   useEffect(() => {
-    const unsub = onValue(ref(db, PATHS.accounts), snap => {
+    const unsub = onValue(ref(db, "career_team_management"), snap => {
       const data = snap.val() || {};
-      const teams = [...new Set(Object.values(data).filter(a => a.team).map(a => a.team))];
-      setAllTeams(teams);
+      setAllTeams(Object.keys(data).sort());
     });
     return () => unsub();
   }, []);
@@ -108,8 +107,21 @@ export default function AdminFinanceModal({ onClose, defaultTeam }) {
     setIncomeMode("standard");
   }, [txType]);
 
+  const [teamBankrupt, setTeamBankrupt] = useState(false);
+  useEffect(() => {
+    if (!selectedTeam) { setTeamBankrupt(false); return; }
+    const unsub = onValue(ref(db, `career_team_management/${selectedTeam}/bankrupt`), snap => {
+      setTeamBankrupt(!!snap.val());
+    });
+    return () => unsub();
+  }, [selectedTeam]);
+
   async function handleSubmit() {
     if (!selectedTeam) { setError("Please select a team."); return; }
+    if (teamBankrupt && txType === "expense") {
+      setError("This club is bankrupt — new expenses are blocked until their balance recovers.");
+      return;
+    }
     setError("");
 
     // ── RECURRING EXPENSE ──
