@@ -583,12 +583,12 @@ function NegotiationCard({ offer, isOwn, isAdmin, manager, onViewContract }) {
 
       if (buyingClub && amt > 0) {
         await push(ref(db, `career_team_management/${buyingClub}/finance/transactions`), {
-          type: "expense", category: "Player Purchase", source: offer.playerName, amount: amt, month: monthName, monthIndex, year, createdAt: Date.now(),
+          type: "expense", category: offer.type === "loan" ? "Player Loan In" : "Player Purchase", source: offer.playerName, amount: amt, month: monthName, monthIndex, year, createdAt: Date.now(),
         });
       }
       if (sellingClub && amt > 0) {
         await push(ref(db, `career_team_management/${sellingClub}/finance/transactions`), {
-          type: "income", category: "Player Sales", source: offer.playerName, amount: amt, month: monthName, monthIndex, year, createdAt: Date.now(),
+          type: "income", category: offer.type === "loan" ? "Player Loaned Out" : "Player Sales", source: offer.playerName, amount: amt, month: monthName, monthIndex, year, createdAt: Date.now(),
         });
       }
 
