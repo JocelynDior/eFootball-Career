@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { db, PATHS } from "../firebase";
-import { ref, onValue, push, update, get, remove } from "firebase/database";
+import { ref, onValue, push, update, get, remove, set } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
 import Navbar from "../components/Navbar";
 import BackgroundVideo from "../components/BackgroundVideo";
@@ -12,6 +12,7 @@ import TeamModal from "../modals/TeamModal";
 import TeamHistoryModal from "../modals/TeamHistoryModal";
 import FinanceDateFilterModal from "../modals/FinanceDateFilterModal";
 import AdminFinanceModal from "../modals/AdminFinanceModal";
+import RequestFinanceLoanModal from "../modals/RequestFinanceLoanModal";
 
 const TABS = [
   { id: "stadium", label: "STADIUM" },
@@ -54,6 +55,33 @@ const ALL_MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct",
 function formatBalance(num) {
   if (num === undefined || num === null) return "€0.00";
   return `€${Number(num).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+// Show "Loading..." until a section's first Firebase snapshot has arrived.
+// If that first response comes back empty, still wait up to `timeoutMs`
+// (default 2 minutes) before actually showing "no data found" — protects
+// against a slow/late-arriving snapshot being mistaken for genuine emptiness.
+function useTimedEmptyState(timeoutMs = 120000) {
+  const [timeoutReached, setTimeoutReached] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setTimeoutReached(true), timeoutMs);
+    return () => clearTimeout(t);
+  }, [timeoutMs]);
+  return timeoutReached;
+}
+
+function LoadingRow({ label = "Loading..." }) {
+  return (
+    <div style={{ textAlign: "center", padding: "48px 20px", color: "rgba(255,255,255,0.3)" }}>
+      <div style={{
+        width: "36px", height: "36px", margin: "0 auto 16px",
+        border: "3px solid rgba(255,20,147,0.2)", borderTop: "3px solid #FF1493",
+        borderRadius: "50%", animation: "spin 0.8s linear infinite",
+      }} />
+      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", letterSpacing: "2px" }}>{label}</div>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
 }
 
 function formatAmount(num) {
@@ -106,7 +134,7 @@ async function processRecurringTransactions(team) {
       const txData = txSnap.val() || {};
 
       for (const [rid, rec] of Object.entries(recurringData)) {
-        if (rec.status === "completed" || rec.status === "cancelled") continue;
+        if (rec.status === "completed" || rec.status === "cancelled" || rec.status === "paused") continue;
 
         const isIncome = rec.type === "income";
         const dailyAmount = Number(rec.dailyAmount);
@@ -123,12 +151,13 @@ async function processRecurringTransactions(team) {
         const startDate = new Date(rec.startTs);
         startDate.setHours(0, 0, 0, 0);
         const debitedSet = new Set(linkedTxs.filter(t => t.debitDate).map(t => t.debitDate));
+        const skippedSet = new Set(rec.skippedDates ? Object.keys(rec.skippedDates) : []);
         const cursor = new Date(startDate);
         const writes = [];
 
         while (cursor <= todayMidnight) {
           const dateStr = cursor.toISOString().slice(0, 10);
-          if (!debitedSet.has(dateStr)) {
+          if (!debitedSet.has(dateStr) && !skippedSet.has(dateStr)) {
             const remaining = totalCap - totalDebited - writes.reduce((s, w) => s + w.amount, 0);
             if (remaining <= 0) break;
             const amount = Math.min(dailyAmount, remaining);
@@ -227,16 +256,85 @@ async function processRecurringTransactions(team) {
   }
 }
 
+// ─── LOAN INSTALLMENT PROCESSING (runs on page load) ───────────────────────
+async function processLoanInstallments(team) {
+  try {
+    const loansSnap = await get(ref(db, `career_team_management/${team}/finance/loans`));
+    const loansData = loansSnap.val();
+    if (!loansData) return;
+
+    const txSnap = await get(ref(db, `career_team_management/${team}/finance/transactions`));
+    const txData = txSnap.val() || {};
+
+    const todayMidnight = new Date();
+    todayMidnight.setHours(0, 0, 0, 0);
+
+    for (const [lid, loan] of Object.entries(loansData)) {
+      if (loan.status === "completed") continue;
+
+      const linkedTxs = Object.values(txData).filter(t => t.loanId === lid);
+      const totalRepaid = linkedTxs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+      if (totalRepaid >= loan.totalRepayable) {
+        await update(ref(db, `career_team_management/${team}/finance/loans/${lid}`), { status: "completed" });
+        continue;
+      }
+
+      const debitedSet = new Set(linkedTxs.filter(t => t.debitDate).map(t => t.debitDate));
+      const stepDays = loan.frequency === "week" ? 7 : loan.frequency === "month" ? 30 : 1;
+      const startDate = new Date(loan.startTs);
+      startDate.setHours(0, 0, 0, 0);
+      const cursor = new Date(startDate);
+      cursor.setDate(cursor.getDate() + stepDays); // first installment is due one period after issue
+      const writes = [];
+
+      while (cursor <= todayMidnight) {
+        const dateStr = cursor.toISOString().slice(0, 10);
+        if (!debitedSet.has(dateStr)) {
+          const remaining = loan.totalRepayable - totalRepaid - writes.reduce((s, w) => s + w.amount, 0);
+          if (remaining <= 0) break;
+          const amount = Math.min(loan.installmentAmount, remaining);
+          writes.push({
+            type: "expense",
+            category: "Loan Repayment",
+            source: `Installment (${loan.frequency})`,
+            amount,
+            month: ALL_MONTHS[cursor.getMonth()],
+            monthIndex: cursor.getMonth(),
+            year: cursor.getFullYear(),
+            createdAt: cursor.getTime(),
+            debitDate: dateStr,
+            loanId: lid,
+            addedByAdmin: true,
+            sentBy: "System (Loan Repayment)",
+            receivedBy: team,
+          });
+        }
+        cursor.setDate(cursor.getDate() + stepDays);
+      }
+
+      for (const tx of writes) {
+        await push(ref(db, `career_team_management/${team}/finance/transactions`), tx);
+      }
+
+      const newTotal = totalRepaid + writes.reduce((s, w) => s + w.amount, 0);
+      if (newTotal >= loan.totalRepayable) {
+        await update(ref(db, `career_team_management/${team}/finance/loans/${lid}`), { status: "completed" });
+      }
+    }
+  } catch (e) {
+    console.error("Loan installment error:", e);
+  }
+}
+
 // ─── ADMIN TEAM SELECTOR ──────────────────────────────────────────────────
 function AdminTeamSelector({ onSelect }) {
   const [teams, setTeams] = useState([]);
   const [selected, setSelected] = useState("");
 
   useEffect(() => {
-    const unsub = onValue(ref(db, PATHS.accounts), snap => {
+    const unsub = onValue(ref(db, "career_team_management"), snap => {
       const data = snap.val() || {};
-      const t = [...new Set(Object.values(data).filter(a => a.team).map(a => a.team))];
-      setTeams(t);
+      setTeams(Object.keys(data).sort());
     });
     return () => unsub();
   }, []);
@@ -636,16 +734,20 @@ function SquadTabWrapper({ team, isAdmin, onEditSquad }) {
 // ─── TRANSFERS TAB ─────────────────────────────────────────────────────────
 function TransfersTab({ team, teamIcons, isAdmin }) {
   const [negotiations, setNegotiations] = useState([]);
+  const [negLoading, setNegLoading] = useState(true);
+  const negEmptyTimeoutReached = useTimedEmptyState();
   const [selectedOffer, setSelectedOffer] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
 
   useEffect(() => {
     if (!team) return;
+    setNegLoading(true);
     const unsub = onValue(ref(db, `${PATHS.transfers}/negotiations`), snap => {
       const data = snap.val();
-      if (!data) { setNegotiations([]); return; }
+      if (!data) { setNegotiations([]); setNegLoading(false); return; }
       const all = Object.entries(data).map(([id, n]) => ({ id, ...n }));
       setNegotiations(all);
+      setNegLoading(false);
     });
     return () => unsub();
   }, [team]);
@@ -684,8 +786,10 @@ function TransfersTab({ team, teamIcons, isAdmin }) {
         {/* Offers Received */}
         <div style={{ ...GLASS, borderRadius: "20px", padding: "28px" }}>
           <BlockHeader title="📥 OFFERS RECEIVED" count={offersReceived.length} color="#00ff88" />
-          {offersReceived.length === 0 ? (
-            <EmptyState label="No Offers Received" />
+          {negLoading ? (
+            <LoadingRow />
+          ) : offersReceived.length === 0 ? (
+            negEmptyTimeoutReached ? <EmptyState label="No Offers Received" /> : <LoadingRow />
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               {offersReceived.map(offer => (
@@ -706,8 +810,10 @@ function TransfersTab({ team, teamIcons, isAdmin }) {
         {/* Offers Sent */}
         <div style={{ ...GLASS, borderRadius: "20px", padding: "28px" }}>
           <BlockHeader title="📤 OFFERS SENT" count={offersSent.length} color="#ffffff" />
-          {offersSent.length === 0 ? (
-            <EmptyState label="No Offers Sent" />
+          {negLoading ? (
+            <LoadingRow />
+          ) : offersSent.length === 0 ? (
+            negEmptyTimeoutReached ? <EmptyState label="No Offers Sent" /> : <LoadingRow />
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               {offersSent.map(offer => (
@@ -746,8 +852,8 @@ function NegotiationRowCard({ offer, teamIcons, onClick, isAdmin, onDelete, dele
       overflow: "hidden",
       display: "flex",
       alignItems: "center",
-      gap: "16px",
-      padding: "16px 20px",
+      gap: "24px",
+      padding: "28px 32px",
       transition: "all 0.2s",
       cursor: "pointer",
     }}
@@ -756,7 +862,7 @@ function NegotiationRowCard({ offer, teamIcons, onClick, isAdmin, onDelete, dele
       onClick={onClick}
     >
       {/* Club logo / shirt */}
-      <div style={{ width: "56px", height: "56px", flexShrink: 0 }}>
+      <div style={{ width: "112px", height: "112px", flexShrink: 0 }}>
         {clubLogo
           ? <img src={clubLogo} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
           : <ShirtSVGSmall clubName={offer.playerClub} playerName={offer.playerName} squadNumber={null} />
@@ -765,21 +871,21 @@ function NegotiationRowCard({ offer, teamIcons, onClick, isAdmin, onDelete, dele
 
       {/* Info */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ color: "#fff", fontWeight: 800, fontSize: "1.1rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{offer.playerName}</div>
-        <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", marginTop: "2px" }}>
+        <div style={{ color: "#fff", fontWeight: 800, fontSize: "3.3rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{offer.playerName}</div>
+        <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "2.55rem", marginTop: "6px" }}>
           {offer.playerClub} · <span style={{ color: "rgba(255,255,255,0.7)" }}>From: {offer.fromClub || offer.fromManagerName}</span>
         </div>
-        <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.2rem", letterSpacing: "1px", marginTop: "4px" }}>
+        <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.6rem", letterSpacing: "1px", marginTop: "8px" }}>
           {offer.offerAmount || offer.loanAmount || offer.bidAmount || "—"}
         </div>
       </div>
 
       {/* Badges */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-end" }}>
-        <span style={{ background: `${typeColor}22`, color: typeColor, border: `1px solid ${typeColor}`, borderRadius: "8px", padding: "3px 10px", fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "12px", alignItems: "flex-end" }}>
+        <span style={{ background: `${typeColor}22`, color: typeColor, border: `1px solid ${typeColor}`, borderRadius: "8px", padding: "6px 20px", fontSize: "2.25rem", fontWeight: 700, textTransform: "uppercase" }}>
           {offer.type}
         </span>
-        <span style={{ background: `${statusColor}22`, color: statusColor, border: `1px solid ${statusColor}`, borderRadius: "8px", padding: "3px 10px", fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase" }}>
+        <span style={{ background: `${statusColor}22`, color: statusColor, border: `1px solid ${statusColor}`, borderRadius: "8px", padding: "6px 20px", fontSize: "2.25rem", fontWeight: 700, textTransform: "uppercase" }}>
           {offer.status}
         </span>
       </div>
@@ -789,7 +895,7 @@ function NegotiationRowCard({ offer, teamIcons, onClick, isAdmin, onDelete, dele
         <button
           onClick={e => { e.stopPropagation(); onDelete(); }}
           disabled={deleting}
-          style={{ marginLeft: "8px", width: "36px", height: "36px", background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.4)", borderRadius: "10px", color: "#ff6b6b", cursor: "pointer", fontSize: "1rem", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+          style={{ marginLeft: "8px", width: "64px", height: "64px", background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.4)", borderRadius: "10px", color: "#ff6b6b", cursor: "pointer", fontSize: "2rem", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
           title="Delete offer"
         >
           {deleting ? "..." : "🗑️"}
@@ -806,15 +912,15 @@ function NegotiationDetailPopup({ offer, onClose }) {
   const statusColor = statusColors[offer.status] || "#ffaa44";
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }} onClick={onClose}>
-      <div style={{ ...GLASS, borderRadius: "24px", padding: "36px", maxWidth: "520px", width: "100%", position: "relative" }} onClick={e => e.stopPropagation()}>
+      <div style={{ ...GLASS, borderRadius: "24px", padding: "36px", maxWidth: "900px", width: "100%", position: "relative" }} onClick={e => e.stopPropagation()}>
         <button onClick={onClose} style={{ position: "absolute", top: "16px", right: "16px", background: "rgba(255,255,255,0.1)", border: "none", color: "#fff", borderRadius: "50%", width: "36px", height: "36px", cursor: "pointer", fontSize: "1.1rem" }}>✕</button>
         <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3rem", letterSpacing: "2px", marginBottom: "6px" }}>{offer.playerName}</div>
-        <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.2rem", marginBottom: "20px" }}>{offer.playerClub}</div>
+        <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "3.6rem", marginBottom: "20px" }}>{offer.playerClub}</div>
         <div style={{ display: "flex", gap: "10px", marginBottom: "20px", flexWrap: "wrap" }}>
-          <span style={{ background: offer.type === "buy" ? "rgba(255,20,147,0.2)" : offer.type === "loan" ? "rgba(0,150,255,0.2)" : "rgba(255,170,0,0.2)", color: offer.type === "buy" ? "#ffffff" : offer.type === "loan" ? "#44aaff" : "#ffaa44", padding: "6px 16px", borderRadius: "20px", fontSize: "1rem", fontWeight: 700, textTransform: "uppercase" }}>{offer.type}</span>
-          <span style={{ background: `${statusColor}22`, color: statusColor, padding: "6px 16px", borderRadius: "20px", fontSize: "1rem", fontWeight: 700, textTransform: "uppercase" }}>{offer.status}</span>
+          <span style={{ background: offer.type === "buy" ? "rgba(255,20,147,0.2)" : offer.type === "loan" ? "rgba(0,150,255,0.2)" : "rgba(255,170,0,0.2)", color: offer.type === "buy" ? "#ffffff" : offer.type === "loan" ? "#44aaff" : "#ffaa44", padding: "6px 16px", borderRadius: "20px", fontSize: "3rem", fontWeight: 700, textTransform: "uppercase" }}>{offer.type}</span>
+          <span style={{ background: `${statusColor}22`, color: statusColor, padding: "6px 16px", borderRadius: "20px", fontSize: "3rem", fontWeight: 700, textTransform: "uppercase" }}>{offer.status}</span>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "12px" }}>
           {[
             ["From Club", offer.fromClub],
             ["Manager", offer.fromManagerName],
@@ -826,8 +932,8 @@ function NegotiationDetailPopup({ offer, onClose }) {
             ["Sent", offer.createdAt ? formatDateTime(offer.createdAt) : "—"],
           ].filter(Boolean).map(([label, value]) => (
             <div key={label} style={{ background: "rgba(255,255,255,0.05)", borderRadius: "12px", padding: "14px 16px" }}>
-              <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "6px" }}>{label}</div>
-              <div style={{ color: "#fff", fontWeight: 700, fontSize: "1rem" }}>{value || "—"}</div>
+              <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "2.4rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "6px" }}>{label}</div>
+              <div style={{ color: "#fff", fontWeight: 700, fontSize: "3rem" }}>{value || "—"}</div>
             </div>
           ))}
         </div>
@@ -860,10 +966,70 @@ function ShirtSVGSmall({ clubName, playerName, squadNumber }) {
   );
 }
 
+// ─── EDIT RECURRING MODAL ────────────────────────────────────────────────────
+function EditRecurringModal({ rec, alreadyDebited, onSave, onClose }) {
+  const [description, setDescription] = useState(rec.description || "");
+  const [dailyAmount, setDailyAmount] = useState(String(rec.dailyAmount));
+  const [totalCap, setTotalCap] = useState(String(rec.totalCap));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSave() {
+    if (!description.trim()) { setError("Title can't be empty."); return; }
+    if (!dailyAmount || Number(dailyAmount) <= 0) { setError("Enter a valid amount."); return; }
+    if (!totalCap || Number(totalCap) <= 0) { setError("Enter a valid cap."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      await onSave({ description, dailyAmount, totalCap }, alreadyDebited);
+      onClose();
+    } catch (e) {
+      setError(e.message);
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal onClose={onClose}>
+      <div style={{ padding: "32px", minWidth: "320px" }}>
+        <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", color: "#44aaff", letterSpacing: "2px", marginBottom: "24px" }}>✏️ Edit Recurring</h2>
+
+        <label style={{ display: "block", color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>Title</label>
+        <input value={description} onChange={e => setDescription(e.target.value)} style={{ width: "100%", padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "12px", color: "#fff", fontFamily: "inherit", fontSize: "1rem", marginBottom: "16px" }} />
+
+        <label style={{ display: "block", color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>Amount (per day)</label>
+        <input type="number" value={dailyAmount} onChange={e => setDailyAmount(e.target.value)} style={{ width: "100%", padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "12px", color: "#fff", fontFamily: "inherit", fontSize: "1rem", marginBottom: "16px" }} />
+
+        <label style={{ display: "block", color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>Total Cap</label>
+        <input type="number" value={totalCap} onChange={e => setTotalCap(e.target.value)} style={{ width: "100%", padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "12px", color: "#fff", fontFamily: "inherit", fontSize: "1rem", marginBottom: "8px" }} />
+        <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "0.8rem", marginBottom: "16px" }}>
+          Already charged: {formatAmount(alreadyDebited)} — cap can't go below this.
+        </div>
+
+        {error && <div style={{ color: "#ff6b6b", fontSize: "0.9rem", marginBottom: "14px" }}>{error}</div>}
+
+        <div style={{ display: "flex", gap: "12px" }}>
+          <button onClick={handleSave} disabled={saving} style={{ flex: 1, padding: "14px", background: "#44aaff", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.6 : 1 }}>
+            {saving ? "Saving..." : "Save Changes"}
+          </button>
+          <button onClick={onClose} style={{ flex: 1, padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "12px", color: "#fff", cursor: "pointer" }}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 // ─── FINANCE TAB ──────────────────────────────────────────────────────────
 function FinanceTab({ team, isAdmin }) {
   const [transactions, setTransactions] = useState([]);
+  const [txLoading, setTxLoading] = useState(true);
+  const txEmptyTimeoutReached = useTimedEmptyState();
   const [recurringList, setRecurringList] = useState([]);
+  const [editingRecurring, setEditingRecurring] = useState(null);
+  const [loansList, setLoansList] = useState([]);
+  const [showRequestLoan, setShowRequestLoan] = useState(false);
   const [selectedTx, setSelectedTx] = useState(null);
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [dateFilter, setDateFilter] = useState({ days: 30, from: null, to: null });
@@ -872,6 +1038,7 @@ function FinanceTab({ team, isAdmin }) {
 
   useEffect(() => {
     if (!team) return;
+    setTxLoading(true);
     const unsub = onValue(ref(db, `career_team_management/${team}/finance/transactions`), snap => {
       const data = snap.val();
       if (data) {
@@ -879,6 +1046,16 @@ function FinanceTab({ team, isAdmin }) {
       } else {
         setTransactions([]);
       }
+      setTxLoading(false);
+    });
+    return () => unsub();
+  }, [team]);
+
+  useEffect(() => {
+    if (!team) return;
+    const unsub = onValue(ref(db, `career_team_management/${team}/finance/loans`), snap => {
+      const data = snap.val();
+      setLoansList(data ? Object.entries(data).map(([id, l]) => ({ id, ...l })) : []);
     });
     return () => unsub();
   }, [team]);
@@ -970,6 +1147,51 @@ function FinanceTab({ team, isAdmin }) {
     }
   }
 
+  async function handlePauseRecurring(rid) {
+    try {
+      await update(ref(db, `career_team_management/${team}/finance/recurring/${rid}`), {
+        status: "paused",
+        pausedAt: new Date().toISOString().slice(0, 10),
+      });
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function handleResumeRecurring(rec) {
+    try {
+      // Skip every day it was paused — resuming never charges a backlog lump sum.
+      const skippedDates = { ...(rec.skippedDates || {}) };
+      if (rec.pausedAt) {
+        const cursor = new Date(rec.pausedAt);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        while (cursor <= today) {
+          skippedDates[cursor.toISOString().slice(0, 10)] = true;
+          cursor.setDate(cursor.getDate() + 1);
+        }
+      }
+      await update(ref(db, `career_team_management/${team}/finance/recurring/${rec.id}`), {
+        status: "active",
+        pausedAt: null,
+        skippedDates,
+      });
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function handleSaveEditRecurring(rid, { description, dailyAmount, totalCap }, alreadyDebited) {
+    if (Number(totalCap) < alreadyDebited) {
+      throw new Error(`Cap can't be set below what's already been charged (${formatAmount(alreadyDebited)}).`);
+    }
+    await update(ref(db, `career_team_management/${team}/finance/recurring/${rid}`), {
+      description: description.trim(),
+      dailyAmount: Number(dailyAmount),
+      totalCap: Number(totalCap),
+    });
+  }
+
   return (
     <div>
       {/* ── Chart ── */}
@@ -1049,6 +1271,23 @@ function FinanceTab({ team, isAdmin }) {
         </div>
       </div>
 
+      {/* ── Request Loan button (admin only) ── */}
+      {isAdmin && (
+        <div style={{ textAlign: "center", marginBottom: "28px" }}>
+          <button
+            onClick={() => setShowRequestLoan(true)}
+            style={{
+              background: "linear-gradient(135deg, #44aaff, #2277dd)", border: "none",
+              borderRadius: "16px", padding: "20px 48px", color: "#fff", fontWeight: 700,
+              fontSize: "1.8rem", cursor: "pointer", fontFamily: "'Bebas Neue', sans-serif",
+              letterSpacing: "2px", boxShadow: "0 8px 24px rgba(68,170,255,0.3)",
+            }}
+          >
+            🏦 REQUEST LOAN
+          </button>
+        </div>
+      )}
+
       {/* ── Date Filter ── */}
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "28px" }}>
         <button onClick={() => setShowFilterModal(true)} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "14px 24px", background: "rgba(255,20,147,0.1)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: "14px", color: "#ffffff", fontWeight: 700, fontSize: "1.1rem", cursor: "pointer", transition: "all 0.2s" }}
@@ -1118,10 +1357,24 @@ function FinanceTab({ team, isAdmin }) {
                       </div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-                      <span style={{ background: rec.status === "completed" ? "rgba(0,255,136,0.15)" : `${accentColor}22`, color: rec.status === "completed" ? "#00ff88" : accentColor, border: `1px solid ${rec.status === "completed" ? "rgba(0,255,136,0.4)" : accentBorder}`, borderRadius: "8px", padding: "8px 20px", fontSize: "1.6rem", fontWeight: 700, textTransform: "uppercase" }}>
-                        {rec.status}
+                      <span style={{ background: rec.status === "completed" ? "rgba(0,255,136,0.15)" : rec.status === "paused" ? "rgba(255,255,255,0.1)" : `${accentColor}22`, color: rec.status === "completed" ? "#00ff88" : rec.status === "paused" ? "rgba(255,255,255,0.6)" : accentColor, border: `1px solid ${rec.status === "completed" ? "rgba(0,255,136,0.4)" : rec.status === "paused" ? "rgba(255,255,255,0.3)" : accentBorder}`, borderRadius: "8px", padding: "8px 20px", fontSize: "1.6rem", fontWeight: 700, textTransform: "uppercase" }}>
+                        {rec.status === "paused" ? "Paused" : rec.status}
                       </span>
-                      <button onClick={() => handleDeleteRecurring(rec.id)} style={{ width: "56px", height: "56px", background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.4)", borderRadius: "8px", color: "#ff6b6b", cursor: "pointer", fontSize: "1.8rem" }}>
+                      {rec.status !== "completed" && (
+                        rec.status === "paused" ? (
+                          <button onClick={() => handleResumeRecurring(rec)} style={{ width: "56px", height: "56px", background: "rgba(0,255,136,0.15)", border: "1px solid rgba(0,255,136,0.4)", borderRadius: "8px", color: "#00ff88", cursor: "pointer", fontSize: "1.8rem" }} title="Resume">
+                            ▶️
+                          </button>
+                        ) : (
+                          <button onClick={() => handlePauseRecurring(rec.id)} style={{ width: "56px", height: "56px", background: "rgba(255,170,68,0.15)", border: "1px solid rgba(255,170,68,0.4)", borderRadius: "8px", color: "#ffaa44", cursor: "pointer", fontSize: "1.8rem" }} title="Pause">
+                            ⏸️
+                          </button>
+                        )
+                      )}
+                      <button onClick={() => setEditingRecurring(rec)} style={{ width: "56px", height: "56px", background: "rgba(68,170,255,0.15)", border: "1px solid rgba(68,170,255,0.4)", borderRadius: "8px", color: "#44aaff", cursor: "pointer", fontSize: "1.8rem" }} title="Edit">
+                        ✏️
+                      </button>
+                      <button onClick={() => handleDeleteRecurring(rec.id)} style={{ width: "56px", height: "56px", background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.4)", borderRadius: "8px", color: "#ff6b6b", cursor: "pointer", fontSize: "1.8rem" }} title="Delete">
                         🗑️
                       </button>
                     </div>
@@ -1139,14 +1392,54 @@ function FinanceTab({ team, isAdmin }) {
         </div>
       )}
 
+      {/* ── Active Loans ── */}
+      {isAdmin && loansList.length > 0 && (
+        <div style={{ ...GLASS, borderRadius: "20px", padding: "48px", marginBottom: "40px" }}>
+          <div style={{ color: "#44aaff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "3px", marginBottom: "28px" }}>🏦 LOANS</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            {loansList.map(loan => {
+              const linkedTxs = transactions.filter(t => t.loanId === loan.id);
+              const totalRepaid = linkedTxs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+              const progress = Math.min((totalRepaid / loan.totalRepayable) * 100, 100);
+              return (
+                <div key={loan.id} style={{ background: "rgba(68,170,255,0.06)", border: "1px solid rgba(68,170,255,0.2)", borderRadius: "16px", padding: "40px 48px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "24px" }}>
+                    <div>
+                      <div style={{ color: "#44aaff", fontSize: "1.7rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", marginBottom: "8px" }}>🏦 Loan</div>
+                      <div style={{ color: "#fff", fontWeight: 700, fontSize: "2.2rem" }}>{formatAmount(loan.principal)} borrowed</div>
+                      <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.7rem", marginTop: "8px" }}>
+                        Repaying {formatAmount(loan.totalRepayable)} total (100% interest) · {formatAmount(loan.installmentAmount)}/{loan.frequency}
+                      </div>
+                    </div>
+                    <span style={{ background: loan.status === "completed" ? "rgba(0,255,136,0.15)" : "rgba(68,170,255,0.15)", color: loan.status === "completed" ? "#00ff88" : "#44aaff", border: `1px solid ${loan.status === "completed" ? "rgba(0,255,136,0.4)" : "rgba(68,170,255,0.4)"}`, borderRadius: "8px", padding: "8px 20px", fontSize: "1.6rem", fontWeight: 700, textTransform: "uppercase" }}>
+                      {loan.status}
+                    </span>
+                  </div>
+                  <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: "8px", height: "16px", overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${progress}%`, background: loan.status === "completed" ? "#00ff88" : "linear-gradient(to right, #2277dd, #44aaff)", borderRadius: "8px", transition: "width 0.5s" }} />
+                  </div>
+                  <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.6rem", marginTop: "12px" }}>
+                    {formatAmount(totalRepaid)} repaid of {formatAmount(loan.totalRepayable)} ({progress.toFixed(1)}%)
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* ── Transaction History ── */}
       <div style={{ ...GLASS, borderRadius: "20px", padding: "48px" }}>
         <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "3px", marginBottom: "28px" }}>📋 TRANSACTION HISTORY</div>
-        {transactions.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "48px 20px", color: "rgba(255,255,255,0.2)" }}>
-            <div style={{ fontSize: "3rem", marginBottom: "12px" }}>💳</div>
-            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px" }}>No Transactions Yet</div>
-          </div>
+        {txLoading ? (
+          <LoadingRow />
+        ) : transactions.length === 0 ? (
+          txEmptyTimeoutReached ? (
+            <div style={{ textAlign: "center", padding: "48px 20px", color: "rgba(255,255,255,0.2)" }}>
+              <div style={{ fontSize: "3rem", marginBottom: "12px" }}>💳</div>
+              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px" }}>No Transactions Yet</div>
+            </div>
+          ) : <LoadingRow />
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
             {transactions.map(tx => {
@@ -1198,6 +1491,21 @@ function FinanceTab({ team, isAdmin }) {
           onApply={filter => { setDateFilter(filter); setShowFilterModal(false); }}
           onClose={() => setShowFilterModal(false)}
         />
+      )}
+
+      {/* ── Edit Recurring Modal ── */}
+      {editingRecurring && (
+        <EditRecurringModal
+          rec={editingRecurring}
+          alreadyDebited={transactions.filter(t => t.recurringId === editingRecurring.id).reduce((s, t) => s + (Number(t.amount) || 0), 0)}
+          onSave={async (fields, alreadyDebited) => handleSaveEditRecurring(editingRecurring.id, fields, alreadyDebited)}
+          onClose={() => setEditingRecurring(null)}
+        />
+      )}
+
+      {/* ── Request Loan Modal ── */}
+      {showRequestLoan && (
+        <RequestFinanceLoanModal team={team} onClose={() => setShowRequestLoan(false)} />
       )}
     </div>
   );
@@ -1344,14 +1652,15 @@ export default function TeamManagementPage() {
     if (!team || recurringProcessed.current) return;
     recurringProcessed.current = true;
     processRecurringTransactions(team);
+    processLoanInstallments(team);
   }, [team]);
 
   // ── Load all teams for admin dropdown ──────────────────────────────
   useEffect(() => {
     if (!isAdmin) return;
-    const unsub = onValue(ref(db, PATHS.accounts), snap => {
+    const unsub = onValue(ref(db, "career_team_management"), snap => {
       const data = snap.val() || {};
-      const teams = [...new Set(Object.values(data).filter(a => a.team).map(a => a.team))];
+      const teams = Object.keys(data).sort();
       setAllTeams(teams);
     });
     return () => unsub();
@@ -1365,18 +1674,22 @@ export default function TeamManagementPage() {
     return () => unsub();
   }, []);
 
-  // ── Load balance ──────────────────────────────────────────────────
+  // ── Load balance — can go negative; auto-toggles bankruptcy on the club record ──
+  const [bankrupt, setBankruptState] = useState(false);
   useEffect(() => {
     if (!team) return;
     const unsub = onValue(ref(db, `career_team_management/${team}/finance/transactions`), snap => {
       const data = snap.val();
-      if (!data) { setBalance(0); return; }
-      const txs = Object.values(data);
-      const total = txs.reduce((sum, tx) => {
-        const amt = Number(tx.amount) || 0;
-        return tx.type === "income" ? sum + amt : sum - amt;
-      }, 0);
-      setBalance(Math.max(0, total));
+      const total = data
+        ? Object.values(data).reduce((sum, tx) => {
+            const amt = Number(tx.amount) || 0;
+            return tx.type === "income" ? sum + amt : sum - amt;
+          }, 0)
+        : 0;
+      setBalance(total);
+      const isBankrupt = total < 0;
+      setBankruptState(isBankrupt);
+      set(ref(db, `career_team_management/${team}/bankrupt`), isBankrupt).catch(() => {});
     });
     return () => unsub();
   }, [team]);
@@ -1509,18 +1822,28 @@ export default function TeamManagementPage() {
           )}
           <div style={{ marginTop: "12px" }}>
             <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.2rem", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "4px" }}>Balance</div>
-            {/* ── HOT PINK BALANCE ── */}
+            {/* ── HOT PINK BALANCE (RED WHEN NEGATIVE) ── */}
             <div style={{
               fontFamily: "'Bebas Neue', sans-serif",
               fontSize: "clamp(3rem, 8vw, 5.5rem)",
               letterSpacing: "4px",
-              color: "#ff1493",
-              textShadow: "0 0 30px rgba(255,20,147,0.5)",
+              color: balance < 0 ? "#ff3333" : "#ff1493",
+              textShadow: balance < 0 ? "0 0 30px rgba(255,50,50,0.6)" : "0 0 30px rgba(255,20,147,0.5)",
               lineHeight: 1,
               wordBreak: "break-all",
             }}>
               {formatBalance(balance)}
             </div>
+            {bankrupt && (
+              <div style={{
+                marginTop: "14px", display: "inline-flex", alignItems: "center", gap: "10px",
+                background: "rgba(255,50,50,0.12)", border: "1px solid rgba(255,50,50,0.4)",
+                borderRadius: "12px", padding: "10px 20px", color: "#ff6b6b",
+                fontWeight: 700, fontSize: "1.1rem", letterSpacing: "1px",
+              }}>
+                🚨 BANKRUPT — new expenses are blocked until balance recovers
+              </div>
+            )}
           </div>
         </div>
 
