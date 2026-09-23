@@ -1,424 +1,1133 @@
-import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { db, PATHS } from "../firebase";
-import { ref, onValue, push, update, get, remove, set } from "firebase/database";
+import { ref, onValue, get, set, push, update, remove } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
+import { verifyAdminKey } from "../utils/adminKey";
+import { uploadToImgBB } from "../utils/imgUpload";
 import Navbar from "../components/Navbar";
-import BackgroundVideo from "../components/BackgroundVideo";
-import TabBar from "../components/TabBar";
-import Modal from "../components/Modal";
-import StadiumModal from "../modals/StadiumModal";
-import TeamModal from "../modals/TeamModal";
-import TeamHistoryModal from "../modals/TeamHistoryModal";
-import FinanceDateFilterModal from "../modals/FinanceDateFilterModal";
-import AdminFinanceModal from "../modals/AdminFinanceModal";
-import RequestFinanceLoanModal from "../modals/RequestFinanceLoanModal";
+import LeagueHeadlineSlideshow from "../components/LeagueHeadlineSlideshow";
 
-const TABS = [
-  { id: "stadium", label: "STADIUM" },
-  { id: "squad", label: "TEAM" },
-  { id: "transfers", label: "TRANSFERS" },
-  { id: "finance", label: "FINANCE" },
-];
-
-const GLASS = {
-  background: "rgba(255,255,255,0.04)",
-  backdropFilter: "blur(12px)",
-  WebkitBackdropFilter: "blur(12px)",
-  border: "1px solid rgba(255,20,147,0.2)",
+/* ─── THEME ─────────────────────────────────────────────────────────────── */
+const T = {
+  bg:         "#080808",
+  bg2:        "#0d0d1a",
+  bg3:        "#131326",
+  bg4:        "#1a1a33",
+  pink:       "#FF1493",
+  pinkDark:   "#cc0e78",
+  pinkDim:    "rgba(255,20,147,0.15)",
+  border:     "rgba(255,255,255,0.07)",
+  borderPink: "rgba(255,20,147,0.3)",
+  text:       "#ffffff",
+  muted:      "rgba(255,255,255,0.5)",
+  dim:        "rgba(255,255,255,0.28)",
+  radius:     "16px",
+  radiusLg:   "24px",
+  radiusXl:   "32px",
 };
 
-// ─── UPDATED CATEGORIES ────────────────────────────────────────────────────
-const INCOME_CATEGORIES = [
-  "Player Sales",
-  "Player Loaned Out",
-  "Stadium Income",
-  "Sponsorship",
-  "Broadcasting",
-  "Shirt Sales",
+/* ─── LEAGUES ────────────────────────────────────────────────────────────── */
+const LEAGUES = [
+  { key: "premier",    name: "Premier League",   pts: 60 },
+  { key: "laliga",     name: "La Liga",           pts: 50 },
+  { key: "seriea",     name: "Serie A",           pts: 50 },
+  { key: "bundesliga", name: "Bundesliga",        pts: 45 },
+  { key: "ligue1",     name: "Ligue 1",           pts: 40 },
+  { key: "ucl",        name: "Champions League",  pts: 90 },
+  { key: "uel",        name: "Europa League",     pts: 50 },
+  { key: "cwc",        name: "Club World Cup",    pts: 80 },
+  { key: "sc",         name: "Super Cup",         pts: 30 },
 ];
 
-const EXPENSE_CATEGORIES = [
-  "Player Wages",
-  "Staff Wages",
-  "Facility Expenses",
-  "Taxes",
-  "Stadium Upgrade",
-  "Player Purchase",
-  "Player Loan In",
-  "Fines",
-  "Recurring Expense",
-];
+const TROPHY_LIST = LEAGUES.map(l => ({ id: l.key, name: l.name, points: l.pts }));
 
-const ALL_MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+/* ─── CSS ────────────────────────────────────────────────────────────────── */
+const css = `
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Bebas+Neue&display=swap');
+  .rmr * { box-sizing: border-box; margin: 0; padding: 0; }
+  .rmr { font-family: 'Inter', sans-serif; background: ${T.bg}; min-height: 100vh; color: ${T.text}; }
 
-function formatBalance(num) {
-  if (num === undefined || num === null) return "€0.00";
-  return `€${Number(num).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  @keyframes rmrSpin    { to { transform: rotate(360deg); } }
+  @keyframes rmrFadeUp  { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:translateY(0); } }
+  @keyframes rmrFadeIn  { from { opacity:0; } to { opacity:1; } }
+  @keyframes rmrModalIn { from { opacity:0; transform:scale(.95) translateY(-10px); } to { opacity:1; transform:scale(1) translateY(0); } }
+
+  .rmr-card { background:${T.bg2}; border:1px solid ${T.border}; border-radius:${T.radiusXl}; padding:28px; transition:all .25s; animation:rmrFadeUp .4s ease both; }
+  .rmr-card:hover { border-color:${T.borderPink}; transform:translateY(-2px); box-shadow:0 8px 32px rgba(0,0,0,.4); }
+  .rmr-card.top3 { background:${T.bg3}; border-color:${T.borderPink}; }
+
+  .rmr-search input { background:${T.bg2}; border:1px solid ${T.border}; border-radius:40px; color:${T.text}; font-size:1rem; padding:13px 18px 13px 44px; width:100%; transition:all .2s; font-family:inherit; }
+  .rmr-search input:focus { outline:none; border-color:${T.borderPink}; box-shadow:0 0 0 3px ${T.pinkDim}; }
+
+  .rmr-btn-pink   { background:linear-gradient(135deg,${T.pink},${T.pinkDark}); color:#fff; border:none; padding:13px 22px; border-radius:40px; font-weight:600; cursor:pointer; font-size:1rem; transition:all .2s; white-space:nowrap; font-family:inherit; }
+  .rmr-btn-pink:hover { transform:translateY(-1px); box-shadow:0 4px 16px rgba(255,20,147,.35); }
+  .rmr-btn-outline { background:transparent; border:1px solid ${T.borderPink}; color:${T.pink}; padding:12px 18px; border-radius:40px; cursor:pointer; font-size:.95rem; font-weight:600; transition:all .2s; font-family:inherit; }
+  .rmr-btn-outline:hover { background:${T.pinkDim}; }
+  .rmr-btn-ghost  { background:${T.bg3}; border:1px solid ${T.border}; color:${T.muted}; padding:12px 16px; border-radius:40px; cursor:pointer; font-size:.9rem; transition:all .2s; font-family:inherit; }
+  .rmr-btn-ghost:hover { color:${T.text}; border-color:${T.borderPink}; }
+  .rmr-btn-tiny   { background:${T.bg3}; border:1px solid ${T.border}; color:${T.muted}; padding:5px 12px; border-radius:20px; cursor:pointer; font-size:.8rem; transition:all .2s; font-family:inherit; }
+  .rmr-btn-tiny:hover { color:${T.text}; }
+  .rmr-btn-tiny.danger:hover { color:#f87171; border-color:rgba(239,68,68,.3); }
+  .rmr-add-btn { width:100%; background:transparent; border:1px dashed ${T.border}; color:${T.muted}; padding:12px; border-radius:${T.radius}; cursor:pointer; font-size:.9rem; transition:all .2s; margin-top:8px; font-family:inherit; }
+  .rmr-add-btn:hover { border-color:${T.borderPink}; color:${T.pink}; }
+
+  /* tabs */
+  .rmr-tabs { display:flex; gap:4px; background:${T.bg2}; border:1px solid ${T.border}; border-radius:40px; padding:5px; margin-bottom:28px; }
+  .rmr-tab  { flex:1; padding:12px 10px; border:none; border-radius:36px; cursor:pointer; font-size:1rem; font-weight:600; font-family:inherit; transition:all .2s; color:${T.muted}; background:transparent; }
+  .rmr-tab.active { background:linear-gradient(135deg,${T.pink},${T.pinkDark}); color:#fff; box-shadow:0 4px 14px rgba(255,20,147,.3); }
+
+  /* stat grid */
+  .rmr-stat-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:20px; }
+  .rmr-stat-cell { background:${T.bg3}; border-radius:${T.radius}; padding:14px 6px; text-align:center; }
+  .rmr-stat-label { font-size:.75rem; color:${T.muted}; text-transform:uppercase; letter-spacing:.5px; margin-bottom:6px; }
+  .rmr-stat-val   { font-size:1.25rem; font-weight:700; color:${T.pink}; }
+
+  /* status */
+  .rmr-status { display:inline-flex; align-items:center; gap:5px; font-size:.8rem; font-weight:500; padding:4px 12px; border-radius:20px; margin-bottom:10px; }
+  .rmr-status-dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
+  .s-active  { background:rgba(34,197,94,.12);  color:#4ade80; border:1px solid rgba(34,197,94,.2); }
+  .s-interim { background:rgba(251,191,36,.12); color:#fbbf24; border:1px solid rgba(251,191,36,.2); }
+  .s-sacked  { background:rgba(239,68,68,.12);  color:#f87171; border:1px solid rgba(239,68,68,.2); }
+  .s-retired { background:rgba(107,114,128,.12);color:#9ca3af; border:1px solid rgba(107,114,128,.2); }
+  .s-free    { background:rgba(59,130,246,.12);  color:#60a5fa; border:1px solid rgba(59,130,246,.2); }
+
+  /* overlay / sidemenu */
+  .rmr-overlay  { position:fixed; inset:0; background:rgba(0,0,0,.7); z-index:1999; backdrop-filter:blur(4px); }
+  .rmr-sidemenu { position:fixed; top:0; right:0; width:300px; height:100vh; background:${T.bg2}; border-left:1px solid ${T.borderPink}; z-index:2000; padding:24px 20px; overflow-y:auto; }
+  .rmr-menu-item { padding:16px 18px; border-radius:${T.radius}; cursor:pointer; font-size:1rem; font-weight:500; color:${T.muted}; border:1px solid transparent; transition:all .2s; display:flex; align-items:center; gap:10px; }
+  .rmr-menu-item:hover { background:${T.bg3}; color:${T.text}; border-color:${T.border}; }
+  .rmr-menu-item.pink-item { color:${T.pink}; }
+  .rmr-menu-item.pink-item:hover { background:${T.pinkDim}; border-color:${T.borderPink}; }
+
+  /* popup */
+  .rmr-popup { position:fixed; inset:0; background:${T.bg}; z-index:4000; display:flex; flex-direction:column; animation:rmrFadeIn .25s ease; overflow:hidden; }
+  .rmr-popup-nav { height:64px; background:${T.bg}; border-bottom:1px solid ${T.border}; display:flex; align-items:center; justify-content:space-between; padding:0 24px; flex-shrink:0; }
+  .rmr-popup-nav-title { font-size:1.3rem; font-weight:700; }
+  .rmr-popup-body { flex:1; overflow-y:auto; padding:32px 24px; max-width:800px; margin:0 auto; width:100%; }
+  .rmr-section { margin-bottom:36px; }
+  .rmr-section-title { font-size:.85rem; font-weight:700; color:${T.muted}; text-transform:uppercase; letter-spacing:1.5px; margin-bottom:20px; padding-bottom:10px; border-bottom:1px solid ${T.border}; }
+
+  /* modal */
+  .rmr-modal-back { position:fixed; inset:0; background:rgba(0,0,0,.82); z-index:3000; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(6px); padding:16px; }
+  .rmr-modal { background:${T.bg2}; border:1px solid ${T.border}; border-radius:${T.radiusXl}; max-width:540px; width:100%; max-height:88vh; overflow-y:auto; animation:rmrModalIn .25s ease; }
+  .rmr-modal-header { padding:22px 28px 18px; border-bottom:1px solid ${T.border}; display:flex; justify-content:space-between; align-items:center; position:sticky; top:0; background:${T.bg2}; z-index:1; }
+  .rmr-modal-title { font-size:1.15rem; font-weight:700; color:${T.pink}; }
+  .rmr-modal-close { background:${T.bg3}; border:none; color:${T.muted}; width:36px; height:36px; border-radius:50%; cursor:pointer; font-size:18px; display:flex; align-items:center; justify-content:center; transition:all .2s; font-family:inherit; }
+  .rmr-modal-close:hover { background:${T.bg4}; color:${T.text}; }
+  .rmr-modal-body { padding:24px 28px; }
+  .rmr-modal-footer { padding:18px 28px; border-top:1px solid ${T.border}; display:flex; gap:10px; justify-content:flex-end; }
+
+  /* form */
+  .rmr-label    { display:block; font-size:.8rem; font-weight:600; color:${T.muted}; text-transform:uppercase; letter-spacing:.5px; margin-bottom:7px; }
+  .rmr-input, .rmr-select, .rmr-textarea { width:100%; padding:12px 16px; background:${T.bg3}; border:1px solid ${T.border}; border-radius:${T.radius}; color:${T.text}; font-size:1rem; font-family:inherit; transition:all .2s; }
+  .rmr-input:focus, .rmr-select:focus, .rmr-textarea:focus { outline:none; border-color:${T.borderPink}; box-shadow:0 0 0 3px ${T.pinkDim}; }
+  .rmr-textarea { min-height:110px; resize:vertical; }
+  .rmr-select option { background:${T.bg3}; }
+
+  /* title item */
+  .rmr-title-item { background:${T.bg2}; border:1px solid ${T.border}; border-radius:${T.radius}; padding:14px 18px; display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+  .rmr-title-name   { font-size:1rem; font-weight:600; }
+  .rmr-title-season { font-size:.85rem; color:${T.muted}; }
+  .rmr-title-pts    { font-size:.85rem; color:${T.pink}; font-weight:700; background:${T.pinkDim}; padding:4px 10px; border-radius:20px; }
+
+  /* match */
+  .rmr-match { background:${T.bg2}; border:1px solid ${T.border}; border-radius:${T.radius}; padding:14px 18px; display:grid; grid-template-columns:1fr auto 1fr; gap:14px; align-items:center; margin-bottom:10px; }
+  .rmr-match-team   { display:flex; align-items:center; gap:8px; font-size:.95rem; font-weight:600; }
+  .rmr-match-team.away { flex-direction:row-reverse; }
+  .rmr-match-center { text-align:center; }
+  .rmr-match-score  { font-size:1.3rem; font-weight:700; color:${T.pink}; font-family:'Bebas Neue',sans-serif; letter-spacing:2px; }
+  .rmr-match-tourn  { font-size:.75rem; color:${T.muted}; margin-top:3px; }
+  .rmr-match-md     { font-size:.72rem; color:${T.dim}; }
+  .rmr-forfeit-tag  { font-size:.75rem; color:#f87171; background:rgba(239,68,68,.1); padding:2px 8px; border-radius:20px; margin-top:3px; display:inline-block; }
+
+  /* record */
+  .rmr-record { background:${T.bg2}; border:1px solid ${T.border}; border-radius:${T.radius}; padding:14px 18px; display:flex; justify-content:space-between; align-items:flex-start; gap:14px; margin-bottom:10px; }
+
+  /* rank info */
+  .rmr-rank-info h4 { color:${T.pink}; font-size:1rem; margin:18px 0 8px; }
+  .rmr-rank-info ul { padding-left:22px; }
+  .rmr-rank-info li { margin-bottom:4px; font-size:.95rem; color:${T.muted}; }
+  .rmr-rank-info p  { font-size:.95rem; color:${T.muted}; line-height:1.8; }
+
+  /* slideshow */
+  .rmr-slideshow { position:relative; border-radius:${T.radiusLg}; overflow:hidden; margin-bottom:18px; background:${T.bg2}; }
+  .rmr-slideshow img { width:100%; height:240px; object-fit:contain; display:block; }
+  .rmr-dots { display:flex; justify-content:center; gap:7px; padding:12px 0; }
+  .rmr-dot  { width:7px; height:7px; border-radius:50%; background:${T.bg4}; cursor:pointer; transition:all .2s; border:none; }
+  .rmr-dot.active { background:${T.pink}; transform:scale(1.3); }
+
+  /* thumb */
+  .rmr-thumb { position:relative; width:90px; height:68px; border-radius:8px; overflow:hidden; border:1px solid ${T.border}; display:inline-block; margin:5px; }
+  .rmr-thumb img { width:100%; height:100%; object-fit:cover; }
+  .rmr-thumb-del { position:absolute; top:3px; right:3px; background:#ef4444; color:#fff; border:none; border-radius:50%; width:20px; height:20px; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; font-family:inherit; }
+
+  /* toast */
+  .rmr-toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:${T.bg3}; border:1px solid ${T.borderPink}; color:${T.text}; padding:12px 24px; border-radius:40px; font-size:.9rem; z-index:9999; opacity:0; transition:opacity .3s,bottom .3s; pointer-events:none; white-space:nowrap; }
+  .rmr-toast.show { opacity:1; bottom:32px; }
+
+  /* player card */
+  .rmr-player-card { background:${T.bg2}; border:1px solid ${T.border}; border-radius:${T.radiusXl}; padding:22px 24px; display:flex; align-items:center; gap:18px; animation:rmrFadeUp .4s ease both; transition:all .25s; }
+  .rmr-player-card:hover { border-color:${T.borderPink}; transform:translateY(-2px); }
+  .rmr-player-icon { width:64px; height:64px; border-radius:50%; border:2px solid ${T.borderPink}; background:${T.bg3}; object-fit:cover; flex-shrink:0; }
+  .rmr-player-rank { font-family:'Bebas Neue',sans-serif; font-size:1.5rem; color:${T.pink}; min-width:44px; text-align:center; }
+
+  /* club card */
+  .rmr-club-stat-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin:18px 0; }
+  .rmr-club-stat { background:${T.bg3}; border-radius:${T.radius}; padding:14px 6px; text-align:center; }
+  .rmr-club-stat .lbl { font-size:.72rem; color:${T.muted}; text-transform:uppercase; letter-spacing:.5px; margin-bottom:5px; }
+  .rmr-club-stat .val { font-size:1.2rem; font-weight:700; color:${T.pink}; }
+
+  /* progress bar */
+  .rmr-progress-bar { width:100%; max-width:300px; background:${T.bg4}; border-radius:99px; height:10px; overflow:hidden; }
+  .rmr-progress-fill { height:100%; border-radius:99px; background:linear-gradient(90deg,${T.pink},${T.pinkDark}); transition:width .35s ease; }
+
+  @media(max-width:600px){
+    .rmr-stat-grid { gap:6px; }
+    .rmr-match { grid-template-columns:1fr; }
+    .rmr-match-team.away { flex-direction:row; }
+    .rmr-popup-body { padding:20px 14px; }
+  }
+`;
+
+/* ─── HELPERS ────────────────────────────────────────────────────────────── */
+function isForfeit(r)   { return r.forfeitType && r.forfeitType !== "none" && r.forfeitType !== "no_contest"; }
+function isNoContest(r) { return r.forfeitType === "no_contest" || (r.matchType === "forfeit" && r.homeScore === 0 && r.awayScore === 0); }
+
+function calcPerformanceScore(stats) {
+  return (stats.w || 0) - (stats.l || 0) + (stats.gs || 0) * 0.5 - (stats.gc || 0) * 0.5;
+}
+function calcTrophyPts(trophies = []) { return trophies.reduce((s, t) => s + (t.points || 0), 0); }
+function calcMedalPts(medals = [])   { return medals.reduce((s, m) => s + (m.points || 0), 0); }
+function calcAwardPts(awards = [])   { return awards.reduce((s, a) => s + (a.points || 0), 0); }
+function totalScore(m) {
+  const p = calcPerformanceScore(m.stats || {});
+  return (p + calcTrophyPts(m.trophies) + calcMedalPts(m.medals) + calcAwardPts(m.individualAwards)) * 2;
 }
 
-// Show "Loading..." until a section's first Firebase snapshot has arrived.
-// If that first response comes back empty, still wait up to `timeoutMs`
-// (default 2 minutes) before actually showing "no data found" — protects
-// against a slow/late-arriving snapshot being mistaken for genuine emptiness.
-function useTimedEmptyState(timeoutMs = 120000) {
-  const [timeoutReached, setTimeoutReached] = useState(false);
-  useEffect(() => {
-    const t = setTimeout(() => setTimeoutReached(true), timeoutMs);
-    return () => clearTimeout(t);
-  }, [timeoutMs]);
-  return timeoutReached;
+/* ─── FETCH STATS FOR ONE MANAGER (tenure-aware, lazy) ──────────────────── */
+async function fetchManagerStats(teamName, tenures) {
+  // tenures: [{team, assignedAt, removedAt}]  (removedAt=null means current)
+  let w=0,d=0,l=0,gs=0,gc=0,fw=0,fl=0,mp=0;
+  const matchHistory = [];
+
+  for (const lg of LEAGUES) {
+    let seasons = [];
+    try {
+      const snap = await get(ref(db, `career_${lg.key}_settings`));
+      const s = snap.val();
+      seasons = s?.seasons ? s.seasons.map(String) : ["1"];
+    } catch { seasons = ["1"]; }
+
+    for (const season of seasons) {
+      try {
+        const snap = await get(ref(db, PATHS.results(lg.key, season)));
+        const data = snap.val();
+        if (!data) continue;
+
+        for (const r of Object.values(data)) {
+          const home = r.homeTeam || "";
+          const away = r.awayTeam || "";
+          if (home !== teamName && away !== teamName) continue;
+
+          // Check tenure: result must have been submitted during a tenure window for this team
+          const submittedAt = r.submittedAt || 0;
+          const matchingTenure = tenures.find(t =>
+            t.team === (home === teamName ? home : away) &&
+            submittedAt >= (t.assignedAt || 0) &&
+            submittedAt <= (t.removedAt || Date.now())
+          );
+          if (!matchingTenure) continue;
+
+          const nc = isNoContest(r);
+          mp++;
+          if (nc) {
+            matchHistory.push({ home, away, homeScore: 0, awayScore: 0, tournament: lg.name, season, md: r.md || 0, isForfeit: false, isNoContest: true, submittedAt });
+            continue;
+          }
+          const forf   = isForfeit(r);
+          const isHome = home === teamName;
+          const ms     = isHome ? (r.homeScore || 0) : (r.awayScore || 0);
+          const mc     = isHome ? (r.awayScore || 0) : (r.homeScore || 0);
+          if (forf) {
+            if (ms > mc) { w++; fw++; } else { l++; fl++; gc += 3; }
+          } else {
+            gs += ms; gc += mc;
+            if (ms > mc) w++;
+            else if (ms === mc) d++;
+            else l++;
+          }
+          matchHistory.push({ home, away, homeScore: r.homeScore||0, awayScore: r.awayScore||0, tournament: lg.name, season, md: r.md||0, isForfeit: forf, isNoContest: false, submittedAt });
+        }
+      } catch {}
+    }
+  }
+
+  const gd = gs - gc;
+  const games = w + d + l;
+  matchHistory.sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
+  return { w, d, l, gs, gc, gd, fw, fl, mp, winRate: games > 0 ? +((w/games)*100).toFixed(1) : 0, lossRate: games > 0 ? +((l/games)*100).toFixed(1) : 0, matchHistory };
 }
 
-function LoadingRow({ label = "Loading..." }) {
+/* ─── FETCH ALL RESULTS FOR A CLUB (for club tab) ───────────────────────── */
+async function fetchClubResults(clubName) {
+  const results = [];
+  for (const lg of LEAGUES) {
+    let seasons = [];
+    try {
+      const snap = await get(ref(db, `career_${lg.key}_settings`));
+      const s = snap.val();
+      seasons = s?.seasons ? s.seasons.map(String) : ["1"];
+    } catch { seasons = ["1"]; }
+    for (const season of seasons) {
+      try {
+        const snap = await get(ref(db, PATHS.results(lg.key, season)));
+        const data = snap.val();
+        if (!data) continue;
+        for (const r of Object.values(data)) {
+          if (r.homeTeam !== clubName && r.awayTeam !== clubName) continue;
+          results.push({ ...r, tournament: lg.name, season });
+        }
+      } catch {}
+    }
+  }
+  results.sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
+  return results;
+}
+
+/* ─── FETCH ALL PLAYERS ─────────────────────────────────────────────────── */
+async function fetchAllPlayers(onProgress) {
+  const playerMap = {}; // name -> { name, goals, assists, team, images: {leagueKey: url} }
+  let processed = 0;
+  const total = LEAGUES.length * 2; // scorers + assistants per league
+
+  for (const lg of LEAGUES) {
+    let seasons = [];
+    try {
+      const snap = await get(ref(db, `career_${lg.key}_settings`));
+      const s = snap.val();
+      seasons = s?.seasons ? s.seasons.map(String) : ["1"];
+    } catch { seasons = ["1"]; }
+
+    // Top scorers
+    for (const season of seasons) {
+      try {
+        const snap = await get(ref(db, PATHS.topScorers(lg.key, season)));
+        const data = snap.val();
+        if (data) {
+          for (const p of Object.values(data)) {
+            const key = (p.name || "").toLowerCase().trim();
+            if (!key) continue;
+            if (!playerMap[key]) playerMap[key] = { name: p.name, goals: 0, assists: 0, team: p.team || "", images: {} };
+            playerMap[key].goals += p.count || 0;
+            if (p.team) playerMap[key].team = p.team;
+            if (p.imageUrl) playerMap[key].images[lg.key] = p.imageUrl;
+          }
+        }
+      } catch {}
+    }
+    processed++;
+    onProgress(processed, total);
+
+    // Top assistants
+    for (const season of seasons) {
+      try {
+        const snap = await get(ref(db, PATHS.topAssistants(lg.key, season)));
+        const data = snap.val();
+        if (data) {
+          for (const p of Object.values(data)) {
+            const key = (p.name || "").toLowerCase().trim();
+            if (!key) continue;
+            if (!playerMap[key]) playerMap[key] = { name: p.name, goals: 0, assists: 0, team: p.team || "", images: {} };
+            playerMap[key].assists += p.count || 0;
+            if (p.team) playerMap[key].team = p.team;
+            if (p.imageUrl && !playerMap[key].images[lg.key]) playerMap[key].images[lg.key] = p.imageUrl;
+          }
+        }
+      } catch {}
+    }
+    processed++;
+    onProgress(processed, total);
+  }
+
+  return Object.values(playerMap)
+    .map(p => ({
+      ...p,
+      combined: p.goals + p.assists,
+      image: p.images["premier"] || p.images["laliga"] || p.images["ucl"] ||
+             p.images["seriea"] || p.images["bundesliga"] || p.images["ligue1"] ||
+             p.images["uel"] || p.images["cwc"] || p.images["sc"] || null,
+    }))
+    .filter(p => p.combined > 0)
+    .sort((a, b) => b.combined - a.combined);
+}
+
+/* ─── FETCH CLUBS (aggregate stats) ─────────────────────────────────────── */
+async function fetchAllClubs(clubs, onProgress) {
+  const result = [];
+  for (let i = 0; i < clubs.length; i++) {
+    const club = clubs[i];
+    let gs=0, gc=0, titles=0;
+    for (const lg of LEAGUES) {
+      let seasons = [];
+      try {
+        const snap = await get(ref(db, `career_${lg.key}_settings`));
+        const s = snap.val();
+        seasons = s?.seasons ? s.seasons.map(String) : ["1"];
+      } catch { seasons = ["1"]; }
+      for (const season of seasons) {
+        try {
+          const snap = await get(ref(db, PATHS.results(lg.key, season)));
+          const data = snap.val();
+          if (!data) continue;
+          for (const r of Object.values(data)) {
+            if (r.homeTeam === club.name) { gs += r.homeScore||0; gc += r.awayScore||0; }
+            else if (r.awayTeam === club.name) { gs += r.awayScore||0; gc += r.homeScore||0; }
+          }
+        } catch {}
+      }
+    }
+    result.push({ ...club, gs, gc, gd: gs - gc, titles, awards: 0, medals: 0 });
+    onProgress(i + 1, clubs.length);
+  }
+  return result.sort((a, b) => b.gs - a.gs);
+}
+
+/* ─── SMALL COMPONENTS ───────────────────────────────────────────────────── */
+function Avatar({ src, name, size = 80 }) {
+  if (src) return <img src={src} alt={name} style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", border: `2px solid ${T.borderPink}`, background: T.bg3, flexShrink: 0 }} />;
   return (
-    <div style={{ textAlign: "center", padding: "48px 20px", color: "rgba(255,255,255,0.3)" }}>
-      <div style={{
-        width: "36px", height: "36px", margin: "0 auto 16px",
-        border: "3px solid rgba(255,20,147,0.2)", borderTop: "3px solid #FF1493",
-        borderRadius: "50%", animation: "spin 0.8s linear infinite",
-      }} />
-      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", letterSpacing: "2px" }}>{label}</div>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    <div style={{ width: size, height: size, borderRadius: "50%", background: T.bg3, border: `2px solid ${T.borderPink}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: size * 0.36, fontWeight: 700, color: T.pink, flexShrink: 0 }}>
+      {(name || "?")[0].toUpperCase()}
     </div>
   );
 }
 
-function formatAmount(num) {
-  if (num >= 1_000_000_000) return `€${(num / 1_000_000_000).toFixed(2)}B`;
-  if (num >= 1_000_000) return `€${(num / 1_000_000).toFixed(1)}M`;
-  if (num >= 1_000) return `€${(num / 1_000).toFixed(0)}K`;
-  return `€${Number(num).toLocaleString()}`;
+function StatusBadge({ status }) {
+  const map = {
+    active:      { cls: "s-active",  label: "Active Manager" },
+    interim:     { cls: "s-interim", label: "Interim Manager" },
+    sacked:      { cls: "s-sacked",  label: "Sacked" },
+    retired:     { cls: "s-retired", label: "Retired" },
+    "free-agent":{ cls: "s-free",    label: "Free Agent" },
+  };
+  const s = map[status] || map["active"];
+  return <div className={`rmr-status ${s.cls}`}><span className="rmr-status-dot" />{s.label}</div>;
 }
 
-function getSASTMonthIndex() {
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Africa/Johannesburg",
-    month: "numeric",
-  });
-  return parseInt(formatter.format(new Date())) - 1;
+function Toast({ msg }) {
+  return <div className={`rmr-toast${msg ? " show" : ""}`}>{msg}</div>;
 }
 
-function formatDateTime(ts) {
-  if (!ts) return "—";
-  const d = new Date(ts);
-  return d.toLocaleString("en-GB", {
-    day: "numeric", month: "short", year: "numeric",
-    hour: "2-digit", minute: "2-digit", second: "2-digit",
-  });
+function Modal({ title, onClose, footer, children }) {
+  return (
+    <div className="rmr-modal-back" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="rmr-modal">
+        <div className="rmr-modal-header">
+          <div className="rmr-modal-title">{title}</div>
+          <button className="rmr-modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="rmr-modal-body">{children}</div>
+        {footer && <div className="rmr-modal-footer">{footer}</div>}
+      </div>
+    </div>
+  );
 }
 
-function formatDateOnly(ts) {
-  if (!ts) return "—";
-  const d = new Date(ts);
-  return d.toLocaleString("en-GB", {
-    day: "numeric", month: "short", year: "numeric",
-    hour: "2-digit", minute: "2-digit",
-  });
+/* ─── LOADING SCREEN ─────────────────────────────────────────────────────── */
+function LoadingScreen({ phase, count, total, timedOut }) {
+  if (timedOut) return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "100px 20px", gap: 18, textAlign: "center" }}>
+      <div style={{ fontSize: "3rem" }}>⚠️</div>
+      <div style={{ fontSize: "1.3rem", fontWeight: 700, color: T.text }}>Failed to load</div>
+      <div style={{ fontSize: "1rem", color: T.muted, maxWidth: 300 }}>Please check your internet connection and try again.</div>
+      <button className="rmr-btn-pink" onClick={() => window.location.reload()}>Try Again</button>
+    </div>
+  );
+
+  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "100px 20px", gap: 22 }}>
+      <div style={{ width: 64, height: 64, borderRadius: "50%", border: `4px solid ${T.bg4}`, borderTop: `4px solid ${T.pink}`, animation: "rmrSpin 0.9s linear infinite" }} />
+      <div style={{ fontSize: "1.1rem", fontWeight: 600, color: T.text, textAlign: "center", maxWidth: 320 }}>{phase}</div>
+      {total > 0 && (
+        <>
+          <div style={{ fontSize: "1.5rem", fontWeight: 700, color: T.pink, fontFamily: "'Bebas Neue', sans-serif", letterSpacing: 1 }}>
+            {count} / {total}
+          </div>
+          <div className="rmr-progress-bar">
+            <div className="rmr-progress-fill" style={{ width: `${pct}%` }} />
+          </div>
+          <div style={{ fontSize: ".9rem", color: T.muted }}>{pct}%</div>
+        </>
+      )}
+    </div>
+  );
 }
 
-// ─── RECURRING TRANSACTIONS CHECK (runs on page load) ─────────────────────
-async function processRecurringTransactions(team) {
-  if (!team) return;
+/* ════════════════════════════════════════════════════════════════════════════
+   MAIN PAGE
+════════════════════════════════════════════════════════════════════════════ */
+export default function ManagerRankingsPage() {
+  const { isAdmin: ctxAdmin } = useAdmin();
 
-  const todayMidnight = new Date();
-  todayMidnight.setHours(0, 0, 0, 0);
+  /* ── data ── */
+  const [accounts, setAccounts]   = useState(null);   // null = not yet loaded
+  const [rankData, setRankData]   = useState(null);
+  const [managers, setManagers]   = useState([]);
+  const [players, setPlayers]     = useState([]);
+  const [clubs, setClubs]         = useState([]);
+  const [rawClubs, setRawClubs]   = useState([]);     // from career_team_management
 
-  // ── 1. Recurring expense + recurring income (type field) ──────────────
-  try {
-    const recurringSnap = await get(ref(db, `career_team_management/${team}/finance/recurring`));
-    const recurringData = recurringSnap.val();
+  /* ── loading ── */
+  const [phase, setPhase]         = useState("Connecting to database...");
+  const [loadCount, setLoadCount] = useState(0);
+  const [loadTotal, setLoadTotal] = useState(0);
+  const [timedOut, setTimedOut]   = useState(false);
+  const [dataReady, setDataReady] = useState(false);  // true once all 3 tabs are built
 
-    if (recurringData) {
-      const txSnap = await get(ref(db, `career_team_management/${team}/finance/transactions`));
-      const txData = txSnap.val() || {};
+  /* ── ui ── */
+  const [tab, setTab]             = useState("managers");
+  const [search, setSearch]       = useState("");
+  const [menuOpen, setMenuOpen]   = useState(false);
+  const [toast, setToast]         = useState("");
+  const [isAdmin, setIsAdmin]     = useState(false);
+  const [adminKeyInput, setAdminKeyInput] = useState("");
 
-      for (const [rid, rec] of Object.entries(recurringData)) {
-        if (rec.status === "completed" || rec.status === "cancelled" || rec.status === "paused") continue;
+  /* ── popup / modals ── */
+  const [popup, setPopup]         = useState(null);  // { type: "manager"|"player"|"club", data, stats, loading }
+  const [modal, setModal]         = useState(null);
+  const slideIntervalRef          = useRef(null);
+  const [slideIdx, setSlideIdx]   = useState(0);
 
-        const isIncome = rec.type === "income";
-        const dailyAmount = Number(rec.dailyAmount);
-        const totalCap = Number(rec.totalCap);
+  /* ── timeout (2 min) ── */
+  useEffect(() => {
+    const t = setTimeout(() => { if (!dataReady) setTimedOut(true); }, 120000);
+    return () => clearTimeout(t);
+  }, [dataReady]);
 
-        const linkedTxs = Object.values(txData).filter(t => t.recurringId === rid);
-        const totalDebited = linkedTxs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  /* ── restore admin ── */
+  useEffect(() => {
+    if (localStorage.getItem("careerAdminMode") === "true" || ctxAdmin) setIsAdmin(true);
+  }, [ctxAdmin]);
 
-        if (totalDebited >= totalCap) {
-          await update(ref(db, `career_team_management/${team}/finance/recurring/${rid}`), { status: "completed" });
-          continue;
-        }
+  /* ── load accounts ── */
+  useEffect(() => {
+    const unsub = onValue(ref(db, "career_accounts"), snap => setAccounts(snap.val() || {}));
+    return () => unsub();
+  }, []);
 
-        const startDate = new Date(rec.startTs);
-        startDate.setHours(0, 0, 0, 0);
-        const debitedSet = new Set(linkedTxs.filter(t => t.debitDate).map(t => t.debitDate));
-        const skippedSet = new Set(rec.skippedDates ? Object.keys(rec.skippedDates) : []);
-        const cursor = new Date(startDate);
-        const writes = [];
+  /* ── load rankData ── */
+  useEffect(() => {
+    const unsub = onValue(ref(db, "career_rankings"), snap => setRankData(snap.val() || {}));
+    return () => unsub();
+  }, []);
 
-        while (cursor <= todayMidnight) {
-          const dateStr = cursor.toISOString().slice(0, 10);
-          if (!debitedSet.has(dateStr) && !skippedSet.has(dateStr)) {
-            const remaining = totalCap - totalDebited - writes.reduce((s, w) => s + w.amount, 0);
-            if (remaining <= 0) break;
-            const amount = Math.min(dailyAmount, remaining);
-            writes.push({
-              type: isIncome ? "income" : "expense",
-              category: isIncome ? "Recurring Income" : "Recurring Expense",
-              source: rec.description || (isIncome ? "Recurring Income" : "Recurring"),
-              amount,
-              month: ALL_MONTHS[cursor.getMonth()],
-              monthIndex: cursor.getMonth(),
-              year: cursor.getFullYear(),
-              createdAt: cursor.getTime(),
-              debitDate: dateStr,
-              recurringId: rid,
-              addedByAdmin: true,
-              sentBy: "System (Recurring)",
-              receivedBy: team,
-            });
-          }
-          cursor.setDate(cursor.getDate() + 1);
-        }
-
-        for (const tx of writes) {
-          await push(ref(db, `career_team_management/${team}/finance/transactions`), tx);
-        }
-
-        const newTotal = totalDebited + writes.reduce((s, w) => s + w.amount, 0);
-        if (newTotal >= totalCap) {
-          await update(ref(db, `career_team_management/${team}/finance/recurring/${rid}`), { status: "completed" });
-        }
-      }
-    }
-  } catch (e) {
-    console.error("Recurring tx error:", e);
-  }
-
-  // ── 2. Kit Sales ───────────────────────────────────────────────────────
-  try {
-    const kitsSnap = await get(ref(db, `career_team_management/${team}/finance/recurring_kits`));
-    const kitsData = kitsSnap.val();
-    if (!kitsData) return;
-
-    const txSnap = await get(ref(db, `career_team_management/${team}/finance/transactions`));
-    const txData = txSnap.val() || {};
-
-    for (const [kid, kit] of Object.entries(kitsData)) {
-      if (kit.status === "cancelled") continue;
-
-      const kitPrice = Number(kit.kitPrice);
-      const dailyMin = Number(kit.dailyMin);
-      const dailyMax = Number(kit.dailyMax);
-
-      const linkedTxs = Object.values(txData).filter(t => t.kitSalesId === kid);
-      const debitedSet = new Set(linkedTxs.filter(t => t.debitDate).map(t => t.debitDate));
-
-      const startDate = new Date(kit.startTs);
-      startDate.setHours(0, 0, 0, 0);
-      const cursor = new Date(startDate);
-      const writes = [];
-
-      while (cursor <= todayMidnight) {
-        const dateStr = cursor.toISOString().slice(0, 10);
-        if (!debitedSet.has(dateStr)) {
-          // Seeded random using date so re-runs produce the same value for same day
-          const seed = parseInt(dateStr.replace(/-/g, ""), 10) + kid.length;
-          const pseudoRand = ((seed * 9301 + 49297) % 233280) / 233280;
-          const kitsCount = Math.floor(dailyMin + pseudoRand * (dailyMax - dailyMin + 1));
-          const amount = kitsCount * kitPrice;
-          writes.push({
-            type: "income",
-            category: "Kit Sales",
-            source: `${kitsCount} kits × €${kitPrice.toLocaleString()}`,
-            amount,
-            month: ALL_MONTHS[cursor.getMonth()],
-            monthIndex: cursor.getMonth(),
-            year: cursor.getFullYear(),
-            createdAt: cursor.getTime(),
-            debitDate: dateStr,
-            kitSalesId: kid,
-            kitsCount,
-            kitPrice,
-            addedByAdmin: true,
-            sentBy: "System (Kit Sales)",
-            receivedBy: team,
-          });
-        }
-        cursor.setDate(cursor.getDate() + 1);
-      }
-
-      for (const tx of writes) {
-        await push(ref(db, `career_team_management/${team}/finance/transactions`), tx);
-      }
-    }
-  } catch (e) {
-    console.error("Kit sales recurring error:", e);
-  }
-}
-
-// ─── LOAN INSTALLMENT PROCESSING (runs on page load) ───────────────────────
-async function processLoanInstallments(team) {
-  try {
-    const loansSnap = await get(ref(db, `career_team_management/${team}/finance/loans`));
-    const loansData = loansSnap.val();
-    if (!loansData) return;
-
-    const txSnap = await get(ref(db, `career_team_management/${team}/finance/transactions`));
-    const txData = txSnap.val() || {};
-
-    const todayMidnight = new Date();
-    todayMidnight.setHours(0, 0, 0, 0);
-
-    for (const [lid, loan] of Object.entries(loansData)) {
-      if (loan.status === "completed") continue;
-
-      const linkedTxs = Object.values(txData).filter(t => t.loanId === lid);
-      const totalRepaid = linkedTxs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
-      if (totalRepaid >= loan.totalRepayable) {
-        await update(ref(db, `career_team_management/${team}/finance/loans/${lid}`), { status: "completed" });
-        continue;
-      }
-
-      const debitedSet = new Set(linkedTxs.filter(t => t.debitDate).map(t => t.debitDate));
-      const stepDays = loan.frequency === "week" ? 7 : loan.frequency === "month" ? 30 : 1;
-      const startDate = new Date(loan.startTs);
-      startDate.setHours(0, 0, 0, 0);
-      const cursor = new Date(startDate);
-      cursor.setDate(cursor.getDate() + stepDays); // first installment is due one period after issue
-      const writes = [];
-
-      while (cursor <= todayMidnight) {
-        const dateStr = cursor.toISOString().slice(0, 10);
-        if (!debitedSet.has(dateStr)) {
-          const remaining = loan.totalRepayable - totalRepaid - writes.reduce((s, w) => s + w.amount, 0);
-          if (remaining <= 0) break;
-          const amount = Math.min(loan.installmentAmount, remaining);
-          writes.push({
-            type: "expense",
-            category: "Loan Repayment",
-            source: `Installment (${loan.frequency})`,
-            amount,
-            month: ALL_MONTHS[cursor.getMonth()],
-            monthIndex: cursor.getMonth(),
-            year: cursor.getFullYear(),
-            createdAt: cursor.getTime(),
-            debitDate: dateStr,
-            loanId: lid,
-            addedByAdmin: true,
-            sentBy: "System (Loan Repayment)",
-            receivedBy: team,
-          });
-        }
-        cursor.setDate(cursor.getDate() + stepDays);
-      }
-
-      for (const tx of writes) {
-        await push(ref(db, `career_team_management/${team}/finance/transactions`), tx);
-      }
-
-      const newTotal = totalRepaid + writes.reduce((s, w) => s + w.amount, 0);
-      if (newTotal >= loan.totalRepayable) {
-        await update(ref(db, `career_team_management/${team}/finance/loans/${lid}`), { status: "completed" });
-      }
-    }
-  } catch (e) {
-    console.error("Loan installment error:", e);
-  }
-}
-
-// ─── ADMIN TEAM SELECTOR ──────────────────────────────────────────────────
-function AdminTeamSelector({ onSelect }) {
-  const [teams, setTeams] = useState([]);
-  const [selected, setSelected] = useState("");
-
+  /* ── load clubs from career_team_management ── */
   useEffect(() => {
     const unsub = onValue(ref(db, "career_team_management"), snap => {
       const data = snap.val() || {};
-      setTeams(Object.keys(data).sort());
+      setRawClubs(Object.entries(data).map(([name, val]) => ({
+        name,
+        badge: val.info?.badge || null,
+        bankrupt: val.bankrupt || false,
+      })));
     });
     return () => unsub();
   }, []);
 
+  /* ── BUILD everything once accounts + rankData are loaded ── */
+  useEffect(() => {
+    if (accounts === null || rankData === null) return;
+
+    async function build() {
+      /* ── PHASE 1: Managers (basic, no heavy result fetch) ── */
+      const entries = Object.entries(accounts);
+      setPhase("Calculating manager stats...");
+      setLoadCount(0);
+      setLoadTotal(entries.length);
+
+      const mgrList = [];
+      for (let i = 0; i < entries.length; i++) {
+        const [uid, acc] = entries[i];
+        const rd = rankData[uid] || {};
+        // Build tenures from teamHistory
+        const tenures = [];
+        if (acc.teamHistory) {
+          for (const entry of Object.values(acc.teamHistory)) {
+            if (entry.team && entry.team !== "None") {
+              tenures.push({ team: entry.team, assignedAt: entry.assignedAt || 0, removedAt: entry.removedAt || Date.now() });
+            }
+          }
+        }
+        // Current team
+        if (acc.team) {
+          tenures.push({ team: acc.team, assignedAt: acc.teamAssignedAt || 0, removedAt: Date.now() });
+        }
+
+        mgrList.push({
+          uid,
+          username:    acc.username || "Unknown",
+          team:        acc.team || null,
+          profilePhoto: acc.profilePhoto || null,
+          status:      rd.overrideStatus || (acc.team ? "active" : "free-agent"),
+          trophies:    rd.trophies || [],
+          medals:      rd.medals   || [],
+          individualAwards: rd.individualAwards || [],
+          records:     rd.records  || [],
+          description: rd.description || "",
+          trophyCabinet: rd.trophyCabinet || {},
+          tenures,
+          stats: { w:0,d:0,l:0,gs:0,gc:0,gd:0,fw:0,fl:0,mp:0,winRate:0,lossRate:0,matchHistory:[] },
+        });
+        setLoadCount(i + 1);
+      }
+
+      mgrList.sort((a, b) => {
+        const sa = totalScore(a), sb = totalScore(b);
+        if (sa !== sb) return sb - sa;
+        if ((b.trophies||[]).length !== (a.trophies||[]).length) return b.trophies.length - a.trophies.length;
+        return 0;
+      });
+      setManagers(mgrList);
+
+      /* ── PHASE 2: Players ── */
+      setPhase("Calculating player stats...");
+      setLoadCount(0);
+      setLoadTotal(LEAGUES.length * 2);
+      const playerList = await fetchAllPlayers((c, t) => { setLoadCount(c); setLoadTotal(t); });
+      setPlayers(playerList);
+
+      /* ── PHASE 3: Clubs ── */
+      setPhase("Calculating club stats...");
+      setLoadCount(0);
+      // rawClubs may not be ready yet — re-read directly
+      const clubSnap = await get(ref(db, "career_team_management"));
+      const clubData = clubSnap.val() || {};
+      const clubList = Object.entries(clubData).map(([name, val]) => ({
+        name,
+        badge: val.info?.badge || null,
+        bankrupt: val.bankrupt || false,
+      }));
+      setLoadTotal(clubList.length);
+      const builtClubs = await fetchAllClubs(clubList, (c, t) => { setLoadCount(c); setLoadTotal(t); });
+      setClubs(builtClubs);
+
+      setDataReady(true);
+    }
+
+    build();
+  }, [accounts, rankData]);
+
+  function showToast(msg) {
+    setToast(msg);
+    setTimeout(() => setToast(""), 2500);
+  }
+
+  /* ── open manager popup (lazy stats) ── */
+  async function openManagerPopup(mgr) {
+    setPopup({ type: "manager", data: mgr, stats: null, loading: true });
+    setSlideIdx(0);
+    if (slideIntervalRef.current) clearInterval(slideIntervalRef.current);
+    try {
+      const stats = await fetchManagerStats(mgr.team, mgr.tenures);
+      setPopup(p => ({ ...p, stats, loading: false }));
+      const imgs = mgr.trophyCabinet?.slideshow?.images || [];
+      const dur  = mgr.trophyCabinet?.slideshow?.duration || 3000;
+      if (imgs.length > 1) {
+        slideIntervalRef.current = setInterval(() => setSlideIdx(i => (i + 1) % imgs.length), dur);
+      }
+    } catch {
+      setPopup(p => ({ ...p, loading: false }));
+    }
+  }
+
+  /* ── open club popup (lazy) ── */
+  async function openClubPopup(club) {
+    setPopup({ type: "club", data: club, stats: null, loading: true });
+    try {
+      const results = await fetchClubResults(club.name);
+      // Top scorers / assistants across all leagues
+      const scorerMap = {}, assistMap = {};
+      for (const lg of LEAGUES) {
+        let seasons = [];
+        try { const s = (await get(ref(db, `career_${lg.key}_settings`))).val(); seasons = s?.seasons ? s.seasons.map(String) : ["1"]; } catch { seasons = ["1"]; }
+        for (const season of seasons) {
+          try {
+            const sd = (await get(ref(db, PATHS.topScorers(lg.key, season)))).val();
+            if (sd) for (const p of Object.values(sd)) { if ((p.team||"").toLowerCase() === club.name.toLowerCase()) scorerMap[(p.name||"").toLowerCase()] = { name: p.name, count: (scorerMap[(p.name||"").toLowerCase()]?.count || 0) + (p.count||0) }; }
+            const ad = (await get(ref(db, PATHS.topAssistants(lg.key, season)))).val();
+            if (ad) for (const p of Object.values(ad)) { if ((p.team||"").toLowerCase() === club.name.toLowerCase()) assistMap[(p.name||"").toLowerCase()] = { name: p.name, count: (assistMap[(p.name||"").toLowerCase()]?.count || 0) + (p.count||0) }; }
+          } catch {}
+        }
+      }
+      const topScorer   = Object.values(scorerMap).sort((a,b)=>b.count-a.count)[0] || null;
+      const topAssist   = Object.values(assistMap).sort((a,b)=>b.count-a.count)[0] || null;
+      setPopup(p => ({ ...p, stats: { results: results.slice(0,10), topScorer, topAssist }, loading: false }));
+    } catch {
+      setPopup(p => ({ ...p, loading: false }));
+    }
+  }
+
+  function closePopup() {
+    setPopup(null);
+    if (slideIntervalRef.current) clearInterval(slideIntervalRef.current);
+  }
+
+  async function saveRankField(uid, fields) { await update(ref(db, `career_rankings/${uid}`), fields); }
+  async function refreshRank(uid) {
+    const snap = await get(ref(db, `career_rankings/${uid}`));
+    setRankData(prev => ({ ...prev, [uid]: snap.val() || {} }));
+  }
+
+  function handleAdminLogin() {
+    if (verifyAdminKey(adminKeyInput)) {
+      setIsAdmin(true);
+      localStorage.setItem("careerAdminMode", "true");
+      showToast("Admin mode activated");
+      setModal(null);
+    } else { showToast("Incorrect key"); }
+  }
+
+  /* ── filtered lists ── */
+  const q = search.toLowerCase();
+  const filteredMgr = managers.filter(m => m.username.toLowerCase().includes(q) || (m.team||"").toLowerCase().includes(q));
+  const filteredPlr = players.filter(p => p.name.toLowerCase().includes(q) || (p.team||"").toLowerCase().includes(q));
+  const filteredClb = clubs.filter(c => c.name.toLowerCase().includes(q));
+
+  const isLoading = !dataReady && !timedOut;
+
+  /* ─── RENDER ──────────────────────────────────────────────────────────── */
   return (
-    <div style={{ ...GLASS, borderRadius: "20px", padding: "32px", maxWidth: "480px", margin: "60px auto", textAlign: "center" }}>
-      <div style={{ fontSize: "3rem", marginBottom: "16px" }}>🔧</div>
-      <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "3px", color: "#ffffff", margin: "0 0 8px" }}>ADMIN VIEW</h2>
-      <p style={{ color: "rgba(255,255,255,0.45)", marginBottom: "24px", fontSize: "1rem" }}>Select a team to manage their dashboard.</p>
-      <select
-        value={selected}
-        onChange={e => setSelected(e.target.value)}
-        style={{ width: "100%", padding: "16px 20px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.35)", borderRadius: "14px", color: "#fff", fontFamily: "inherit", fontSize: "1.1rem", outline: "none", marginBottom: "16px", cursor: "pointer" }}
-      >
-        <option value="">— Select a team —</option>
-        {teams.map(t => <option key={t} value={t}>{t}</option>)}
-      </select>
-      <button
-        onClick={() => selected && onSelect(selected)}
-        disabled={!selected}
-        style={{ width: "100%", padding: "16px", background: selected ? "#ff1493" : "rgba(255,20,147,0.2)", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.1rem", cursor: selected ? "pointer" : "not-allowed" }}
-      >
-        View Team Dashboard →
-      </button>
-    </div>
+    <>
+      <style>{css}</style>
+      <div className="rmr">
+        <Navbar title="Rankings" />
+        <Toast msg={toast} />
+
+        {/* Headline */}
+        <LeagueHeadlineSlideshow league="rankings" />
+
+        {/* Side menu */}
+        {menuOpen && (
+          <>
+            <div className="rmr-overlay" onClick={() => setMenuOpen(false)} />
+            <div className="rmr-sidemenu">
+              <button className="rmr-modal-close" style={{ float: "right" }} onClick={() => setMenuOpen(false)}>✕</button>
+              <div style={{ marginTop: 56, display: "flex", flexDirection: "column", gap: 8 }}>
+                <div className="rmr-menu-item" onClick={() => { setMenuOpen(false); setModal({ type: "rankingMethod" }); }}>📊 Ranking Method</div>
+                {!isAdmin && <div className="rmr-menu-item pink-item" onClick={() => { setMenuOpen(false); setModal({ type: "adminLogin" }); }}>🔑 Admin Mode</div>}
+                {isAdmin  && <div className="rmr-menu-item pink-item" onClick={() => { setIsAdmin(false); localStorage.removeItem("careerAdminMode"); setMenuOpen(false); showToast("Admin mode off"); }}>✅ Admin Active — Logout</div>}
+              </div>
+            </div>
+          </>
+        )}
+
+        <div style={{ maxWidth: 960, margin: "0 auto", padding: "24px 16px" }}>
+
+          {/* Search + menu */}
+          <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 24, flexWrap: "wrap" }}>
+            <div className="rmr-search" style={{ flex: 1, minWidth: 200, position: "relative" }}>
+              <span style={{ position: "absolute", left: 16, top: "50%", transform: "translateY(-50%)", color: T.muted, fontSize: 16 }}>🔍</span>
+              <input placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} />
+            </div>
+            <button className="rmr-btn-ghost" onClick={() => setMenuOpen(true)}>☰ Menu</button>
+          </div>
+
+          {/* Tabs */}
+          <div className="rmr-tabs">
+            {[["managers","👔 Managers"],["players","⚽ Players"],["clubs","🏟️ Clubs"]].map(([key, label]) => (
+              <button key={key} className={`rmr-tab${tab === key ? " active" : ""}`} onClick={() => setTab(key)}>{label}</button>
+            ))}
+          </div>
+
+          {/* ── LOADING ── */}
+          {isLoading && <LoadingScreen phase={phase} count={loadCount} total={loadTotal} timedOut={false} />}
+          {timedOut  && <LoadingScreen phase="" count={0} total={0} timedOut={true} />}
+
+          {/* ── MANAGERS TAB ── */}
+          {!isLoading && !timedOut && tab === "managers" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+              {filteredMgr.length === 0
+                ? <div style={{ textAlign: "center", color: T.dim, padding: "60px 20px", fontSize: "1rem" }}>No managers found.</div>
+                : filteredMgr.map((m, idx) => {
+                    const rank = idx + 1;
+                    const rankLabel = rank === 1 ? "🥇 #1" : rank === 2 ? "🥈 #2" : rank === 3 ? "🥉 #3" : `#${rank}`;
+                    const score = totalScore(m);
+                    const stats = m.stats || {};
+                    const titlesCount = (m.trophies || []).length;
+                    return (
+                      <div key={m.uid} className={`rmr-card${rank <= 3 ? " top3" : ""}`} style={{ animationDelay: `${idx * 0.04}s` }}>
+                        {/* Top row */}
+                        <div style={{ display: "flex", alignItems: "flex-start", gap: 18, marginBottom: 22 }}>
+                          <div style={{ position: "relative", flexShrink: 0 }}>
+                            <Avatar src={m.profilePhoto} name={m.username} size={80} />
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 700, fontSize: "1.3rem", marginBottom: 5 }}>{m.username}</div>
+                            <StatusBadge status={m.status} />
+                            <div style={{ fontSize: ".9rem", color: T.muted }}>{m.team || "No current team"}</div>
+                          </div>
+                        </div>
+
+                        {/* Rank + Score block */}
+                        <div style={{ background: T.bg3, borderRadius: T.radius, padding: "16px 20px", marginBottom: 18, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <span style={{ fontSize: ".8rem", color: T.muted, textTransform: "uppercase", letterSpacing: 1 }}>🏆 Total Score</span>
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
+                            <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: "1.7rem", color: T.muted, letterSpacing: 1, lineHeight: 1 }}>{rankLabel}</span>
+                            <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: "1.7rem", color: T.pink, letterSpacing: 1, lineHeight: 1 }}>{score.toFixed(1)}</span>
+                          </div>
+                        </div>
+
+                        {/* Stats grid */}
+                        <div className="rmr-stat-grid">
+                          {[
+                            ["Wins",   stats.w || 0,   null],
+                            ["Draws",  stats.d || 0,   null],
+                            ["Losses", stats.l || 0,   null],
+                            ["GS",     stats.gs|| 0,   null],
+                            ["GD",     (stats.gd>=0?"+":"")+(stats.gd||0), (stats.gd||0)>=0?"#4ade80":"#f87171"],
+                            ["GC",     stats.gc|| 0,   null],
+                            ["Win %",  (stats.winRate||0)+"%", null],
+                            ["Titles", titlesCount,    null],
+                            ["Loss %", (stats.lossRate||0)+"%", null],
+                          ].map(([label, val, color]) => (
+                            <div key={label} className="rmr-stat-cell">
+                              <div className="rmr-stat-label">{label}</div>
+                              <div className="rmr-stat-val" style={color ? { color } : {}}>{val}</div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Actions */}
+                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                          <button className="rmr-btn-outline" style={{ flex: 1, minWidth: 160 }} onClick={() => openManagerPopup(m)}>📊 View More Statistics</button>
+                          {isAdmin && <button className="rmr-btn-ghost" onClick={() => { setModal({ type: "editStatus", uid: m.uid, cur: m.status }); }}>✏️ Status</button>}
+                        </div>
+                      </div>
+                    );
+                  })
+              }
+            </div>
+          )}
+
+          {/* ── PLAYERS TAB ── */}
+          {!isLoading && !timedOut && tab === "players" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {filteredPlr.length === 0
+                ? <div style={{ textAlign: "center", color: T.dim, padding: "60px 20px", fontSize: "1rem" }}>No players found.</div>
+                : filteredPlr.map((p, idx) => (
+                    <div key={p.name + idx} className="rmr-player-card" style={{ animationDelay: `${idx * 0.03}s` }}>
+                      <div className="rmr-player-rank">{idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : `#${idx+1}`}</div>
+                      {p.image
+                        ? <img src={p.image} alt={p.name} className="rmr-player-icon" />
+                        : <div className="rmr-player-icon" style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.6rem" }}>⚽</div>
+                      }
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: "1.15rem", marginBottom: 4 }}>{p.name}</div>
+                        <div style={{ fontSize: ".9rem", color: T.muted }}>{p.team || "Unknown Club"}</div>
+                      </div>
+                      <div style={{ display: "flex", gap: 16, flexShrink: 0 }}>
+                        <div style={{ textAlign: "center" }}>
+                          <div style={{ fontSize: ".72rem", color: T.muted, textTransform: "uppercase", letterSpacing: .5 }}>Goals</div>
+                          <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: "1.5rem", color: T.pink }}>{p.goals}</div>
+                        </div>
+                        <div style={{ textAlign: "center" }}>
+                          <div style={{ fontSize: ".72rem", color: T.muted, textTransform: "uppercase", letterSpacing: .5 }}>Assists</div>
+                          <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: "1.5rem", color: T.pink }}>{p.assists}</div>
+                        </div>
+                        <div style={{ textAlign: "center" }}>
+                          <div style={{ fontSize: ".72rem", color: T.muted, textTransform: "uppercase", letterSpacing: .5 }}>Total</div>
+                          <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: "1.5rem", color: "#fff", fontWeight: 700 }}>{p.combined}</div>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+              }
+            </div>
+          )}
+
+          {/* ── CLUBS TAB ── */}
+          {!isLoading && !timedOut && tab === "clubs" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+              {filteredClb.length === 0
+                ? <div style={{ textAlign: "center", color: T.dim, padding: "60px 20px", fontSize: "1rem" }}>No clubs found.</div>
+                : filteredClb.map((c, idx) => {
+                    const currentMgr = managers.find(m => m.team === c.name);
+                    return (
+                      <div key={c.name} className="rmr-card" style={{ animationDelay: `${idx * 0.04}s` }}>
+                        {/* Club header */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 18 }}>
+                          <div style={{ width: 72, height: 72, borderRadius: 16, border: `2px solid ${T.borderPink}`, background: T.bg3, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 }}>
+                            {c.badge ? <img src={c.badge} alt={c.name} style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : <span style={{ fontSize: "2rem" }}>🏟️</span>}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: 700, fontSize: "1.3rem", marginBottom: 4 }}>{c.name}</div>
+                            <div style={{ fontSize: ".9rem", color: T.muted }}>Manager: <span style={{ color: T.pink }}>{currentMgr?.username || "Unassigned"}</span></div>
+                          </div>
+                        </div>
+
+                        {/* 3×2 stats */}
+                        <div className="rmr-club-stat-grid">
+                          {[
+                            ["Goals Scored", c.gs],
+                            ["Goals Conceded", c.gc],
+                            ["Goal Diff", (c.gd>=0?"+":"")+c.gd],
+                            ["Titles", c.titles],
+                            ["Awards", c.awards],
+                            ["Medals", c.medals],
+                          ].map(([label, val]) => (
+                            <div key={label} className="rmr-club-stat">
+                              <div className="lbl">{label}</div>
+                              <div className="val" style={(label==="Goal Diff") ? { color: c.gd >= 0 ? "#4ade80" : "#f87171" } : {}}>{val}</div>
+                            </div>
+                          ))}
+                        </div>
+
+                        <button className="rmr-btn-outline" style={{ width: "100%" }} onClick={() => openClubPopup(c)}>📊 View More</button>
+                      </div>
+                    );
+                  })
+              }
+            </div>
+          )}
+
+        </div>
+
+        {/* ── MANAGER POPUP ── */}
+        {popup?.type === "manager" && (
+          <ManagerPopup
+            manager={popup.data}
+            stats={popup.stats}
+            loading={popup.loading}
+            isAdmin={isAdmin}
+            slideIdx={slideIdx}
+            setSlideIdx={setSlideIdx}
+            onClose={closePopup}
+            onModal={(type, extra) => setModal({ type, uid: popup.data.uid, ...extra })}
+            db={db}
+            onRefresh={async uid => {
+              await refreshRank(uid);
+              const updated = managers.find(m => m.uid === uid);
+              if (updated) openManagerPopup(updated);
+            }}
+          />
+        )}
+
+        {/* ── CLUB POPUP ── */}
+        {popup?.type === "club" && (
+          <ClubPopup
+            club={popup.data}
+            stats={popup.stats}
+            loading={popup.loading}
+            managers={managers}
+            onClose={closePopup}
+          />
+        )}
+
+        {/* ── MODALS ── */}
+        {modal && (
+          <ModalRouter
+            modal={modal}
+            managers={managers}
+            isAdmin={isAdmin}
+            onClose={() => setModal(null)}
+            showToast={showToast}
+            onAdminLogin={handleAdminLogin}
+            adminKeyInput={adminKeyInput}
+            setAdminKeyInput={setAdminKeyInput}
+            onRefresh={refreshRank}
+            saveRankField={saveRankField}
+            db={db}
+            popupData={popup?.data || null}
+            onReopenPopup={m => openManagerPopup(m)}
+          />
+        )}
+      </div>
+    </>
   );
 }
 
-// ─── UPGRADE STADIUM POPUP ─────────────────────────────────────────────────
-function UpgradeStadiumPopup({ team, onClose }) {
-  const [description, setDescription] = useState("");
-  const [amount, setAmount] = useState("");
-  const [sending, setSending] = useState(false);
-  const [done, setDone] = useState(false);
-  const [error, setError] = useState("");
+/* ─── MANAGER POPUP ──────────────────────────────────────────────────────── */
+function ManagerPopup({ manager: m, stats, loading, isAdmin, slideIdx, setSlideIdx, onClose, onModal, db, onRefresh }) {
+  const trophies = m.trophies || [];
+  const medals   = m.medals   || [];
+  const awards   = m.individualAwards || [];
+  const records  = m.records  || [];
+  const cabinet  = m.trophyCabinet?.slideshow || {};
+  const imgs     = cabinet.images || [];
 
-  async function handleSend() {
-    if (!amount || Number(amount) <= 0) { setError("Please enter a valid amount."); return; }
-    setSending(true);
-    setError("");
-    try {
-      await push(ref(db, `career_team_management/${team}/stadium/upgradeRequests`), {
-        description: description.trim() || null,
-        amount: Number(amount),
-        status: "pending",
-        createdAt: Date.now(),
-      });
-      setDone(true);
-      setTimeout(onClose, 1500);
-    } catch (e) {
-      setError("Failed: " + e.message);
-    }
-    setSending(false);
-  }
+  const perf      = calcPerformanceScore(stats || {});
+  const trophyPts = calcTrophyPts(trophies);
+  const medalPts  = calcMedalPts(medals);
+  const awardPts  = calcAwardPts(awards);
+  const score     = (perf + trophyPts + medalPts + awardPts) * 2;
 
-  const inputStyle = { width: "100%", padding: "16px 20px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.35)", borderRadius: "14px", color: "#fff", fontFamily: "inherit", fontSize: "1.1rem", outline: "none", boxSizing: "border-box" };
+  const matchHistory = stats?.matchHistory || [];
+
+  const fs = { // font sizes — bigger throughout
+    label:  ".85rem",
+    val:    "1.1rem",
+    big:    "2.2rem",
+    body:   "1rem",
+    muted:  ".9rem",
+  };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }} onClick={onClose}>
-      <div style={{ ...GLASS, borderRadius: "24px", padding: "36px", maxWidth: "480px", width: "100%" }} onClick={e => e.stopPropagation()}>
-        <div style={{ fontSize: "3rem", marginBottom: "12px" }}>🏗️</div>
-        <h3 style={{ color: "#ffffff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.2rem", letterSpacing: "3px", marginBottom: "8px" }}>UPGRADE STADIUM</h3>
-        <p style={{ color: "rgba(255,255,255,0.45)", marginBottom: "24px", fontSize: "1rem" }}>Submit a request to admin. Once accepted, funds will be deducted from your balance.</p>
-        {done ? (
-          <div style={{ textAlign: "center", color: "#00ff88", fontWeight: 700, padding: "20px", background: "rgba(0,255,136,0.08)", borderRadius: "14px", fontSize: "1.2rem" }}>✅ Request Sent!</div>
+    <div className="rmr-popup">
+      <div className="rmr-popup-nav">
+        <div className="rmr-popup-nav-title">{m.username}</div>
+        <button className="rmr-modal-close" onClick={onClose}>✕</button>
+      </div>
+      <div className="rmr-popup-body">
+        {loading ? (
+          <div style={{ textAlign: "center", padding: "80px 20px" }}>
+            <div style={{ width: 56, height: 56, borderRadius: "50%", border: `4px solid ${T.bg4}`, borderTop: `4px solid ${T.pink}`, animation: "rmrSpin 0.9s linear infinite", margin: "0 auto 20px" }} />
+            <div style={{ color: T.muted, fontSize: "1.1rem" }}>Loading match history...</div>
+          </div>
         ) : (
           <>
-            <div style={{ marginBottom: "18px" }}>
-              <label style={{ color: "rgba(255,255,255,0.65)", fontSize: "0.9rem", display: "block", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.8px", fontWeight: 700 }}>What would you like to upgrade? (optional)</label>
-              <input value={description} onChange={e => setDescription(e.target.value)} placeholder="e.g. New seating, pitch renovation, lighting..." style={inputStyle} />
+            {/* Score breakdown */}
+            <div className="rmr-section">
+              <div className="rmr-section-title">📊 Score Breakdown</div>
+              <div style={{ background: T.bg3, borderRadius: T.radius, padding: 20, marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ color: T.muted, fontSize: fs.body }}>Total Score</span>
+                  <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: fs.big, color: T.pink }}>{score.toFixed(1)}</span>
+                </div>
+                <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 14, paddingTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+                  {[
+                    ["Performance (W/L/GS/GC)", perf.toFixed(1)],
+                    ["Trophy Points", trophyPts.toFixed(1)],
+                    ["Medal Points",  medalPts.toFixed(1)],
+                    ["Award Points",  awardPts.toFixed(1)],
+                    ["× 2 multiplier", "×2"],
+                  ].map(([label, val]) => (
+                    <div key={label} style={{ display: "flex", justifyContent: "space-between", fontSize: fs.body }}>
+                      <span style={{ color: T.muted }}>{label}</span>
+                      <span style={{ color: T.pink, fontWeight: 700 }}>{val}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
-            <div style={{ marginBottom: "24px" }}>
-              <label style={{ color: "rgba(255,255,255,0.65)", fontSize: "0.9rem", display: "block", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.8px", fontWeight: 700 }}>Amount (€)</label>
-              <input value={amount} onChange={e => setAmount(e.target.value)} placeholder="e.g. 10000000" style={inputStyle} type="number" min="0" />
-              {amount && Number(amount) > 0 && (
-                <div style={{ marginTop: "6px", color: "#ff6b6b", fontSize: "1rem", fontWeight: 700 }}>−{formatAmount(Number(amount))} from your balance</div>
+
+            {/* Extended stats */}
+            <div className="rmr-section">
+              <div className="rmr-section-title">📊 Extended Stats</div>
+              <div style={{ display: "flex", justifyContent: "space-around", background: T.bg2, borderRadius: T.radius, padding: 18, marginBottom: 10 }}>
+                {[["Wins",stats?.w||0],["Draws",stats?.d||0],["Losses",stats?.l||0],["GS",stats?.gs||0],["GC",stats?.gc||0],["MP",stats?.mp||0]].map(([l,v]) => (
+                  <div key={l} style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: ".75rem", color: T.muted, textTransform: "uppercase" }}>{l}</div>
+                    <div style={{ fontSize: "1.3rem", fontWeight: 700, color: T.pink }}>{v}</div>
+                  </div>
+                ))}
+              </div>
+              {isAdmin && <button className="rmr-add-btn" onClick={() => onModal("manualStats")}>✏️ Edit Stats Manually</button>}
+            </div>
+
+            {/* Titles */}
+            <div className="rmr-section">
+              <div className="rmr-section-title">🏆 Titles & Honours</div>
+              {imgs.length > 0 && (
+                <div className="rmr-slideshow">
+                  <img src={imgs[slideIdx % imgs.length]} alt="Trophy" />
+                  {imgs.length > 1 && (
+                    <div className="rmr-dots">{imgs.map((_,i) => <button key={i} className={`rmr-dot${i===slideIdx?" active":""}`} onClick={() => setSlideIdx(i)} />)}</div>
+                  )}
+                </div>
+              )}
+              {trophies.map((t, i) => (
+                <div key={i} className="rmr-title-item">
+                  <div><div className="rmr-title-name">🏆 {t.name}</div><div className="rmr-title-season">Season {t.season}</div></div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div className="rmr-title-pts">{t.points} pts</div>
+                    {isAdmin && <button className="rmr-btn-tiny danger" onClick={async () => { const u = trophies.filter((_,j)=>j!==i); await set(ref(db,`career_rankings/${m.uid}/trophies`),u); await onRefresh(m.uid); }}>🗑️</button>}
+                  </div>
+                </div>
+              ))}
+              {medals.map((med, i) => {
+                const icon = med.type==="gold"?"🥇":med.type==="silver"?"🥈":"🥉";
+                return (
+                  <div key={i} className="rmr-title-item">
+                    <div><div className="rmr-title-name">{icon} {med.name}</div><div className="rmr-title-season">Season {med.season}</div></div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div className="rmr-title-pts">{med.points.toFixed(1)} pts</div>
+                      {isAdmin && <button className="rmr-btn-tiny danger" onClick={async () => { const u = medals.filter((_,j)=>j!==i); await set(ref(db,`career_rankings/${m.uid}/medals`),u); await onRefresh(m.uid); }}>🗑️</button>}
+                    </div>
+                  </div>
+                );
+              })}
+              {awards.map((aw, i) => {
+                const icon = aw.type==="golden_boot"?"⚽":aw.type==="golden_glove"?"🧤":aw.type==="ballon_dor"?"🌟":aw.type==="yashin"?"🏅":"👨‍💼";
+                return (
+                  <div key={i} className="rmr-title-item">
+                    <div><div className="rmr-title-name">{icon} {aw.name}</div><div className="rmr-title-season">Season {aw.season}</div></div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div className="rmr-title-pts">{aw.points.toFixed(1)} pts</div>
+                      {isAdmin && <button className="rmr-btn-tiny danger" onClick={async () => { const u = awards.filter((_,j)=>j!==i); await set(ref(db,`career_rankings/${m.uid}/individualAwards`),u); await onRefresh(m.uid); }}>🗑️</button>}
+                    </div>
+                  </div>
+                );
+              })}
+              {!trophies.length && !medals.length && !awards.length && <p style={{ color: T.dim, fontSize: fs.muted, fontStyle: "italic" }}>No titles yet</p>}
+              {isAdmin && (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                  <button className="rmr-add-btn" onClick={() => onModal("addTrophy")}>+ Trophy</button>
+                  <button className="rmr-add-btn" onClick={() => onModal("addMedal")}>+ Medal</button>
+                  <button className="rmr-add-btn" onClick={() => onModal("addAward")}>+ Award</button>
+                  <button className="rmr-add-btn" onClick={() => onModal("slideshowManager")}>📸 Trophy Images</button>
+                </div>
               )}
             </div>
-            {error && <div style={{ color: "#ff6b6b", fontSize: "0.95rem", marginBottom: "14px", padding: "12px", background: "rgba(255,0,0,0.1)", borderRadius: "10px" }}>{error}</div>}
-            <div style={{ display: "flex", gap: "12px" }}>
-              <button onClick={handleSend} disabled={sending} style={{ flex: 1, padding: "16px", background: "#ff1493", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.1rem", cursor: sending ? "not-allowed" : "pointer" }}>
-                {sending ? "Sending..." : "💸 Send Request"}
-              </button>
-              <button onClick={onClose} style={{ flex: 1, padding: "16px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "14px", color: "#fff", cursor: "pointer", fontSize: "1.1rem" }}>Cancel</button>
+
+            {/* Description */}
+            <div className="rmr-section">
+              <div className="rmr-section-title">📝 Description</div>
+              {m.description
+                ? <div style={{ background: T.bg2, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: 18, fontSize: fs.body, lineHeight: 1.8, color: T.muted, whiteSpace: "pre-wrap" }}>{m.description}</div>
+                : <p style={{ color: T.dim, fontSize: fs.muted, fontStyle: "italic" }}>No description yet</p>
+              }
+              {isAdmin && <button className="rmr-add-btn" onClick={() => onModal("editDescription")}>✏️ Edit Description</button>}
+            </div>
+
+            {/* Records */}
+            <div className="rmr-section">
+              <div className="rmr-section-title">📋 Records</div>
+              {records.length > 0 ? records.map((r, i) => (
+                <div key={i} className="rmr-record">
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: fs.body, fontWeight: 600 }}>{r.name}</div>
+                    {r.description && <div style={{ fontSize: fs.muted, color: T.muted, marginTop: 3 }}>{r.description}</div>}
+                  </div>
+                  <div style={{ fontWeight: 700, color: T.pink, fontSize: "1.2rem", whiteSpace: "nowrap" }}>{r.value}</div>
+                  {isAdmin && (
+                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                      <button className="rmr-btn-tiny" onClick={() => onModal("editRecord", { recordIdx: i })}>✏️</button>
+                      <button className="rmr-btn-tiny danger" onClick={async () => { const u = records.filter((_,j)=>j!==i); await set(ref(db,`career_rankings/${m.uid}/records`),u); await onRefresh(m.uid); }}>🗑️</button>
+                    </div>
+                  )}
+                </div>
+              )) : <p style={{ color: T.dim, fontSize: fs.muted, fontStyle: "italic" }}>No records yet</p>}
+              {isAdmin && <button className="rmr-add-btn" onClick={() => onModal("addRecord")}>+ Add Record</button>}
+            </div>
+
+            {/* Match history */}
+            <div className="rmr-section">
+              <div className="rmr-section-title">📅 Match History</div>
+              {matchHistory.length > 0 ? matchHistory.map((mh, i) => (
+                <div key={i} className="rmr-match">
+                  <div className="rmr-match-team">{mh.home}</div>
+                  <div className="rmr-match-center">
+                    <div className="rmr-match-score">{mh.isForfeit ? "FF" : `${mh.homeScore} - ${mh.awayScore}`}</div>
+                    <div className="rmr-match-tourn">{mh.tournament}</div>
+                    <div className="rmr-match-md">S{mh.season} · MD {mh.md}</div>
+                    {mh.isForfeit   && <span className="rmr-forfeit-tag">Forfeit</span>}
+                    {mh.isNoContest && <span className="rmr-forfeit-tag" style={{ color: T.muted }}>No Contest</span>}
+                  </div>
+                  <div className="rmr-match-team away">{mh.away}</div>
+                </div>
+              )) : <p style={{ color: T.dim, fontSize: fs.muted, fontStyle: "italic" }}>No match history available</p>}
             </div>
           </>
         )}
@@ -427,1465 +1136,212 @@ function UpgradeStadiumPopup({ team, onClose }) {
   );
 }
 
-// ─── ALL LEAGUES FOR TICKET CALCULATION ───────────────────────────────────
-const ALL_LEAGUES = ["premier", "laliga", "seriea", "bundesliga", "ligue1", "ucl", "uel"];
-
-// ─── STADIUM TAB ──────────────────────────────────────────────────────────
-function StadiumTab({ team, isAdmin, onEditStadium }) {
-  const [data, setData] = useState(null);
-  const [slideIdx, setSlideIdx] = useState(0);
-  const [showUpgrade, setShowUpgrade] = useState(false);
-  const [underConstruction, setUnderConstruction] = useState(false);
-  const [savingConstruction, setSavingConstruction] = useState(false);
-  const [homeGamesCount, setHomeGamesCount] = useState(0);
-  const timerRef = useRef(null);
-
-  useEffect(() => {
-    if (!team) return;
-    const unsub = onValue(ref(db, `career_team_management/${team}/stadium`), snap => {
-      const d = snap.val();
-      setData(d);
-      setUnderConstruction(d?.underConstruction || false);
-    });
-    return () => unsub();
-  }, [team]);
-
-  // ── Fetch home games across all leagues active seasons ──────────────
-  useEffect(() => {
-    if (!team) return;
-    let cancelled = false;
-
-    async function fetchHomeGames() {
-      let total = 0;
-
-      // Get stadium data for transaction creation
-      const stadiumSnap = await get(ref(db, `career_team_management/${team}/stadium`));
-      const stadiumData = stadiumSnap.val();
-      const capacity = stadiumData?.capacity ? Number(stadiumData.capacity) : 0;
-      const ticketPrice = stadiumData?.ticketPrice ? Number(stadiumData.ticketPrice) : 0;
-      const expensesPerGame = stadiumData?.expensesPerGame ? Number(stadiumData.expensesPerGame) : 0;
-
-      // Get existing transactions to avoid duplicates
-      const txSnap = await get(ref(db, `career_team_management/${team}/finance/transactions`));
-      const txData = txSnap.val() || {};
-      const existingMatchIds = new Set(
-        Object.values(txData).filter(t => t.matchId).map(t => t.matchId)
-      );
-
-      for (const league of ALL_LEAGUES) {
-        try {
-          // Get active season — read season keys directly from the league node
-          const seasonsSnap = await get(ref(db, `career_${league}/seasons`));
-          const seasonsData = seasonsSnap.val();
-          if (!seasonsData) continue;
-
-          // Take the last season key (e.g. "season_1", "season_2")
-          const seasonKeys = Object.keys(seasonsData).sort();
-          const activeSeasonKey = seasonKeys[seasonKeys.length - 1];
-
-          const resultsSnap = await get(ref(db, `career_${league}/seasons/${activeSeasonKey}/results`));
-          const resultsData = resultsSnap.val();
-          if (!resultsData) continue;
-
-          const leagueLabel = league === "premier" ? "Premier League"
-            : league === "laliga" ? "La Liga"
-            : league === "seriea" ? "Serie A"
-            : league === "bundesliga" ? "Bundesliga"
-            : league === "ligue1" ? "Ligue 1"
-            : league === "ucl" ? "Champions League"
-            : league === "uel" ? "Europa League"
-            : league.toUpperCase();
-
-          const homeGames = Object.entries(resultsData).filter(([, r]) =>
-            r.homeTeam === team && r.forfeitType !== "no_contest"
-          );
-
-          total += homeGames.length;
-
-          // Auto-create ticket income + stadium expense per home match
-          for (const [matchKey, match] of homeGames) {
-            const matchId = `${league}_${activeSeasonKey}_${matchKey}`;
-            const incomeMatchId = `income_${matchId}`;
-            const expenseMatchId = `expense_${matchId}`;
-
-            const matchDate = match.date ? new Date(match.date) : new Date();
-            const monthIndex = matchDate.getMonth();
-            const year = matchDate.getFullYear();
-            const source = `${leagueLabel} — MD${match.md || "?"} vs ${match.awayTeam}`;
-
-            // Ticket income
-            if (!existingMatchIds.has(incomeMatchId) && capacity > 0 && ticketPrice > 0) {
-              const incomeAmount = capacity * ticketPrice;
-              await push(ref(db, `career_team_management/${team}/finance/transactions`), {
-                type: "income",
-                category: "Stadium Income",
-                source,
-                amount: incomeAmount,
-                month: ALL_MONTHS[monthIndex],
-                monthIndex,
-                year,
-                createdAt: matchDate.getTime(),
-                matchId: incomeMatchId,
-                addedByAdmin: true,
-                sentBy: "System (Stadium)",
-                receivedBy: team,
-              });
-              existingMatchIds.add(incomeMatchId);
-            }
-
-            // Stadium expense per game
-            if (!existingMatchIds.has(expenseMatchId) && expensesPerGame > 0) {
-              await push(ref(db, `career_team_management/${team}/finance/transactions`), {
-                type: "expense",
-                category: "Facility Expenses",
-                source,
-                amount: expensesPerGame,
-                month: ALL_MONTHS[monthIndex],
-                monthIndex,
-                year,
-                createdAt: matchDate.getTime(),
-                matchId: expenseMatchId,
-                addedByAdmin: true,
-                sentBy: "System (Stadium)",
-                receivedBy: team,
-              });
-              existingMatchIds.add(expenseMatchId);
-            }
-          }
-        } catch (e) {
-          // league may not exist, skip
-        }
-      }
-      if (!cancelled) setHomeGamesCount(total);
-    }
-
-    fetchHomeGames();
-    return () => { cancelled = true; };
-  }, [team]);
-
-  useEffect(() => {
-    if (!data?.images?.length) return;
-    timerRef.current = setInterval(() => setSlideIdx(i => (i + 1) % data.images.length), 4000);
-    return () => clearInterval(timerRef.current);
-  }, [data?.images?.length]);
-
-  async function toggleConstruction() {
-    setSavingConstruction(true);
-    try {
-      await update(ref(db, `career_team_management/${team}/stadium`), {
-        underConstruction: !underConstruction,
-      });
-    } catch (e) {
-      console.error(e);
-    }
-    setSavingConstruction(false);
-  }
-
-  const capacity = data?.capacity ? Number(data.capacity) : 0;
-  const ticketPrice = data?.ticketPrice ? Number(data.ticketPrice) : 0;
-  const ticketsSold = homeGamesCount * capacity;
-  const stadiumIncome = ticketsSold * ticketPrice;
-
-  if (!data) return (
-    <div style={{ textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.3)" }}>
-      <div style={{ fontSize: "4rem", marginBottom: "16px" }}>🏟️</div>
-      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "4rem", letterSpacing: "3px" }}>No Stadium Data Yet</div>
-      <div style={{ fontSize: "2rem", marginTop: "10px" }}>Admin can set up the stadium using the + menu.</div>
-      {isAdmin && (
-        <button onClick={onEditStadium} style={{ marginTop: "24px", padding: "16px 32px", background: "#ff1493", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.2rem", cursor: "pointer" }}>
-          🏟️ Set Up Stadium
-        </button>
-      )}
-    </div>
-  );
-
-  const images = data.images || [];
+/* ─── CLUB POPUP ─────────────────────────────────────────────────────────── */
+function ClubPopup({ club, stats, loading, managers, onClose }) {
+  const currentMgr  = managers.find(m => m.team === club.name);
+  const prevMgrs    = managers.filter(m => m.tenures?.some(t => t.team === club.name && t.removedAt < Date.now() && m.team !== club.name));
 
   return (
-    <div style={{ width: "100%" }}>
-      {isAdmin && (
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px", marginBottom: "16px", flexWrap: "wrap" }}>
-          <button
-            onClick={toggleConstruction}
-            disabled={savingConstruction}
-            style={{
-              padding: "12px 24px",
-              background: underConstruction ? "rgba(255,170,0,0.2)" : "rgba(255,255,255,0.06)",
-              border: `1px solid ${underConstruction ? "rgba(255,170,0,0.6)" : "rgba(255,255,255,0.2)"}`,
-              borderRadius: "12px", color: underConstruction ? "#ffaa44" : "#fff",
-              fontWeight: 700, fontSize: "1.1rem", cursor: "pointer",
-            }}
-          >
-            🏗️ {underConstruction ? "Remove Construction" : "Set Under Construction"}
-          </button>
-          <button onClick={onEditStadium} style={{ padding: "12px 24px", background: "rgba(255,20,147,0.15)", border: "1px solid rgba(255,20,147,0.5)", borderRadius: "12px", color: "#ffffff", fontWeight: 700, fontSize: "1.1rem", cursor: "pointer" }}>
-            ✏️ Edit Stadium
-          </button>
-        </div>
-      )}
-
-      {data.videoUrl ? (
-        <div style={{ width: "100%", aspectRatio: "16/7", overflow: "hidden", borderRadius: "16px", marginBottom: "28px" }}>
-          <video autoPlay muted loop playsInline style={{ width: "100%", height: "100%", objectFit: "cover" }}>
-            <source src={data.videoUrl} />
-          </video>
-        </div>
-      ) : images.length > 0 ? (
-        <div style={{ position: "relative", width: "100%", aspectRatio: "16/7", overflow: "hidden", borderRadius: "16px", marginBottom: "28px" }}>
-          {images.map((url, i) => (
-            <img key={i} src={url} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", opacity: i === slideIdx ? 1 : 0, transition: "opacity 0.7s ease" }} />
-          ))}
-          {images.length > 1 && (
-            <div style={{ position: "absolute", bottom: "14px", left: "50%", transform: "translateX(-50%)", display: "flex", gap: "8px" }}>
-              {images.map((_, i) => (
-                <div key={i} onClick={() => setSlideIdx(i)} style={{ width: "10px", height: "10px", borderRadius: "50%", background: i === slideIdx ? "#ffffff" : "rgba(255,255,255,0.4)", cursor: "pointer" }} />
-              ))}
-            </div>
-          )}
-        </div>
-      ) : (
-        <div style={{ width: "100%", aspectRatio: "16/7", background: "rgba(255,20,147,0.04)", border: "1px dashed rgba(255,20,147,0.2)", borderRadius: "16px", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "28px" }}>
-          <span style={{ color: "rgba(255,255,255,0.2)", fontSize: "1.4rem" }}>No images uploaded</span>
-        </div>
-      )}
-
-      <div style={{ textAlign: "center", marginBottom: "28px" }}>
-        <div style={{ color: "#ffffff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "clamp(2.4rem, 6vw, 5rem)", letterSpacing: "5px", textTransform: "uppercase", textShadow: "0 0 30px rgba(255,20,147,0.5)" }}>
-          {data.stadiumName || "STADIUM NAME"}
-        </div>
-        {data.location && <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "1.6rem", marginTop: "6px", letterSpacing: "2px" }}>📍 {data.location}</div>}
-        {data.capacity && (
-          <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "1.6rem", marginTop: "8px" }}>
-            Capacity: <span style={{ color: "#fff", fontWeight: 700, fontSize: "2rem" }}>{Number(data.capacity).toLocaleString()}</span>
+    <div className="rmr-popup">
+      <div className="rmr-popup-nav">
+        <div className="rmr-popup-nav-title">{club.name}</div>
+        <button className="rmr-modal-close" onClick={onClose}>✕</button>
+      </div>
+      <div className="rmr-popup-body">
+        {/* Club badge */}
+        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 28 }}>
+          <div style={{ width: 80, height: 80, borderRadius: 18, border: `2px solid ${T.borderPink}`, background: T.bg3, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 }}>
+            {club.badge ? <img src={club.badge} alt={club.name} style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : <span style={{ fontSize: "2.5rem" }}>🏟️</span>}
           </div>
-        )}
-        {underConstruction && (
-          <div style={{ marginTop: "10px", display: "inline-flex", alignItems: "center", gap: "8px", background: "rgba(255,170,0,0.12)", border: "1px solid rgba(255,170,0,0.4)", borderRadius: "20px", padding: "8px 20px" }}>
-            <span style={{ fontSize: "1.4rem" }}>🏗️</span>
-            <span style={{ color: "#ffaa44", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", letterSpacing: "2px" }}>STADIUM UNDER CONSTRUCTION</span>
-          </div>
-        )}
-      </div>
-
-      <div style={{ ...GLASS, borderRadius: "20px", overflow: "hidden", marginBottom: "28px" }}>
-        {[
-          {
-            label: "🎟️ Tickets Sold This Season",
-            value: capacity > 0
-              ? `${ticketsSold.toLocaleString()} (${homeGamesCount} home game${homeGamesCount !== 1 ? "s" : ""})`
-              : "—",
-          },
-          {
-            label: "💶 Standard Ticket Price",
-            value: data.ticketPrice ? `€${Number(data.ticketPrice).toLocaleString()}` : "—",
-          },
-          {
-            label: "💰 Stadium Income",
-            value: stadiumIncome > 0 ? `€${stadiumIncome.toLocaleString()}` : "—",
-          },
-          {
-            label: "💸 Stadium Expenses Per Game",
-            value: data.expensesPerGame ? `€${Number(data.expensesPerGame).toLocaleString()}` : "—",
-          },
-          {
-            label: "🤝 Sponsorship Deals",
-            value: data.sponsorshipDeals || "—",
-          },
-        ].map(({ label, value }, i) => (
-          <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "40px 56px", borderBottom: i < 4 ? "1px solid rgba(255,20,147,0.1)" : "none", background: i % 2 === 0 ? "rgba(255,255,255,0.02)" : "transparent" }}>
-            <span style={{ color: "rgba(255,255,255,0.6)", fontSize: "2.6rem" }}>{label}</span>
-            <span style={{ color: "#fff", fontWeight: 700, fontSize: "2.8rem" }}>{value}</span>
-          </div>
-        ))}
-      </div>
-
-      {!isAdmin && (
-        <div style={{ textAlign: "center" }}>
-          <button
-            onClick={() => setShowUpgrade(true)}
-            style={{ padding: "36px 80px", background: "linear-gradient(135deg, rgba(255,20,147,0.2), rgba(255,20,147,0.05))", border: "1px solid rgba(255,20,147,0.5)", borderRadius: "16px", color: "#ffffff", fontWeight: 700, fontSize: "2.6rem", cursor: "pointer", letterSpacing: "1px" }}
-          >
-            🏗️ Upgrade Stadium
-          </button>
-        </div>
-      )}
-
-      {showUpgrade && <UpgradeStadiumPopup team={team} onClose={() => setShowUpgrade(false)} />}
-    </div>
-  );
-}
-
-// ─── SQUAD TAB WRAPPER ────────────────────────────────────────────────────
-function SquadTabWrapper({ team, isAdmin, onEditSquad }) {
-  return (
-    <div style={{ textAlign: "center", padding: "60px 20px" }}>
-      <div style={{ fontSize: "4rem", marginBottom: "16px" }}>👥</div>
-      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3rem", letterSpacing: "3px", color: "#fff" }}>Squad Management</div>
-      <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.2rem", marginTop: "10px" }}>Click "TEAM" tab or visit the Squad page.</div>
-      {isAdmin && (
-        <button onClick={onEditSquad} style={{ marginTop: "24px", padding: "16px 32px", background: "#ff1493", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.2rem", cursor: "pointer" }}>
-          ✏️ Edit Squad
-        </button>
-      )}
-    </div>
-  );
-}
-
-// ─── TRANSFERS TAB ─────────────────────────────────────────────────────────
-function TransfersTab({ team, teamIcons, isAdmin }) {
-  const [negotiations, setNegotiations] = useState([]);
-  const [negLoading, setNegLoading] = useState(true);
-  const negEmptyTimeoutReached = useTimedEmptyState();
-  const [selectedOffer, setSelectedOffer] = useState(null);
-  const [deletingId, setDeletingId] = useState(null);
-
-  useEffect(() => {
-    if (!team) return;
-    setNegLoading(true);
-    const unsub = onValue(ref(db, `${PATHS.transfers}/negotiations`), snap => {
-      const data = snap.val();
-      if (!data) { setNegotiations([]); setNegLoading(false); return; }
-      const all = Object.entries(data).map(([id, n]) => ({ id, ...n }));
-      setNegotiations(all);
-      setNegLoading(false);
-    });
-    return () => unsub();
-  }, [team]);
-
-  async function handleDelete(offerId) {
-    if (!window.confirm("Delete this offer permanently?")) return;
-    setDeletingId(offerId);
-    try {
-      await remove(ref(db, `${PATHS.transfers}/negotiations/${offerId}`));
-    } catch (e) {
-      console.error(e);
-    }
-    setDeletingId(null);
-  }
-
-  const offersReceived = negotiations.filter(n => n.toClub === team || n.playerClub === team);
-  const offersSent = negotiations.filter(n => n.fromClub === team);
-
-  const BlockHeader = ({ title, count, color }) => (
-    <div style={{ color, fontFamily: "'Bebas Neue', sans-serif", fontSize: "3rem", letterSpacing: "3px", marginBottom: "20px", display: "flex", alignItems: "center", gap: "12px" }}>
-      {title}
-      <span style={{ background: `${color}22`, border: `1px solid ${color}`, color, borderRadius: "20px", padding: "4px 28px", fontSize: "2rem" }}>{count}</span>
-    </div>
-  );
-
-  const EmptyState = ({ label }) => (
-    <div style={{ textAlign: "center", padding: "48px 20px", color: "rgba(255,255,255,0.2)" }}>
-      <div style={{ fontSize: "6rem", marginBottom: "12px" }}>📋</div>
-      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.2rem", letterSpacing: "2px" }}>{label}</div>
-    </div>
-  );
-
-  return (
-    <div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "28px" }}>
-        {/* Offers Received */}
-        <div style={{ ...GLASS, borderRadius: "20px", padding: "28px" }}>
-          <BlockHeader title="📥 OFFERS RECEIVED" count={offersReceived.length} color="#00ff88" />
-          {negLoading ? (
-            <LoadingRow />
-          ) : offersReceived.length === 0 ? (
-            negEmptyTimeoutReached ? <EmptyState label="No Offers Received" /> : <LoadingRow />
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              {offersReceived.map(offer => (
-                <NegotiationRowCard
-                  key={offer.id}
-                  offer={offer}
-                  teamIcons={teamIcons}
-                  onClick={() => setSelectedOffer(offer)}
-                  isAdmin={isAdmin}
-                  onDelete={() => handleDelete(offer.id)}
-                  deleting={deletingId === offer.id}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Offers Sent */}
-        <div style={{ ...GLASS, borderRadius: "20px", padding: "28px" }}>
-          <BlockHeader title="📤 OFFERS SENT" count={offersSent.length} color="#ffffff" />
-          {negLoading ? (
-            <LoadingRow />
-          ) : offersSent.length === 0 ? (
-            negEmptyTimeoutReached ? <EmptyState label="No Offers Sent" /> : <LoadingRow />
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              {offersSent.map(offer => (
-                <NegotiationRowCard
-                  key={offer.id}
-                  offer={offer}
-                  teamIcons={teamIcons}
-                  onClick={() => setSelectedOffer(offer)}
-                  isAdmin={isAdmin}
-                  onDelete={() => handleDelete(offer.id)}
-                  deleting={deletingId === offer.id}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {selectedOffer && <NegotiationDetailPopup offer={selectedOffer} onClose={() => setSelectedOffer(null)} />}
-    </div>
-  );
-}
-
-// ─── NEGOTIATION ROW CARD (1 per row, full width) ─────────────────────────
-function NegotiationRowCard({ offer, teamIcons, onClick, isAdmin, onDelete, deleting }) {
-  const statusColors = { pending: "#ffaa44", accepted: "#00ff88", rejected: "#ff6b6b", cancelled: "#aaaaaa" };
-  const statusColor = statusColors[offer.status] || "#ffaa44";
-  const clubLogo = teamIcons?.[offer.playerClub] || teamIcons?.[offer.fromClub];
-  const typeColor = offer.type === "buy" ? "#ff1493" : offer.type === "loan" ? "#44aaff" : "#ffaa44";
-
-  return (
-    <div style={{
-      background: "rgba(255,255,255,0.04)",
-      border: "1px solid rgba(255,20,147,0.18)",
-      borderRadius: "16px",
-      overflow: "hidden",
-      display: "flex",
-      alignItems: "center",
-      gap: "24px",
-      padding: "28px 32px",
-      transition: "all 0.2s",
-      cursor: "pointer",
-    }}
-      onMouseOver={e => { e.currentTarget.style.background = "rgba(255,20,147,0.08)"; e.currentTarget.style.borderColor = "rgba(255,20,147,0.5)"; }}
-      onMouseOut={e => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; e.currentTarget.style.borderColor = "rgba(255,20,147,0.18)"; }}
-      onClick={onClick}
-    >
-      {/* Club logo / shirt */}
-      <div style={{ width: "112px", height: "112px", flexShrink: 0 }}>
-        {clubLogo
-          ? <img src={clubLogo} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
-          : <ShirtSVGSmall clubName={offer.playerClub} playerName={offer.playerName} squadNumber={null} />
-        }
-      </div>
-
-      {/* Info */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ color: "#fff", fontWeight: 800, fontSize: "3.3rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{offer.playerName}</div>
-        <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "2.55rem", marginTop: "6px" }}>
-          {offer.playerClub} · <span style={{ color: "rgba(255,255,255,0.7)" }}>From: {offer.fromClub || offer.fromManagerName}</span>
-        </div>
-        <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.6rem", letterSpacing: "1px", marginTop: "8px" }}>
-          {offer.offerAmount || offer.loanAmount || offer.bidAmount || "—"}
-        </div>
-      </div>
-
-      {/* Badges */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "12px", alignItems: "flex-end" }}>
-        <span style={{ background: `${typeColor}22`, color: typeColor, border: `1px solid ${typeColor}`, borderRadius: "8px", padding: "6px 20px", fontSize: "2.25rem", fontWeight: 700, textTransform: "uppercase" }}>
-          {offer.type}
-        </span>
-        <span style={{ background: `${statusColor}22`, color: statusColor, border: `1px solid ${statusColor}`, borderRadius: "8px", padding: "6px 20px", fontSize: "2.25rem", fontWeight: 700, textTransform: "uppercase" }}>
-          {offer.status}
-        </span>
-      </div>
-
-      {/* Admin delete */}
-      {isAdmin && (
-        <button
-          onClick={e => { e.stopPropagation(); onDelete(); }}
-          disabled={deleting}
-          style={{ marginLeft: "8px", width: "64px", height: "64px", background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.4)", borderRadius: "10px", color: "#ff6b6b", cursor: "pointer", fontSize: "2rem", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
-          title="Delete offer"
-        >
-          {deleting ? "..." : "🗑️"}
-        </button>
-      )}
-    </div>
-  );
-}
-
-// ─── NEGOTIATION DETAIL POPUP ─────────────────────────────────────────────
-function NegotiationDetailPopup({ offer, onClose }) {
-  if (!offer) return null;
-  const statusColors = { pending: "#ffaa44", accepted: "#00ff88", rejected: "#ff6b6b" };
-  const statusColor = statusColors[offer.status] || "#ffaa44";
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }} onClick={onClose}>
-      <div style={{ ...GLASS, borderRadius: "24px", padding: "36px", maxWidth: "900px", width: "100%", position: "relative" }} onClick={e => e.stopPropagation()}>
-        <button onClick={onClose} style={{ position: "absolute", top: "16px", right: "16px", background: "rgba(255,255,255,0.1)", border: "none", color: "#fff", borderRadius: "50%", width: "36px", height: "36px", cursor: "pointer", fontSize: "1.1rem" }}>✕</button>
-        <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3rem", letterSpacing: "2px", marginBottom: "6px" }}>{offer.playerName}</div>
-        <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "3.6rem", marginBottom: "20px" }}>{offer.playerClub}</div>
-        <div style={{ display: "flex", gap: "10px", marginBottom: "20px", flexWrap: "wrap" }}>
-          <span style={{ background: offer.type === "buy" ? "rgba(255,20,147,0.2)" : offer.type === "loan" ? "rgba(0,150,255,0.2)" : "rgba(255,170,0,0.2)", color: offer.type === "buy" ? "#ffffff" : offer.type === "loan" ? "#44aaff" : "#ffaa44", padding: "6px 16px", borderRadius: "20px", fontSize: "3rem", fontWeight: 700, textTransform: "uppercase" }}>{offer.type}</span>
-          <span style={{ background: `${statusColor}22`, color: statusColor, padding: "6px 16px", borderRadius: "20px", fontSize: "3rem", fontWeight: 700, textTransform: "uppercase" }}>{offer.status}</span>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "12px" }}>
-          {[
-            ["From Club", offer.fromClub],
-            ["Manager", offer.fromManagerName],
-            ["To Club", offer.toClub || offer.playerClub],
-            offer.type === "auction" ? ["Bid", offer.bidAmount] : offer.type === "loan" ? ["Loan Fee", offer.loanAmount] : ["Offer", offer.offerAmount],
-            offer.contractLength && ["Contract", offer.contractLength],
-            offer.loanTerm && ["Loan Term", offer.loanTerm],
-            offer.wage && ["Wage", offer.wage],
-            ["Sent", offer.createdAt ? formatDateTime(offer.createdAt) : "—"],
-          ].filter(Boolean).map(([label, value]) => (
-            <div key={label} style={{ background: "rgba(255,255,255,0.05)", borderRadius: "12px", padding: "14px 16px" }}>
-              <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "2.4rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "6px" }}>{label}</div>
-              <div style={{ color: "#fff", fontWeight: 700, fontSize: "3rem" }}>{value || "—"}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── SHIRT SVG ─────────────────────────────────────────────────────────────
-function ShirtSVGSmall({ clubName, playerName, squadNumber }) {
-  const colors = { primary: "#ffffff", secondary: "#000033", text: "#fff" };
-  const num = squadNumber || "?";
-  const nameParts = (playerName || "").toUpperCase().split(" ");
-  const displayName = nameParts[nameParts.length - 1] || "";
-  return (
-    <svg viewBox="0 0 200 220" xmlns="http://www.w3.org/2000/svg" style={{ width: "100%", height: "100%" }}>
-      <defs>
-        <linearGradient id={`tsg-${num}-${displayName}`} x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor={colors.primary} />
-          <stop offset="100%" stopColor={colors.secondary} stopOpacity="0.85" />
-        </linearGradient>
-      </defs>
-      <path d="M 50 40 L 20 70 L 45 80 L 45 190 L 155 190 L 155 80 L 180 70 L 150 40 Q 130 30 115 38 Q 100 55 85 38 Q 70 30 50 40 Z"
-        fill={`url(#tsg-${num}-${displayName})`} />
-      <text x="100" y="135" textAnchor="middle" fontFamily="'Bebas Neue', sans-serif" fontSize="52" fontWeight="900" fill={colors.text} opacity="0.95">{num}</text>
-      <text x="100" y="172" textAnchor="middle" fontFamily="'Bebas Neue', sans-serif" fontSize="13" fontWeight="700" fill={colors.text} opacity="0.8" letterSpacing="2">
-        {displayName.length > 10 ? displayName.slice(0, 10) + "…" : displayName}
-      </text>
-    </svg>
-  );
-}
-
-// ─── EDIT RECURRING MODAL ────────────────────────────────────────────────────
-function EditRecurringModal({ rec, alreadyDebited, onSave, onClose }) {
-  const [description, setDescription] = useState(rec.description || "");
-  const [dailyAmount, setDailyAmount] = useState(String(rec.dailyAmount));
-  const [totalCap, setTotalCap] = useState(String(rec.totalCap));
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  async function handleSave() {
-    if (!description.trim()) { setError("Title can't be empty."); return; }
-    if (!dailyAmount || Number(dailyAmount) <= 0) { setError("Enter a valid amount."); return; }
-    if (!totalCap || Number(totalCap) <= 0) { setError("Enter a valid cap."); return; }
-    setSaving(true);
-    setError("");
-    try {
-      await onSave({ description, dailyAmount, totalCap }, alreadyDebited);
-      onClose();
-    } catch (e) {
-      setError(e.message);
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Modal active onClose={onClose}>
-      <div style={{ padding: "32px", minWidth: "320px" }}>
-        <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", color: "#44aaff", letterSpacing: "2px", marginBottom: "24px" }}>✏️ Edit Recurring</h2>
-
-        <label style={{ display: "block", color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>Title</label>
-        <input value={description} onChange={e => setDescription(e.target.value)} style={{ width: "100%", padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "12px", color: "#fff", fontFamily: "inherit", fontSize: "1rem", marginBottom: "16px" }} />
-
-        <label style={{ display: "block", color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>Amount (per day)</label>
-        <input type="number" value={dailyAmount} onChange={e => setDailyAmount(e.target.value)} style={{ width: "100%", padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "12px", color: "#fff", fontFamily: "inherit", fontSize: "1rem", marginBottom: "16px" }} />
-
-        <label style={{ display: "block", color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>Total Cap</label>
-        <input type="number" value={totalCap} onChange={e => setTotalCap(e.target.value)} style={{ width: "100%", padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "12px", color: "#fff", fontFamily: "inherit", fontSize: "1rem", marginBottom: "8px" }} />
-        <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "0.8rem", marginBottom: "16px" }}>
-          Already charged: {formatAmount(alreadyDebited)} — cap can't go below this.
-        </div>
-
-        {error && <div style={{ color: "#ff6b6b", fontSize: "0.9rem", marginBottom: "14px" }}>{error}</div>}
-
-        <div style={{ display: "flex", gap: "12px" }}>
-          <button onClick={handleSave} disabled={saving} style={{ flex: 1, padding: "14px", background: "#44aaff", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.6 : 1 }}>
-            {saving ? "Saving..." : "Save Changes"}
-          </button>
-          <button onClick={onClose} style={{ flex: 1, padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "12px", color: "#fff", cursor: "pointer" }}>
-            Cancel
-          </button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-// ─── FINANCE TAB ──────────────────────────────────────────────────────────
-function FinanceTab({ team, isAdmin }) {
-  const [transactions, setTransactions] = useState([]);
-  const [txLoading, setTxLoading] = useState(true);
-  const txEmptyTimeoutReached = useTimedEmptyState();
-  const [recurringList, setRecurringList] = useState([]);
-  const [editingRecurring, setEditingRecurring] = useState(null);
-  const [loansList, setLoansList] = useState([]);
-  const [showRequestLoan, setShowRequestLoan] = useState(false);
-  const [selectedTx, setSelectedTx] = useState(null);
-  const [showFilterModal, setShowFilterModal] = useState(false);
-  const [dateFilter, setDateFilter] = useState({ days: 30, from: null, to: null });
-  const currentMonthIndex = getSASTMonthIndex();
-  const scrollRef = useRef(null);
-
-  useEffect(() => {
-    if (!team) return;
-    setTxLoading(true);
-    const unsub = onValue(ref(db, `career_team_management/${team}/finance/transactions`), snap => {
-      const data = snap.val();
-      if (data) {
-        setTransactions(Object.entries(data).map(([id, t]) => ({ id, ...t })).sort((a, b) => b.createdAt - a.createdAt));
-      } else {
-        setTransactions([]);
-      }
-      setTxLoading(false);
-    });
-    return () => unsub();
-  }, [team]);
-
-  useEffect(() => {
-    if (!team) return;
-    const unsub = onValue(ref(db, `career_team_management/${team}/finance/loans`), snap => {
-      const data = snap.val();
-      setLoansList(data ? Object.entries(data).map(([id, l]) => ({ id, ...l })) : []);
-    });
-    return () => unsub();
-  }, [team]);
-
-  useEffect(() => {
-    if (!team || !isAdmin) return;
-    const unsub = onValue(ref(db, `career_team_management/${team}/finance/recurring`), snap => {
-      const data = snap.val();
-      if (data) {
-        setRecurringList(Object.entries(data).map(([id, r]) => ({ id, ...r })));
-      } else {
-        setRecurringList([]);
-      }
-    });
-    return () => unsub();
-  }, [team, isAdmin]);
-
-  function getFilteredTxs() {
-    if (dateFilter.days === null && !dateFilter.from) return transactions;
-    const now = Date.now();
-    return transactions.filter(tx => {
-      if (!tx.createdAt) return true;
-      if (dateFilter.days !== null) {
-        return tx.createdAt >= now - dateFilter.days * 24 * 60 * 60 * 1000;
-      }
-      return tx.createdAt >= dateFilter.from.getTime() && tx.createdAt <= dateFilter.to.getTime();
-    });
-  }
-
-  const filteredTxs = getFilteredTxs();
-
-  function getFilterLabel() {
-    if (dateFilter.days !== null) return `Last ${dateFilter.days} Days`;
-    if (!dateFilter.from) return "All Time";
-    const fmt = d => d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-    return `${fmt(dateFilter.from)} – ${fmt(dateFilter.to)}`;
-  }
-
-  const PLACEHOLDERS = {
-    4: { income: 12_000_000, expense: 7_500_000 },
-    5: { income: 16_400_000, expense: 9_200_000 },
-    6: { income: 14_100_000, expense: 8_800_000 },
-  };
-
-  const chartData = ALL_MONTHS.map((_, mIdx) => {
-    if (mIdx > currentMonthIndex) return { income: 0, expense: 0, empty: true };
-    if (mIdx < 4) return { income: 0, expense: 0, empty: true };
-    if (mIdx < 7 && PLACEHOLDERS[mIdx]) {
-      const p = PLACEHOLDERS[mIdx];
-      return { income: p.income, expense: p.expense, empty: false, placeholder: true };
-    }
-    const monthTxs = transactions.filter(t => t.monthIndex === mIdx);
-    const income = monthTxs.filter(t => t.type === "income").reduce((s, t) => s + (Number(t.amount) || 0), 0);
-    const expense = monthTxs.filter(t => t.type === "expense").reduce((s, t) => s + (Number(t.amount) || 0), 0);
-    return { income, expense, empty: false, placeholder: false };
-  });
-
-  const maxVal = Math.max(...chartData.map(d => Math.max(d.income, d.expense)), 1) * 1.2;
-  const barAreaH = 560;
-
-  useEffect(() => {
-    if (!scrollRef.current || currentMonthIndex < 4 || currentMonthIndex > 11) return;
-    const barWidth = 120;
-    const gap = 8;
-    const scrollTo = (currentMonthIndex - 4) * (barWidth + gap) - 100;
-    scrollRef.current.scrollLeft = Math.max(0, scrollTo);
-  }, [currentMonthIndex]);
-
-  const incomeTotals = {};
-  const expenseTotals = {};
-  INCOME_CATEGORIES.forEach(c => {
-    incomeTotals[c] = filteredTxs.filter(t => t.type === "income" && t.category === c).reduce((s, t) => s + (Number(t.amount) || 0), 0);
-  });
-  EXPENSE_CATEGORIES.forEach(c => {
-    expenseTotals[c] = filteredTxs.filter(t => t.type === "expense" && t.category === c).reduce((s, t) => s + (Number(t.amount) || 0), 0);
-  });
-
-  const totalIncome = filteredTxs.filter(t => t.type === "income").reduce((s, t) => s + (Number(t.amount) || 0), 0);
-  const totalExpense = filteredTxs.filter(t => t.type === "expense").reduce((s, t) => s + (Number(t.amount) || 0), 0);
-  const netPL = totalIncome - totalExpense;
-  const isProfit = netPL >= 0;
-
-  async function handleDeleteRecurring(rid) {
-    if (!window.confirm("Stop and delete this recurring transaction?")) return;
-    try {
-      await remove(ref(db, `career_team_management/${team}/finance/recurring/${rid}`));
-    } catch (e) {
-      console.error(e);
-    }
-  }
-
-  async function handlePauseRecurring(rid) {
-    try {
-      await update(ref(db, `career_team_management/${team}/finance/recurring/${rid}`), {
-        status: "paused",
-        pausedAt: new Date().toISOString().slice(0, 10),
-      });
-    } catch (e) {
-      console.error(e);
-    }
-  }
-
-  async function handleResumeRecurring(rec) {
-    try {
-      // Skip every day it was paused — resuming never charges a backlog lump sum.
-      const skippedDates = { ...(rec.skippedDates || {}) };
-      if (rec.pausedAt) {
-        const cursor = new Date(rec.pausedAt);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        while (cursor <= today) {
-          skippedDates[cursor.toISOString().slice(0, 10)] = true;
-          cursor.setDate(cursor.getDate() + 1);
-        }
-      }
-      await update(ref(db, `career_team_management/${team}/finance/recurring/${rec.id}`), {
-        status: "active",
-        pausedAt: null,
-        skippedDates,
-      });
-    } catch (e) {
-      console.error(e);
-    }
-  }
-
-  async function handleSaveEditRecurring(rid, { description, dailyAmount, totalCap }, alreadyDebited) {
-    if (Number(totalCap) < alreadyDebited) {
-      throw new Error(`Cap can't be set below what's already been charged (${formatAmount(alreadyDebited)}).`);
-    }
-    await update(ref(db, `career_team_management/${team}/finance/recurring/${rid}`), {
-      description: description.trim(),
-      dailyAmount: Number(dailyAmount),
-      totalCap: Number(totalCap),
-    });
-  }
-
-  return (
-    <div>
-      {/* ── Chart ── */}
-      <div style={{ ...GLASS, borderRadius: "20px", padding: "64px", marginBottom: "40px" }}>
-        <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.6rem", letterSpacing: "3px", marginBottom: "40px" }}>📈 FINANCIAL OVERVIEW</div>
-        <div ref={scrollRef} style={{ width: "100%", overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: "16px" }}>
-          <div style={{ minWidth: `${12 * 120 + 11 * 8 + 80}px`, position: "relative", height: `${barAreaH + 80}px` }}>
-            {[0, 25, 50, 75, 100].map(pct => {
-              const val = (maxVal * pct / 100);
-              return (
-                <div key={pct} style={{ position: "absolute", left: 0, top: `${barAreaH - (barAreaH * pct / 100)}px`, color: "rgba(255,255,255,0.3)", fontSize: "1.4rem", transform: "translateY(-50%)", width: "70px", textAlign: "right" }}>
-                  {formatAmount(val)}
-                </div>
-              );
-            })}
-            {[0, 25, 50, 75, 100].map(pct => (
-              <div key={pct} style={{ position: "absolute", left: "80px", right: 0, top: `${barAreaH - (barAreaH * pct / 100)}px`, borderTop: "1px dashed rgba(255,255,255,0.08)" }} />
-            ))}
-            <div style={{ position: "absolute", left: "80px", right: 0, bottom: "60px", top: 0, display: "flex", alignItems: "flex-end", gap: "8px" }}>
-              {ALL_MONTHS.map((month, i) => {
-                const d = chartData[i];
-                const incH = d.empty || d.income === 0 ? 0 : (d.income / maxVal) * barAreaH;
-                const expH = d.empty || d.expense === 0 ? 0 : (d.expense / maxVal) * barAreaH;
-                const isFuture = d.empty;
-                const isActive = i === currentMonthIndex && !d.empty;
-                return (
-                  <div key={month} style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: "0 0 120px" }}>
-                    <div style={{ display: "flex", alignItems: "flex-end", gap: "10px", height: `${barAreaH}px` }}>
-                      <div style={{ flex: 1, height: `${Math.max(incH, 0)}px`, minWidth: "36px", background: isFuture ? "rgba(255,255,255,0.04)" : "linear-gradient(to top, #ff1493, #ff69b4)", borderRadius: "8px 8px 0 0", border: isFuture ? "1px dashed rgba(255,255,255,0.1)" : isActive ? "3px solid #fff" : "none", boxShadow: isActive ? "0 0 20px rgba(255,20,147,0.8)" : "none", position: "relative", transition: "height 0.5s" }}>
-                        {incH > 20 && <div style={{ position: "absolute", top: "-30px", left: "50%", transform: "translateX(-50%)", color: "#ff1493", fontSize: "1.2rem", fontWeight: 700, whiteSpace: "nowrap" }}>{formatAmount(d.income)}</div>}
-                      </div>
-                      <div style={{ flex: 1, height: `${Math.max(expH, 0)}px`, minWidth: "36px", background: isFuture ? "rgba(255,255,255,0.04)" : "linear-gradient(to top, #000033, #001a66)", borderRadius: "8px 8px 0 0", border: isFuture ? "1px dashed rgba(255,255,255,0.1)" : isActive ? "3px solid #fff" : "1px solid rgba(0,100,255,0.4)", boxShadow: isActive ? "0 0 20px rgba(0,100,255,0.8)" : "none", position: "relative", transition: "height 0.5s" }}>
-                        {expH > 20 && <div style={{ position: "absolute", top: "-30px", left: "50%", transform: "translateX(-50%)", color: "#4488ff", fontSize: "1.2rem", fontWeight: 700, whiteSpace: "nowrap" }}>{formatAmount(d.expense)}</div>}
-                      </div>
-                    </div>
-                    <div style={{ color: isFuture ? "rgba(255,255,255,0.2)" : isActive ? "#fff" : "rgba(255,255,255,0.5)", fontSize: isActive ? "2rem" : "1.6rem", fontWeight: isActive ? 900 : 700, marginTop: "12px" }}>
-                      {month}{isActive && <span style={{ fontSize: "1.2rem", marginLeft: "6px", color: "#ff1493" }}>⬅️</span>}
-                    </div>
-                    {isFuture && <div style={{ color: "rgba(255,255,255,0.15)", fontSize: "1rem", marginTop: "2px" }}>upcoming</div>}
-                  </div>
-                );
-              })}
-            </div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: "1.5rem" }}>{club.name}</div>
+            {club.bankrupt && <div style={{ color: "#f87171", fontSize: ".9rem", marginTop: 4 }}>🔴 Bankrupt</div>}
           </div>
         </div>
-        <div style={{ display: "flex", gap: "36px", justifyContent: "center", marginTop: "32px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <div style={{ width: "28px", height: "28px", background: "#ff1493", borderRadius: "6px" }} />
-            <span style={{ color: "rgba(255,255,255,0.7)", fontSize: "1.6rem", fontWeight: 600 }}>Income</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <div style={{ width: "28px", height: "28px", background: "#000033", border: "1px solid rgba(0,100,255,0.5)", borderRadius: "6px" }} />
-            <span style={{ color: "rgba(255,255,255,0.7)", fontSize: "1.6rem", fontWeight: 600 }}>Expenses</span>
-          </div>
-        </div>
-      </div>
 
-      {/* ── Net P/L ── */}
-      <div style={{ ...GLASS, borderRadius: "20px", padding: "36px 48px", marginBottom: "20px", display: "flex", alignItems: "center", justifyContent: "space-between", border: `1px solid ${isProfit ? "rgba(0,255,136,0.3)" : "rgba(255,107,107,0.3)"}`, background: isProfit ? "rgba(0,255,136,0.05)" : "rgba(255,107,107,0.05)", flexWrap: "wrap", gap: "16px" }}>
-        <div>
-          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.2rem", textTransform: "uppercase", letterSpacing: "2px", fontWeight: 700, marginBottom: "6px" }}>
-            Net {isProfit ? "Profit" : "Loss"} · {getFilterLabel()}
+        {loading ? (
+          <div style={{ textAlign: "center", padding: "60px 20px" }}>
+            <div style={{ width: 56, height: 56, borderRadius: "50%", border: `4px solid ${T.bg4}`, borderTop: `4px solid ${T.pink}`, animation: "rmrSpin 0.9s linear infinite", margin: "0 auto 20px" }} />
+            <div style={{ color: T.muted, fontSize: "1rem" }}>Loading club data...</div>
           </div>
-          <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "clamp(2.4rem, 6vw, 4rem)", letterSpacing: "3px", color: isProfit ? "#00ff88" : "#ff6b6b", textShadow: isProfit ? "0 0 20px rgba(0,255,136,0.4)" : "0 0 20px rgba(255,107,107,0.4)" }}>
-            {isProfit ? "+" : "−"}{formatAmount(Math.abs(netPL))}
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: "24px", flexWrap: "wrap" }}>
-          <div style={{ textAlign: "center" }}>
-            <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1rem", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "4px" }}>Income</div>
-            <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem" }}>+{formatAmount(totalIncome)}</div>
-          </div>
-          <div style={{ textAlign: "center" }}>
-            <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1rem", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "4px" }}>Expenses</div>
-            <div style={{ color: "#ff6b6b", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem" }}>−{formatAmount(totalExpense)}</div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Request Loan button (manager only) ── */}
-      {!isAdmin && (
-        <div style={{ textAlign: "center", marginBottom: "28px" }}>
-          <button
-            onClick={() => setShowRequestLoan(true)}
-            style={{
-              background: "linear-gradient(135deg, #44aaff, #2277dd)", border: "none",
-              borderRadius: "16px", padding: "40px 96px", color: "#fff", fontWeight: 700,
-              fontSize: "3.6rem", cursor: "pointer", fontFamily: "'Bebas Neue', sans-serif",
-              letterSpacing: "2px", boxShadow: "0 8px 24px rgba(68,170,255,0.3)",
-            }}
-          >
-            🏦 REQUEST LOAN
-          </button>
-        </div>
-      )}
-
-      {/* ── Date Filter ── */}
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "28px" }}>
-        <button onClick={() => setShowFilterModal(true)} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "14px 24px", background: "rgba(255,20,147,0.1)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: "14px", color: "#ffffff", fontWeight: 700, fontSize: "1.1rem", cursor: "pointer", transition: "all 0.2s" }}
-          onMouseOver={e => { e.currentTarget.style.background = "rgba(255,20,147,0.2)"; }}
-          onMouseOut={e => { e.currentTarget.style.background = "rgba(255,20,147,0.1)"; }}>
-          📅 {getFilterLabel()} ▾
-        </button>
-      </div>
-
-      {/* ── Income & Expense blocks ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "28px", marginBottom: "40px" }}>
-        <div style={{ ...GLASS, borderRadius: "20px", padding: "48px" }}>
-          <div style={{ color: "#ff1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "2px", marginBottom: "28px" }}>💰 INCOME</div>
-          <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.2rem", letterSpacing: "1px", marginBottom: "24px" }}>Total: {formatAmount(totalIncome)}</div>
-          {INCOME_CATEGORIES.map(label => (
-            <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-              <span style={{ color: "rgba(255,255,255,0.6)", fontSize: "1.4rem" }}>{label}</span>
-              <span style={{ color: incomeTotals[label] > 0 ? "#00ff88" : "#fff", fontWeight: 700, fontSize: "1.4rem" }}>
-                {incomeTotals[label] > 0 ? `+${formatAmount(incomeTotals[label])}` : "€0"}
-              </span>
-            </div>
-          ))}
-        </div>
-
-        <div style={{ ...GLASS, borderRadius: "20px", padding: "48px" }}>
-          <div style={{ color: "#4488ff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "2px", marginBottom: "28px" }}>📤 EXPENSES</div>
-          <div style={{ color: "#ff6b6b", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.2rem", letterSpacing: "1px", marginBottom: "24px" }}>Total: {formatAmount(totalExpense)}</div>
-          {EXPENSE_CATEGORIES.map(label => (
-            <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-              <span style={{ color: "rgba(255,255,255,0.6)", fontSize: "1.4rem" }}>{label}</span>
-              <span style={{ color: expenseTotals[label] > 0 ? "#ff6b6b" : "#fff", fontWeight: 700, fontSize: "1.4rem" }}>
-                {expenseTotals[label] > 0 ? `−${formatAmount(expenseTotals[label])}` : "€0"}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Active Recurring Transactions (Admin) ── */}
-      {isAdmin && recurringList.length > 0 && (
-        <div style={{ ...GLASS, borderRadius: "20px", padding: "48px", marginBottom: "40px" }}>
-          <div style={{ color: "#ffaa44", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "3px", marginBottom: "28px" }}>🔁 RECURRING TRANSACTIONS</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-            {recurringList.map(rec => {
-              const isRecIncome = rec.type === "income";
-              const accentColor = isRecIncome ? "#00ff88" : "#ffaa44";
-              const accentBg = isRecIncome ? "rgba(0,255,136,0.06)" : "rgba(255,170,0,0.06)";
-              const accentBorder = isRecIncome ? "rgba(0,255,136,0.2)" : "rgba(255,170,0,0.2)";
-              const linkedTxs = transactions.filter(t => t.recurringId === rec.id);
-              const totalDebited = linkedTxs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
-              const progress = Math.min((totalDebited / rec.totalCap) * 100, 100);
-              return (
-                <div key={rec.id} style={{ background: accentBg, border: `1px solid ${accentBorder}`, borderRadius: "16px", padding: "40px 48px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "24px" }}>
-                    <div>
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
-                        <span style={{ color: accentColor, fontSize: "1.7rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px" }}>
-                          {isRecIncome ? "🟢 Income" : "🔁 Expense"}
-                        </span>
-                      </div>
-                      <div style={{ color: "#fff", fontWeight: 700, fontSize: "2.2rem" }}>{rec.description}</div>
-                      <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.7rem", marginTop: "8px" }}>
-                        {isRecIncome ? "+" : "−"}{formatAmount(rec.dailyAmount)}/day · Total cap: {formatAmount(rec.totalCap)}
-                      </div>
-                      <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "1.6rem", marginTop: "4px" }}>
-                        {rec.startDate} → {rec.endDate}
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-                      <span style={{ background: rec.status === "completed" ? "rgba(0,255,136,0.15)" : rec.status === "paused" ? "rgba(255,255,255,0.1)" : `${accentColor}22`, color: rec.status === "completed" ? "#00ff88" : rec.status === "paused" ? "rgba(255,255,255,0.6)" : accentColor, border: `1px solid ${rec.status === "completed" ? "rgba(0,255,136,0.4)" : rec.status === "paused" ? "rgba(255,255,255,0.3)" : accentBorder}`, borderRadius: "8px", padding: "8px 20px", fontSize: "1.6rem", fontWeight: 700, textTransform: "uppercase" }}>
-                        {rec.status === "paused" ? "Paused" : rec.status}
-                      </span>
-                      {rec.status !== "completed" && (
-                        rec.status === "paused" ? (
-                          <button onClick={() => handleResumeRecurring(rec)} style={{ width: "56px", height: "56px", background: "rgba(0,255,136,0.15)", border: "1px solid rgba(0,255,136,0.4)", borderRadius: "8px", color: "#00ff88", cursor: "pointer", fontSize: "1.8rem" }} title="Resume">
-                            ▶️
-                          </button>
-                        ) : (
-                          <button onClick={() => handlePauseRecurring(rec.id)} style={{ width: "56px", height: "56px", background: "rgba(255,170,68,0.15)", border: "1px solid rgba(255,170,68,0.4)", borderRadius: "8px", color: "#ffaa44", cursor: "pointer", fontSize: "1.8rem" }} title="Pause">
-                            ⏸️
-                          </button>
-                        )
-                      )}
-                      <button onClick={() => setEditingRecurring(rec)} style={{ width: "56px", height: "56px", background: "rgba(68,170,255,0.15)", border: "1px solid rgba(68,170,255,0.4)", borderRadius: "8px", color: "#44aaff", cursor: "pointer", fontSize: "1.8rem" }} title="Edit">
-                        ✏️
-                      </button>
-                      <button onClick={() => handleDeleteRecurring(rec.id)} style={{ width: "56px", height: "56px", background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.4)", borderRadius: "8px", color: "#ff6b6b", cursor: "pointer", fontSize: "1.8rem" }} title="Delete">
-                        🗑️
-                      </button>
-                    </div>
-                  </div>
-                  <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: "8px", height: "16px", overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${progress}%`, background: rec.status === "completed" ? "#00ff88" : isRecIncome ? "linear-gradient(to right, #00cc66, #00ff88)" : "linear-gradient(to right, #ffaa44, #ff6b6b)", borderRadius: "8px", transition: "width 0.5s" }} />
-                  </div>
-                  <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.6rem", marginTop: "12px" }}>
-                    {formatAmount(totalDebited)} {isRecIncome ? "credited" : "debited"} of {formatAmount(rec.totalCap)} ({progress.toFixed(1)}%)
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ── Active Loans ── */}
-      {loansList.length > 0 && (
-        <div style={{ ...GLASS, borderRadius: "20px", padding: "48px", marginBottom: "40px" }}>
-          <div style={{ color: "#44aaff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "3px", marginBottom: "28px" }}>🏦 LOANS</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-            {loansList.map(loan => {
-              const linkedTxs = transactions.filter(t => t.loanId === loan.id);
-              const totalRepaid = linkedTxs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
-              const progress = Math.min((totalRepaid / loan.totalRepayable) * 100, 100);
-              return (
-                <div key={loan.id} style={{ background: "rgba(68,170,255,0.06)", border: "1px solid rgba(68,170,255,0.2)", borderRadius: "16px", padding: "40px 48px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "24px" }}>
-                    <div>
-                      <div style={{ color: "#44aaff", fontSize: "1.7rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", marginBottom: "8px" }}>🏦 Loan</div>
-                      <div style={{ color: "#fff", fontWeight: 700, fontSize: "2.2rem" }}>{formatAmount(loan.principal)} borrowed</div>
-                      <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.7rem", marginTop: "8px" }}>
-                        Repaying {formatAmount(loan.totalRepayable)} total (100% interest) · {formatAmount(loan.installmentAmount)}/{loan.frequency}
-                      </div>
-                    </div>
-                    <span style={{ background: loan.status === "completed" ? "rgba(0,255,136,0.15)" : "rgba(68,170,255,0.15)", color: loan.status === "completed" ? "#00ff88" : "#44aaff", border: `1px solid ${loan.status === "completed" ? "rgba(0,255,136,0.4)" : "rgba(68,170,255,0.4)"}`, borderRadius: "8px", padding: "8px 20px", fontSize: "1.6rem", fontWeight: 700, textTransform: "uppercase" }}>
-                      {loan.status}
-                    </span>
-                  </div>
-                  <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: "8px", height: "16px", overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${progress}%`, background: loan.status === "completed" ? "#00ff88" : "linear-gradient(to right, #2277dd, #44aaff)", borderRadius: "8px", transition: "width 0.5s" }} />
-                  </div>
-                  <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.6rem", marginTop: "12px" }}>
-                    {formatAmount(totalRepaid)} repaid of {formatAmount(loan.totalRepayable)} ({progress.toFixed(1)}%)
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ── Transaction History ── */}
-      <div style={{ ...GLASS, borderRadius: "20px", padding: "48px" }}>
-        <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "3px", marginBottom: "28px" }}>📋 TRANSACTION HISTORY</div>
-        {txLoading ? (
-          <LoadingRow />
-        ) : transactions.length === 0 ? (
-          txEmptyTimeoutReached ? (
-            <div style={{ textAlign: "center", padding: "48px 20px", color: "rgba(255,255,255,0.2)" }}>
-              <div style={{ fontSize: "3rem", marginBottom: "12px" }}>💳</div>
-              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px" }}>No Transactions Yet</div>
-            </div>
-          ) : <LoadingRow />
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-            {transactions.map(tx => {
-              const isIncome = tx.type === "income";
-              return (
-                <div
-                  key={tx.id}
-                  onClick={() => isAdmin ? setSelectedTx(tx) : undefined}
-                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "40px 48px", background: isIncome ? "rgba(0,255,136,0.05)" : "rgba(255,100,100,0.05)", border: `1px solid ${isIncome ? "rgba(0,255,136,0.15)" : "rgba(255,100,100,0.15)"}`, borderRadius: "14px", cursor: isAdmin ? "pointer" : "default", transition: "all 0.2s" }}
-                  onMouseOver={e => { if (isAdmin) e.currentTarget.style.background = isIncome ? "rgba(0,255,136,0.1)" : "rgba(255,100,100,0.1)"; }}
-                  onMouseOut={e => { if (isAdmin) e.currentTarget.style.background = isIncome ? "rgba(0,255,136,0.05)" : "rgba(255,100,100,0.05)"; }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "32px" }}>
-                    <div style={{ width: "112px", height: "112px", background: isIncome ? "rgba(0,255,136,0.15)" : "rgba(255,100,100,0.15)", borderRadius: "20px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "3.6rem", flexShrink: 0 }}>
-                      {tx.kitSalesId ? "👕" : tx.recurringId ? "🔁" : isIncome ? "💰" : "📤"}
-                    </div>
-                    <div>
-                      <div style={{ color: "#fff", fontWeight: 700, fontSize: "2.2rem" }}>{tx.category}</div>
-                      {tx.source && <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "1.8rem", marginTop: "4px" }}>{tx.source}</div>}
-                      <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "1.7rem", marginTop: "6px" }}>
-                        {tx.createdAt ? formatDateOnly(tx.createdAt) : `${tx.month} ${tx.year}`}
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ color: isIncome ? "#00ff88" : "#ff6b6b", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.2rem", letterSpacing: "1px", fontWeight: 700 }}>
-                    {isIncome ? "+" : "−"}{formatAmount(tx.amount)}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* ── Admin edit popup ── */}
-      {isAdmin && selectedTx && (
-        <TransactionEditPopup
-          tx={selectedTx}
-          team={team}
-          isAdmin={isAdmin}
-          onClose={() => setSelectedTx(null)}
-        />
-      )}
-
-      {/* ── Date Filter Modal ── */}
-      {showFilterModal && (
-        <FinanceDateFilterModal
-          current={dateFilter}
-          onApply={filter => { setDateFilter(filter); setShowFilterModal(false); }}
-          onClose={() => setShowFilterModal(false)}
-        />
-      )}
-
-      {/* ── Edit Recurring Modal ── */}
-      {editingRecurring && (
-        <EditRecurringModal
-          rec={editingRecurring}
-          alreadyDebited={transactions.filter(t => t.recurringId === editingRecurring.id).reduce((s, t) => s + (Number(t.amount) || 0), 0)}
-          onSave={async (fields, alreadyDebited) => handleSaveEditRecurring(editingRecurring.id, fields, alreadyDebited)}
-          onClose={() => setEditingRecurring(null)}
-        />
-      )}
-
-      {/* ── Request Loan Modal ── */}
-      {showRequestLoan && (
-        <RequestFinanceLoanModal team={team} onClose={() => setShowRequestLoan(false)} />
-      )}
-    </div>
-  );
-}
-
-// ─── TRANSACTION EDIT/DELETE POPUP ────────────────────────────────────────
-function TransactionEditPopup({ tx, team, isAdmin, onClose }) {
-  const [type, setType] = useState(tx.type);
-  const [category, setCategory] = useState(tx.category);
-  const [source, setSource] = useState(tx.source || "");
-  const [amount, setAmount] = useState(String(tx.amount));
-  const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState("");
-
-  async function handleSave() {
-    if (!amount || Number(amount) <= 0) { setError("Please enter a valid amount."); return; }
-    setSaving(true);
-    setError("");
-    try {
-      await update(ref(db, `career_team_management/${team}/finance/transactions/${tx.id}`), {
-        type, category,
-        source: source.trim() || null,
-        amount: Number(amount),
-      });
-      onClose();
-    } catch (e) {
-      setError("Update failed: " + e.message);
-    }
-    setSaving(false);
-  }
-
-  async function handleDelete() {
-    if (!window.confirm("Delete this transaction permanently?")) return;
-    setDeleting(true);
-    try {
-      await remove(ref(db, `career_team_management/${team}/finance/transactions/${tx.id}`));
-      onClose();
-    } catch (e) {
-      setError("Delete failed: " + e.message);
-    }
-    setDeleting(false);
-  }
-
-  const inputStyle = { width: "100%", padding: "16px 20px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.35)", borderRadius: "12px", color: "#fff", fontFamily: "inherit", fontSize: "1.1rem", outline: "none", boxSizing: "border-box" };
-  const labelStyle = { color: "rgba(255,255,255,0.65)", fontSize: "0.9rem", display: "block", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.8px", fontWeight: 700 };
-
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }} onClick={onClose}>
-      <div style={{ ...GLASS, borderRadius: "24px", padding: "36px", maxWidth: "540px", width: "100%", position: "relative" }} onClick={e => e.stopPropagation()}>
-        <button onClick={onClose} style={{ position: "absolute", top: "16px", right: "16px", background: "rgba(255,255,255,0.1)", border: "none", color: "#fff", borderRadius: "50%", width: "36px", height: "36px", cursor: "pointer", fontSize: "1.1rem" }}>✕</button>
-
-        <div style={{ color: "#ffffff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "3px", marginBottom: "6px" }}>
-          {type === "income" ? "💰 Edit Income" : "📤 Edit Expense"}
-        </div>
-        <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "0.9rem", marginBottom: "8px" }}>
-          {tx.month} {tx.year} · {tx.category}
-        </div>
-
-        {/* Full date/time + sent by / received by */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "20px" }}>
-          {[
-            ["Sent At", tx.createdAt ? formatDateTime(tx.createdAt) : "—"],
-            ["Sent By", tx.sentBy || (tx.addedByAdmin ? "Admin" : tx.source || "—")],
-            ["Received By", tx.receivedBy || team],
-            ["Source", tx.source || "—"],
-          ].map(([label, value]) => (
-            <div key={label} style={{ background: "rgba(255,255,255,0.04)", borderRadius: "10px", padding: "12px 14px" }}>
-              <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "4px" }}>{label}</div>
-              <div style={{ color: "#fff", fontWeight: 600, fontSize: "0.9rem" }}>{value}</div>
-            </div>
-          ))}
-        </div>
-
-        <div style={{ marginBottom: "16px" }}>
-          <label style={labelStyle}>Type</label>
-          <div style={{ display: "flex", gap: "10px" }}>
-            {["income", "expense"].map(t => (
-              <button key={t} onClick={() => setType(t)} style={{ flex: 1, padding: "12px", borderRadius: "10px", cursor: "pointer", fontFamily: "inherit", fontWeight: 700, fontSize: "1rem", background: type === t ? (t === "income" ? "#00cc66" : "#ff4444") : "rgba(255,255,255,0.06)", border: `1px solid ${type === t ? (t === "income" ? "#00cc66" : "#ff4444") : "rgba(255,255,255,0.15)"}`, color: "#fff", transition: "all 0.2s", textTransform: "uppercase" }}>
-                {t === "income" ? "💰 Income" : "📤 Expense"}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ marginBottom: "16px" }}>
-          <label style={labelStyle}>Category</label>
-          <select value={category} onChange={e => setCategory(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
-            {(type === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES).map(c => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-        </div>
-
-        <div style={{ marginBottom: "16px" }}>
-          <label style={labelStyle}>Source (optional)</label>
-          <input value={source} onChange={e => setSource(e.target.value)} placeholder="e.g. Spotify, Nike..." style={inputStyle} />
-        </div>
-
-        <div style={{ marginBottom: "24px" }}>
-          <label style={labelStyle}>Amount (€)</label>
-          <input value={amount} onChange={e => setAmount(e.target.value)} type="number" min="0" style={inputStyle} />
-        </div>
-
-        {error && <div style={{ color: "#ff6b6b", fontSize: "0.95rem", marginBottom: "14px", padding: "12px", background: "rgba(255,0,0,0.1)", borderRadius: "10px" }}>{error}</div>}
-
-        <div style={{ display: "flex", gap: "10px" }}>
-          <button onClick={handleSave} disabled={saving} style={{ flex: 2, padding: "14px", background: "#ff1493", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, fontSize: "1.1rem", cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}>
-            {saving ? "Saving..." : "💾 Save"}
-          </button>
-          {isAdmin && (
-            <button onClick={handleDelete} disabled={deleting} style={{ flex: 1, padding: "14px", background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.4)", borderRadius: "12px", color: "#ff6b6b", fontWeight: 700, fontSize: "1.1rem", cursor: deleting ? "not-allowed" : "pointer" }}>
-              {deleting ? "..." : "🗑️"}
-            </button>
-          )}
-          <button onClick={onClose} style={{ flex: 1, padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.2)", borderRadius: "12px", color: "#fff", cursor: "pointer", fontSize: "1.1rem" }}>Cancel</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── MAIN PAGE ─────────────────────────────────────────────────────────────
-export default function TeamManagementPage() {
-  const navigate = useNavigate();
-  const { isAdmin, manager, teamIconsCache, managerLoading } = useAdmin();
-  const [tab, setTab] = useState("stadium");
-  const [balance, setBalance] = useState(0);
-  const [teamIcon, setTeamIcon] = useState(null);
-  const [teamIcons, setTeamIcons] = useState({});
-  const [adminTeam, setAdminTeam] = useState(null);
-  const [adminMenuOpen, setAdminMenuOpen] = useState(false);
-  const [showStadiumModal, setShowStadiumModal] = useState(false);
-  const [showSquadModal, setShowSquadModal] = useState(false);
-  const [showHistoryModal, setShowHistoryModal] = useState(false);
-  const [showFinanceModal, setShowFinanceModal] = useState(false);
-  const [allTeams, setAllTeams] = useState([]);
-  const recurringProcessed = useRef(false);
-
-  const team = manager?.team || adminTeam;
-
-  // ── Process recurring transactions on load ──────────────────────────
-  useEffect(() => {
-    if (!team || recurringProcessed.current) return;
-    recurringProcessed.current = true;
-    processRecurringTransactions(team);
-    processLoanInstallments(team);
-  }, [team]);
-
-  // ── Load all teams for admin dropdown ──────────────────────────────
-  useEffect(() => {
-    if (!isAdmin) return;
-    const unsub = onValue(ref(db, "career_team_management"), snap => {
-      const data = snap.val() || {};
-      const teams = Object.keys(data).sort();
-      setAllTeams(teams);
-    });
-    return () => unsub();
-  }, [isAdmin]);
-
-  // ── Load team icons ────────────────────────────────────────────────
-  useEffect(() => {
-    const unsub = onValue(ref(db, PATHS.teamIcons), snap => {
-      if (snap.val()) setTeamIcons(snap.val());
-    });
-    return () => unsub();
-  }, []);
-
-  // ── Load balance — can go negative; auto-toggles bankruptcy on the club record ──
-  const [bankrupt, setBankruptState] = useState(false);
-  useEffect(() => {
-    if (!team) return;
-    const unsub = onValue(ref(db, `career_team_management/${team}/finance/transactions`), snap => {
-      const data = snap.val();
-      const total = data
-        ? Object.values(data).reduce((sum, tx) => {
-            const amt = Number(tx.amount) || 0;
-            return tx.type === "income" ? sum + amt : sum - amt;
-          }, 0)
-        : 0;
-      setBalance(total);
-      const isBankrupt = total < 0;
-      setBankruptState(isBankrupt);
-      set(ref(db, `career_team_management/${team}/bankrupt`), isBankrupt).catch(() => {});
-    });
-    return () => unsub();
-  }, [team]);
-
-  // ── Set team icon ─────────────────────────────────────────────────
-  useEffect(() => {
-    if (!team) return;
-    const mergedIcons = { ...teamIconsCache, ...teamIcons };
-    const icon = mergedIcons?.[team];
-    if (icon) setTeamIcon(icon);
-  }, [team, teamIconsCache, teamIcons]);
-
-  const mergedIcons = { ...teamIconsCache, ...teamIcons };
-
-  const adminNavbarMenu = isAdmin ? [
-    { icon: "🏟️", label: "Edit Stadium", action: () => { setShowStadiumModal(true); } },
-    { icon: "👥", label: "Edit Team", action: () => { setShowSquadModal(true); } },
-    { icon: "📜", label: "Team History", action: () => { setShowHistoryModal(true); } },
-    { icon: "💰", label: "Team Finances", action: () => { setShowFinanceModal(true); } },
-  ] : undefined;
-
-  if (managerLoading) {
-    return (
-      <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
-        <BackgroundVideo />
-        <Navbar />
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
-          <div style={{ color: "rgba(255,255,255,0.3)", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "3px" }}>Loading...</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!isAdmin && !manager) {
-    return (
-      <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
-        <BackgroundVideo />
-        <Navbar />
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh", padding: "40px 20px" }}>
-          <div style={{ ...GLASS, borderRadius: "24px", padding: "48px 36px", maxWidth: "480px", width: "100%", textAlign: "center" }}>
-            <div style={{ fontSize: "3.5rem", marginBottom: "16px" }}>🔒</div>
-            <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3rem", letterSpacing: "3px", color: "#ffffff", margin: "0 0 10px" }}>Manager Login Required</h2>
-            <p style={{ color: "rgba(255,255,255,0.5)", margin: 0, fontSize: "1.4rem" }}>Sign in as a manager to access your team dashboard.</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (isAdmin && !team) {
-    return (
-      <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
-        <BackgroundVideo />
-        <Navbar />
-        <div style={{ padding: "32px 20px 80px" }}>
-          <AdminTeamSelector onSelect={setAdminTeam} />
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif", position: "relative" }}>
-      <BackgroundVideo />
-      <Navbar tokyoMenuItems={adminNavbarMenu} />
-
-      <div style={{ padding: "32px 20px 80px" }}>
-
-        {/* ── ADMIN TOOLBAR ── */}
-        {isAdmin && (
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "24px", flexWrap: "wrap" }}>
-            <button
-              onClick={() => { setAdminTeam(null); setTab("stadium"); recurringProcessed.current = false; }}
-              style={{ padding: "12px 22px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "12px", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem" }}
-            >
-              ← Teams
-            </button>
-            <div style={{ position: "relative", flex: 1, minWidth: "200px" }}>
-              <select
-                value={team}
-                onChange={e => { setAdminTeam(e.target.value); setTab("stadium"); recurringProcessed.current = false; }}
-                style={{ width: "100%", padding: "12px 20px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.35)", borderRadius: "12px", color: "#fff", fontFamily: "inherit", fontSize: "1.1rem", outline: "none", cursor: "pointer" }}
-              >
-                {allTeams.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </div>
-            <div style={{ position: "relative" }}>
-              <button
-                onClick={() => setAdminMenuOpen(v => !v)}
-                style={{ padding: "12px 22px", background: "#ff1493", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem" }}
-              >
-                ➕ Manage
-              </button>
-              {adminMenuOpen && (
-                <div style={{ position: "absolute", right: 0, top: "calc(100% + 10px)", background: "#0a0015", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "16px", padding: "8px", minWidth: "240px", zIndex: 200, boxShadow: "0 8px 32px rgba(0,0,0,0.6)" }}>
-                  {[
-                    { label: "🏟️ Edit Stadium", action: () => { setShowStadiumModal(true); setAdminMenuOpen(false); } },
-                    { label: "👥 Edit Team", action: () => { setShowSquadModal(true); setAdminMenuOpen(false); } },
-                    { label: "📜 Team History", action: () => { setShowHistoryModal(true); setAdminMenuOpen(false); } },
-                    { label: "💰 Team Finances", action: () => { setShowFinanceModal(true); setAdminMenuOpen(false); } },
-                  ].map(({ label, action }) => (
-                    <button key={label} onClick={action}
-                      style={{ display: "block", width: "100%", padding: "14px 18px", background: "transparent", border: "none", color: "#fff", textAlign: "left", cursor: "pointer", fontSize: "1.1rem", fontWeight: 600, borderRadius: "10px", transition: "background 0.2s" }}
-                      onMouseOver={e => e.currentTarget.style.background = "rgba(255,20,147,0.15)"}
-                      onMouseOut={e => e.currentTarget.style.background = "transparent"}
-                    >{label}</button>
-                  ))}
+          <>
+            {/* Managers */}
+            <div className="rmr-section">
+              <div className="rmr-section-title">👔 Management</div>
+              <div style={{ background: T.bg2, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: 16, marginBottom: 10 }}>
+                <div style={{ fontSize: ".8rem", color: T.muted, marginBottom: 4, textTransform: "uppercase" }}>Current Manager</div>
+                <div style={{ fontSize: "1.1rem", fontWeight: 700, color: T.pink }}>{currentMgr?.username || "Unassigned"}</div>
+              </div>
+              {prevMgrs.length > 0 && (
+                <div style={{ background: T.bg2, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: 16 }}>
+                  <div style={{ fontSize: ".8rem", color: T.muted, marginBottom: 10, textTransform: "uppercase" }}>Previous Managers</div>
+                  {prevMgrs.map((pm, i) => <div key={i} style={{ fontSize: "1rem", color: T.text, padding: "5px 0", borderBottom: i < prevMgrs.length-1 ? `1px solid ${T.border}` : "none" }}>{pm.username}</div>)}
                 </div>
               )}
             </div>
-          </div>
-        )}
 
-        {/* ── TEAM HEADER ── */}
-        <div style={{ textAlign: "center", marginBottom: "36px" }}>
-          <div style={{ width: "120px", height: "120px", margin: "0 auto 16px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            {teamIcon ? (
-              <img src={teamIcon} alt={team} style={{ width: "100%", height: "100%", objectFit: "contain", filter: "drop-shadow(0 0 20px rgba(255,20,147,0.4))" }} />
-            ) : manager?.profilePhoto ? (
-              <img src={manager.profilePhoto} alt="Manager" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
-            ) : (
-              <div style={{ width: "120px", height: "120px", background: "rgba(255,20,147,0.1)", border: "2px solid rgba(255,20,147,0.3)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "3.5rem" }}>🏟️</div>
-            )}
-          </div>
-          <h1 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.6rem", letterSpacing: "5px", color: "#fff", margin: "0 0 6px" }}>
-            {team || "No Club Assigned"}
-          </h1>
-          {isAdmin && adminTeam && (
-            <div style={{ color: "#ffaa44", fontSize: "1.2rem", marginBottom: "8px", fontWeight: 700 }}>👁️ Admin View</div>
-          )}
-          <div style={{ marginTop: "12px" }}>
-            <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.2rem", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "4px" }}>Balance</div>
-            {/* ── HOT PINK BALANCE (RED WHEN NEGATIVE) ── */}
-            <div style={{
-              fontFamily: "'Bebas Neue', sans-serif",
-              fontSize: "clamp(3rem, 8vw, 5.5rem)",
-              letterSpacing: "4px",
-              color: balance < 0 ? "#ff3333" : "#ff1493",
-              textShadow: balance < 0 ? "0 0 30px rgba(255,50,50,0.6)" : "0 0 30px rgba(255,20,147,0.5)",
-              lineHeight: 1,
-              wordBreak: "break-all",
-            }}>
-              {formatBalance(balance)}
-            </div>
-            {bankrupt && (
-              <div style={{
-                marginTop: "14px", display: "inline-flex", alignItems: "center", gap: "10px",
-                background: "rgba(255,50,50,0.12)", border: "1px solid rgba(255,50,50,0.4)",
-                borderRadius: "12px", padding: "10px 20px", color: "#ff6b6b",
-                fontWeight: 700, fontSize: "1.1rem", letterSpacing: "1px",
-              }}>
-                🚨 BANKRUPT — new expenses are blocked until balance recovers
+            {/* Top performers */}
+            <div className="rmr-section">
+              <div className="rmr-section-title">⭐ All-Time Top Performers</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div style={{ background: T.bg2, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: 16 }}>
+                  <div style={{ fontSize: ".8rem", color: T.muted, marginBottom: 6, textTransform: "uppercase" }}>Top Scorer</div>
+                  <div style={{ fontSize: "1.1rem", fontWeight: 700 }}>{stats?.topScorer?.name || "—"}</div>
+                  {stats?.topScorer && <div style={{ color: T.pink, fontFamily: "'Bebas Neue',sans-serif", fontSize: "1.4rem" }}>{stats.topScorer.count} ⚽</div>}
+                </div>
+                <div style={{ background: T.bg2, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: 16 }}>
+                  <div style={{ fontSize: ".8rem", color: T.muted, marginBottom: 6, textTransform: "uppercase" }}>Top Assist</div>
+                  <div style={{ fontSize: "1.1rem", fontWeight: 700 }}>{stats?.topAssist?.name || "—"}</div>
+                  {stats?.topAssist && <div style={{ color: T.pink, fontFamily: "'Bebas Neue',sans-serif", fontSize: "1.4rem" }}>{stats.topAssist.count} 🎯</div>}
+                </div>
               </div>
-            )}
-          </div>
-        </div>
+            </div>
 
-        <div style={{ height: "1px", background: "linear-gradient(to right, transparent, rgba(255,20,147,0.4), transparent)", marginBottom: "28px" }} />
-
-        {/* ── TABS ── */}
-        <div style={{ marginBottom: "24px" }}>
-          <TabBar
-            tabs={TABS}
-            activeTab={tab}
-            onTabChange={(id) => {
-              if (id === "squad") {
-                navigate("/squad");
-              } else {
-                setTab(id);
-              }
-            }}
-          />
-        </div>
-
-        <div style={{ width: "100%" }}>
-          {tab === "stadium" && <StadiumTab team={team} isAdmin={isAdmin} onEditStadium={() => setShowStadiumModal(true)} />}
-          {tab === "transfers" && <TransfersTab team={team} teamIcons={mergedIcons} isAdmin={isAdmin} />}
-          {tab === "finance" && <FinanceTab team={team} isAdmin={isAdmin} />}
-          {tab === "squad" && <SquadTabWrapper team={team} isAdmin={isAdmin} onEditSquad={() => setShowSquadModal(true)} />}
-        </div>
+            {/* Recent results */}
+            <div className="rmr-section">
+              <div className="rmr-section-title">📅 Recent Results</div>
+              {stats?.results?.length > 0 ? stats.results.map((r, i) => (
+                <div key={i} className="rmr-match">
+                  <div className="rmr-match-team">{r.homeTeam}</div>
+                  <div className="rmr-match-center">
+                    <div className="rmr-match-score">{r.homeScore} - {r.awayScore}</div>
+                    <div className="rmr-match-tourn">{r.tournament}</div>
+                    <div className="rmr-match-md">Season {r.season}</div>
+                  </div>
+                  <div className="rmr-match-team away">{r.awayTeam}</div>
+                </div>
+              )) : <p style={{ color: T.dim, fontSize: ".9rem", fontStyle: "italic" }}>No results yet</p>}
+            </div>
+          </>
+        )}
       </div>
-
-      <Modal active={showStadiumModal} onClose={() => setShowStadiumModal(false)} wide>
-        <StadiumModal team={team} onClose={() => setShowStadiumModal(false)} />
-      </Modal>
-      <Modal active={showSquadModal} onClose={() => setShowSquadModal(false)} wide>
-        <TeamModal team={team} onClose={() => setShowSquadModal(false)} />
-      </Modal>
-      <Modal active={showHistoryModal} onClose={() => setShowHistoryModal(false)} wide>
-        <TeamHistoryModal team={team} onClose={() => setShowHistoryModal(false)} />
-      </Modal>
-      <Modal active={showFinanceModal} onClose={() => setShowFinanceModal(false)} wide>
-        <AdminFinanceModal onClose={() => setShowFinanceModal(false)} defaultTeam={team} />
-      </Modal>
-
-      <style>{`select option { background: #000033; color: #fff; } input::placeholder { color: rgba(255,255,255,0.3); }`}</style>
     </div>
   );
+}
+
+/* ─── MODAL ROUTER ───────────────────────────────────────────────────────── */
+function ModalRouter({ modal, managers, isAdmin, onClose, showToast, onAdminLogin, adminKeyInput, setAdminKeyInput, onRefresh, saveRankField, db, popupData, onReopenPopup }) {
+  const [form, setForm]       = useState({});
+  const [uploading, setUploading] = useState(false);
+  const fileRef               = useRef(null);
+
+  const uid     = modal.uid || popupData?.uid;
+  const manager = managers.find(m => m.uid === uid);
+
+  async function refresh() {
+    await onRefresh(uid);
+    if (popupData) onReopenPopup(manager);
+  }
+
+  if (modal.type === "adminLogin") return (
+    <Modal title="Admin Login" onClose={onClose} footer={<><button className="rmr-btn-ghost" onClick={onClose}>Cancel</button><button className="rmr-btn-pink" onClick={onAdminLogin}>Login</button></>}>
+      <div style={{ marginBottom: 16 }}>
+        <label className="rmr-label">Admin Key</label>
+        <input className="rmr-input" type="password" value={adminKeyInput} onChange={e => setAdminKeyInput(e.target.value)} placeholder="Enter admin key" onKeyDown={e => e.key === "Enter" && onAdminLogin()} />
+      </div>
+    </Modal>
+  );
+
+  if (modal.type === "rankingMethod") return (
+    <Modal title="Ranking Method" onClose={onClose} footer={<button className="rmr-btn-pink" onClick={onClose}>Got it</button>}>
+      <div className="rmr-rank-info">
+        <p><strong style={{ color: T.pink }}>Total Score</strong> = (Performance + Trophy + Medal + Award Points) × 2</p>
+        <h4>Performance Points</h4>
+        <ul><li>Win: +1 pt</li><li>Loss: -1 pt</li><li>Goal Scored: +0.5 pts</li><li>Goal Conceded: -0.5 pts</li></ul>
+        <h4>Trophy Points</h4>
+        <ul>{TROPHY_LIST.map(t => <li key={t.id}>{t.name}: {t.points} pts</li>)}</ul>
+        <h4>Stats are tenure-aware</h4>
+        <p>Only results submitted while a manager was at a club count toward their stats.</p>
+      </div>
+    </Modal>
+  );
+
+  if (modal.type === "editStatus") return (
+    <Modal title="Edit Manager Status" onClose={onClose} footer={<><button className="rmr-btn-ghost" onClick={onClose}>Cancel</button><button className="rmr-btn-pink" onClick={async () => { await saveRankField(uid, { overrideStatus: form.status || modal.cur }); await refresh(); onClose(); showToast("Status updated"); }}>Save</button></>}>
+      <div style={{ marginBottom: 16 }}>
+        <label className="rmr-label">Status</label>
+        <select className="rmr-select" defaultValue={modal.cur || "active"} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
+          <option value="active">Active Manager</option>
+          <option value="interim">Interim Manager</option>
+          <option value="sacked">Sacked</option>
+          <option value="retired">Retired</option>
+          <option value="free-agent">Free Agent</option>
+        </select>
+      </div>
+    </Modal>
+  );
+
+  if (modal.type === "addTrophy") return (
+    <Modal title="Add Trophy" onClose={onClose} footer={<><button className="rmr-btn-ghost" onClick={onClose}>Cancel</button><button className="rmr-btn-pink" onClick={async () => { if (!form.trophyId || !form.season) { showToast("Fill all fields"); return; } const t = TROPHY_LIST.find(x => x.id === form.trophyId); const u = [...(manager?.trophies||[]), { id: t.id, name: t.name, points: t.points, season: form.season }]; await set(ref(db,`career_rankings/${uid}/trophies`),u); await refresh(); onClose(); showToast("Trophy added"); }}>Add</button></>}>
+      <div style={{ marginBottom: 16 }}><label className="rmr-label">Competition</label><select className="rmr-select" value={form.trophyId||""} onChange={e => setForm(f=>({...f,trophyId:e.target.value}))}><option value="">Select</option>{TROPHY_LIST.map(t=><option key={t.id} value={t.id}>{t.name} ({t.points} pts)</option>)}</select></div>
+      <div style={{ marginBottom: 16 }}><label className="rmr-label">Season</label><input className="rmr-input" placeholder="e.g. 3" value={form.season||""} onChange={e=>setForm(f=>({...f,season:e.target.value}))} /></div>
+    </Modal>
+  );
+
+  if (modal.type === "addMedal") return (
+    <Modal title="Add Medal" onClose={onClose} footer={<><button className="rmr-btn-ghost" onClick={onClose}>Cancel</button><button className="rmr-btn-pink" onClick={async () => { if (!form.trophyId||!form.medalType||!form.season){showToast("Fill all fields");return;} const t=TROPHY_LIST.find(x=>x.id===form.trophyId); let pts=t.points/2; if(form.medalType==="silver")pts=pts/2; if(form.medalType==="bronze")pts=pts/4; const u=[...(manager?.medals||[]),{trophyId:t.id,name:t.name,type:form.medalType,points:pts,season:form.season}]; await set(ref(db,`career_rankings/${uid}/medals`),u); await refresh(); onClose(); showToast("Medal added"); }}>Add</button></>}>
+      <div style={{ marginBottom: 16 }}><label className="rmr-label">Competition</label><select className="rmr-select" value={form.trophyId||""} onChange={e=>setForm(f=>({...f,trophyId:e.target.value}))}><option value="">Select</option>{TROPHY_LIST.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
+      <div style={{ marginBottom: 16 }}><label className="rmr-label">Medal Type</label><select className="rmr-select" value={form.medalType||""} onChange={e=>setForm(f=>({...f,medalType:e.target.value}))}><option value="">Select</option><option value="gold">🥇 Gold</option><option value="silver">🥈 Silver</option><option value="bronze">🥉 Bronze</option></select></div>
+      <div style={{ marginBottom: 16 }}><label className="rmr-label">Season</label><input className="rmr-input" placeholder="e.g. 3" value={form.season||""} onChange={e=>setForm(f=>({...f,season:e.target.value}))} /></div>
+    </Modal>
+  );
+
+  if (modal.type === "addAward") return (
+    <Modal title="Add Individual Award" onClose={onClose} footer={<><button className="rmr-btn-ghost" onClick={onClose}>Cancel</button><button className="rmr-btn-pink" onClick={async () => { if(!form.awardType||!form.season){showToast("Fill all fields");return;} let pts=0,name=""; if(form.awardType==="golden_boot"||form.awardType==="golden_glove"){if(!form.trophyId){showToast("Select competition");return;} const t=TROPHY_LIST.find(x=>x.id===form.trophyId); pts=t.points/2; name=`${t.name} ${form.awardType==="golden_boot"?"Golden Boot":"Golden Glove"}`;} else if(form.awardType==="ballon_dor"){pts=50;name="Ballon d'Or";} else if(form.awardType==="yashin"){pts=45;name="Yashin Trophy";} else if(form.awardType==="manager_of_season"){pts=50;name="Manager of the Season";} const u=[...(manager?.individualAwards||[]),{type:form.awardType,name,points:pts,season:form.season}]; await set(ref(db,`career_rankings/${uid}/individualAwards`),u); await refresh(); onClose(); showToast("Award added"); }}>Add</button></>}>
+      <div style={{ marginBottom: 16 }}><label className="rmr-label">Award Type</label><select className="rmr-select" value={form.awardType||""} onChange={e=>setForm(f=>({...f,awardType:e.target.value}))}><option value="">Select</option><option value="golden_boot">⚽ Golden Boot</option><option value="golden_glove">🧤 Golden Glove</option><option value="ballon_dor">🌟 Ballon d'Or (50 pts)</option><option value="yashin">🏅 Yashin Trophy (45 pts)</option><option value="manager_of_season">👨‍💼 Manager of the Season (50 pts)</option></select></div>
+      {(form.awardType==="golden_boot"||form.awardType==="golden_glove")&&<div style={{marginBottom:16}}><label className="rmr-label">Competition</label><select className="rmr-select" value={form.trophyId||""} onChange={e=>setForm(f=>({...f,trophyId:e.target.value}))}><option value="">Select</option>{TROPHY_LIST.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></div>}
+      <div style={{ marginBottom: 16 }}><label className="rmr-label">Season</label><input className="rmr-input" placeholder="e.g. 3" value={form.season||""} onChange={e=>setForm(f=>({...f,season:e.target.value}))} /></div>
+    </Modal>
+  );
+
+  if (modal.type === "editDescription") return (
+    <Modal title="Edit Description" onClose={onClose} footer={<><button className="rmr-btn-ghost" onClick={onClose}>Cancel</button><button className="rmr-btn-pink" onClick={async ()=>{await saveRankField(uid,{description:form.description??""}); await refresh(); onClose(); showToast("Saved");}}>Save</button></>}>
+      <div style={{marginBottom:16}}><label className="rmr-label">Description</label><textarea className="rmr-textarea" defaultValue={manager?.description||""} onChange={e=>setForm(f=>({...f,description:e.target.value}))} /></div>
+    </Modal>
+  );
+
+  if (modal.type === "addRecord" || modal.type === "editRecord") {
+    const editing = modal.type === "editRecord";
+    const existing = editing ? (manager?.records||[])[modal.recordIdx] : null;
+    return (
+      <Modal title={editing?"Edit Record":"Add Record"} onClose={onClose} footer={<><button className="rmr-btn-ghost" onClick={onClose}>Cancel</button><button className="rmr-btn-pink" onClick={async ()=>{ const name=form.recName??existing?.name??""; const value=form.recValue??existing?.value??""; const desc=form.recDesc??existing?.description??""; if(!name||!value){showToast("Name and value required");return;} const recs=[...(manager?.records||[])]; const rec={name,value,description:desc}; if(editing)recs[modal.recordIdx]=rec; else recs.push(rec); await set(ref(db,`career_rankings/${uid}/records`),recs); await refresh(); onClose(); showToast("Record saved"); }}>Save</button></>}>
+        <div style={{marginBottom:16}}><label className="rmr-label">Record Name</label><input className="rmr-input" placeholder="e.g. Most Wins in a Row" defaultValue={existing?.name||""} onChange={e=>setForm(f=>({...f,recName:e.target.value}))} /></div>
+        <div style={{marginBottom:16}}><label className="rmr-label">Value</label><input className="rmr-input" placeholder="e.g. 10" defaultValue={existing?.value||""} onChange={e=>setForm(f=>({...f,recValue:e.target.value}))} /></div>
+        <div style={{marginBottom:16}}><label className="rmr-label">Description (optional)</label><textarea className="rmr-textarea" defaultValue={existing?.description||""} onChange={e=>setForm(f=>({...f,recDesc:e.target.value}))} /></div>
+      </Modal>
+    );
+  }
+
+  if (modal.type === "manualStats") {
+    const s = manager?.stats || {};
+    return (
+      <Modal title="Edit Stats Manually" onClose={onClose} footer={<><button className="rmr-btn-ghost" onClick={onClose}>Cancel</button><button className="rmr-btn-ghost" onClick={async()=>{await set(ref(db,`career_rankings/${uid}/manualStats`),null); await refresh(); onClose(); showToast("Reset to auto");}}>Reset to Auto</button><button className="rmr-btn-pink" onClick={async()=>{ const keys=["w","d","l","mp","gs","gc","fw","fl"]; const ms={}; keys.forEach(k=>ms[k]=parseInt(form[k]??s[k]??0)||0); ms.gd=ms.gs-ms.gc; const g=ms.w+ms.d+ms.l; ms.winRate=g>0?+((ms.w/g)*100).toFixed(1):0; ms.lossRate=g>0?+((ms.l/g)*100).toFixed(1):0; await saveRankField(uid,{manualStats:ms}); await refresh(); onClose(); showToast("Stats saved"); }}>Save</button></>}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          {[["w","Wins"],["d","Draws"],["l","Losses"],["mp","Matches Played"],["gs","Goals Scored"],["gc","Goals Conceded"],["fw","Forfeit Wins"],["fl","Forfeit Losses"]].map(([k,label])=>(
+            <div key={k} style={{marginBottom:8}}><label className="rmr-label">{label}</label><input className="rmr-input" type="number" min="0" defaultValue={s[k]||0} onChange={e=>setForm(f=>({...f,[k]:e.target.value}))} /></div>
+          ))}
+        </div>
+      </Modal>
+    );
+  }
+
+  if (modal.type === "slideshowManager") {
+    const imgs = manager?.trophyCabinet?.slideshow?.images || [];
+    const dur  = (manager?.trophyCabinet?.slideshow?.duration || 3000) / 1000;
+    return (
+      <Modal title="Trophy Cabinet Images" onClose={onClose} footer={<><button className="rmr-btn-ghost" onClick={onClose}>Close</button><button className="rmr-btn-ghost" onClick={async()=>{ const d=parseFloat(form.slideDur??dur)*1000; await set(ref(db,`career_rankings/${uid}/trophyCabinet/slideshow/duration`),d); await refresh(); showToast("Duration saved"); }}>Save Duration</button><button className="rmr-btn-pink" disabled={uploading} onClick={async()=>{ const file=fileRef.current?.files[0]; if(!file){showToast("Select an image");return;} setUploading(true); try{const url=await uploadToImgBB(file); const u=[...imgs,url]; await set(ref(db,`career_rankings/${uid}/trophyCabinet/slideshow/images`),u); await refresh(); showToast("Uploaded");}catch{showToast("Upload failed");} setUploading(false); }}>{uploading?"Uploading...":"Upload"}</button></>}>
+        <div style={{marginBottom:12}}>
+          {imgs.map((url,i)=>(
+            <div key={i} className="rmr-thumb"><img src={url} alt="" /><button className="rmr-thumb-del" onClick={async()=>{ const u=imgs.filter((_,j)=>j!==i); await set(ref(db,`career_rankings/${uid}/trophyCabinet/slideshow/images`),u); await refresh(); showToast("Removed"); }}>✕</button></div>
+          ))}
+          {!imgs.length && <p style={{color:T.dim,fontSize:".85rem"}}>No images yet</p>}
+        </div>
+        <div style={{marginBottom:16}}><label className="rmr-label">Upload Image</label><input type="file" ref={fileRef} accept="image/*" style={{marginTop:8,color:T.muted,fontSize:".85rem"}} /></div>
+        <div style={{marginBottom:16}}><label className="rmr-label">Duration (seconds)</label><input className="rmr-input" type="number" min="1" max="10" step="0.5" defaultValue={dur} onChange={e=>setForm(f=>({...f,slideDur:e.target.value}))} /></div>
+      </Modal>
+    );
+  }
+
+  return null;
 }
