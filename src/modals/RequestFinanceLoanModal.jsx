@@ -1,4 +1,4 @@
-import { useState } from "react";
+      import { useState } from "react";
 import { db } from "../firebase";
 import { ref, push } from "firebase/database";
 import Modal from "../components/Modal";
@@ -73,7 +73,7 @@ export default function RequestFinanceLoanModal({ team, onClose }) {
   }
 
   return (
-    <Modal onClose={onClose}>
+    <Modal active onClose={onClose}>
       <div style={{ padding: "40px", minWidth: "340px", maxWidth: "520px" }}>
         <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", color: "#44aaff", letterSpacing: "2px", marginBottom: "8px" }}>
           🏦 Request Loan
