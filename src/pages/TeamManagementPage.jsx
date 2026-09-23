@@ -990,7 +990,7 @@ function EditRecurringModal({ rec, alreadyDebited, onSave, onClose }) {
   }
 
   return (
-    <Modal onClose={onClose}>
+    <Modal active onClose={onClose}>
       <div style={{ padding: "32px", minWidth: "320px" }}>
         <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", color: "#44aaff", letterSpacing: "2px", marginBottom: "24px" }}>✏️ Edit Recurring</h2>
 
@@ -1271,15 +1271,15 @@ function FinanceTab({ team, isAdmin }) {
         </div>
       </div>
 
-      {/* ── Request Loan button (admin only) ── */}
-      {isAdmin && (
+      {/* ── Request Loan button (manager only) ── */}
+      {!isAdmin && (
         <div style={{ textAlign: "center", marginBottom: "28px" }}>
           <button
             onClick={() => setShowRequestLoan(true)}
             style={{
               background: "linear-gradient(135deg, #44aaff, #2277dd)", border: "none",
-              borderRadius: "16px", padding: "20px 48px", color: "#fff", fontWeight: 700,
-              fontSize: "1.8rem", cursor: "pointer", fontFamily: "'Bebas Neue', sans-serif",
+              borderRadius: "16px", padding: "40px 96px", color: "#fff", fontWeight: 700,
+              fontSize: "3.6rem", cursor: "pointer", fontFamily: "'Bebas Neue', sans-serif",
               letterSpacing: "2px", boxShadow: "0 8px 24px rgba(68,170,255,0.3)",
             }}
           >
@@ -1393,7 +1393,7 @@ function FinanceTab({ team, isAdmin }) {
       )}
 
       {/* ── Active Loans ── */}
-      {isAdmin && loansList.length > 0 && (
+      {loansList.length > 0 && (
         <div style={{ ...GLASS, borderRadius: "20px", padding: "48px", marginBottom: "40px" }}>
           <div style={{ color: "#44aaff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "3px", marginBottom: "28px" }}>🏦 LOANS</div>
           <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
