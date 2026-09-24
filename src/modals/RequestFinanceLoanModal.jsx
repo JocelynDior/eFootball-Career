@@ -1,154 +1,166 @@
-      import { useState } from "react";
-import { db } from "../firebase";
-import { ref, push } from "firebase/database";
-import Modal from "../components/Modal";
-
-const ALL_MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+import { useState, useEffect } from "react";
+import { db, PATHS } from "../firebase";
+import { ref, push, onValue } from "firebase/database";
+import { useAdmin } from "../context/AdminContext";
 
 const inputStyle = {
-  width: "100%", padding: "20px 24px",
+  width: "100%", padding: "12px 16px",
   background: "rgba(255,255,255,0.06)",
-  border: "2px solid rgba(68,170,255,0.35)",
-  borderRadius: "16px", color: "#fff",
-  fontFamily: "inherit", fontSize: "1.6rem",
+  border: "1px solid rgba(255,20,147,0.35)",
+  borderRadius: "12px", color: "#fff",
+  fontFamily: "inherit", fontSize: "0.95rem",
   outline: "none", boxSizing: "border-box",
 };
 
 const labelStyle = {
-  color: "rgba(255,255,255,0.6)", fontSize: "1.2rem",
-  display: "block", marginBottom: "10px",
-  textTransform: "uppercase", letterSpacing: "1px",
-  marginTop: "24px", fontWeight: 700,
+  color: "rgba(255,255,255,0.55)", fontSize: "0.75rem",
+  display: "block", marginBottom: "6px",
+  textTransform: "uppercase", letterSpacing: "0.8px",
+  marginTop: "14px",
 };
 
-export default function RequestFinanceLoanModal({ team, onClose }) {
-  const [amount, setAmount] = useState("");
-  const [installments, setInstallments] = useState("");
-  const [frequency, setFrequency] = useState("month");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [done, setDone] = useState(false);
+const FREQUENCIES = [
+  { value: "day", label: "Every day" },
+  { value: "week", label: "Every week" },
+  { value: "month", label: "Every month" },
+];
 
-  const principal = Number(amount) || 0;
-  const totalRepayable = principal * 2; // hardcoded 100% interest
-  const installmentCount = Number(installments) || 0;
-  const installmentAmount = installmentCount > 0 ? totalRepayable / installmentCount : 0;
+function fmt(n) {
+  return `€${Number(n).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+}
+
+// Peer-to-peer club loan request. Nothing is charged here — the request is only
+// stored as "pending". Money moves once the lending club accepts it.
+export default function RequestFinanceLoanModal({ team, onClose }) {
+  const { manager } = useAdmin();
+  const [clubs, setClubs] = useState([]);
+  const [targetClub, setTargetClub] = useState("");
+  const [amount, setAmount] = useState("");
+  const [repayAmount, setRepayAmount] = useState("");
+  const [installments, setInstallments] = useState("1");
+  const [frequency, setFrequency] = useState("week");
+  const [submitting, setSubmitting] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const unsub = onValue(ref(db, PATHS.accounts), snap => {
+      const data = snap.val() || {};
+      const list = [...new Set(Object.values(data).filter(a => a.team).map(a => a.team))]
+        .filter(t => t !== team)
+        .sort((a, b) => a.localeCompare(b));
+      setClubs(list);
+    });
+    return () => unsub();
+  }, [team]);
+
+  const amountNum = Number(amount);
+  const repayNum = Number(repayAmount);
+  const instNum = Math.floor(Number(installments));
+  const showPreview = amountNum > 0 && repayNum >= amountNum && instNum >= 1;
+  const perInstallment = showPreview ? repayNum / instNum : 0;
+  const interest = showPreview ? repayNum - amountNum : 0;
 
   async function handleSubmit() {
-    if (!principal || principal <= 0) { setError("Enter a valid loan amount."); return; }
-    if (!installmentCount || installmentCount <= 0) { setError("Enter how many installments you want to repay in."); return; }
-    setSaving(true);
     setError("");
+    if (!manager || manager.team !== team) { setError("Only this club's manager can request a loan."); return; }
+    if (!targetClub) { setError("Please pick the club you want to borrow from."); return; }
+    if (!(amountNum > 0)) { setError("Enter the amount you want to borrow."); return; }
+    if (!(repayNum > 0)) { setError("Enter the amount you will repay."); return; }
+    if (repayNum < amountNum) { setError("Repay amount can't be lower than the amount borrowed."); return; }
+    if (!Number.isInteger(Number(installments)) || instNum < 1) { setError("Installments must be a whole number of 1 or more."); return; }
+
+    setSubmitting(true);
     try {
-      const now = new Date();
-      // Loan is credited to the club immediately
-      await push(ref(db, `career_team_management/${team}/finance/transactions`), {
-        type: "income",
-        category: "Loan Received",
-        source: `Loan (${installmentCount} ${frequency} installments)`,
-        amount: principal,
-        month: ALL_MONTHS[now.getMonth()],
-        monthIndex: now.getMonth(),
-        year: now.getFullYear(),
-        createdAt: now.getTime(),
-      });
-      await push(ref(db, `career_team_management/${team}/finance/loans`), {
-        principal,
-        totalRepayable,
-        installments: installmentCount,
-        installmentAmount,
+      await push(ref(db, PATHS.clubLoans), {
+        borrowerClub: team,
+        lenderClub: targetClub,
+        amount: amountNum,
+        repayAmount: repayNum,
+        installments: instNum,
         frequency,
-        interestRate: 100,
-        startTs: now.getTime(),
-        startDate: now.toISOString().slice(0, 10),
-        status: "active",
-        createdAt: now.getTime(),
+        status: "pending",
+        requestedByUid: manager.uid,
+        requestedByName: manager.username || "",
+        createdAt: Date.now(),
       });
       setDone(true);
-      setTimeout(onClose, 1600);
+      setTimeout(onClose, 1500);
     } catch (e) {
-      setError("Failed: " + e.message);
-      setSaving(false);
+      setError("Failed to send loan request: " + e.message);
     }
+    setSubmitting(false);
   }
 
   return (
-    <Modal active onClose={onClose}>
-      <div style={{ padding: "40px", minWidth: "340px", maxWidth: "520px" }}>
-        <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", color: "#44aaff", letterSpacing: "2px", marginBottom: "8px" }}>
-          🏦 Request Loan
-        </h2>
-        <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.2rem", marginBottom: "8px" }}>
-          Borrowed funds are credited immediately. Interest is fixed at 100% — borrow €10, repay €20 total.
-        </p>
+    <div>
+      <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px", marginBottom: "4px" }}>
+        🏦 Request Club Loan
+      </h3>
+      <p style={{ color: "rgba(255,255,255,0.5)", marginBottom: "20px", fontSize: "0.9rem" }}>
+        Ask another club for a loan. No money moves until they accept.
+      </p>
 
-        <label style={labelStyle}>Loan Amount (€)</label>
-        <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="Any amount" style={inputStyle} />
+      <label style={labelStyle}>Borrow From (Club)</label>
+      <select value={targetClub} onChange={e => setTargetClub(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
+        <option value="">— Select a club —</option>
+        {clubs.map(c => <option key={c} value={c}>{c}</option>)}
+      </select>
 
-        <label style={labelStyle}>Interest</label>
-        <input value="100% (fixed)" disabled style={{ ...inputStyle, opacity: 0.6, cursor: "not-allowed" }} />
+      <label style={labelStyle}>Amount You Want To Borrow (€)</label>
+      <input
+        value={amount} onChange={e => setAmount(e.target.value)}
+        placeholder="e.g. 50000000" style={inputStyle} type="number" min="0"
+      />
 
-        <label style={labelStyle}>Number of Installments</label>
-        <input type="number" min={1} value={installments} onChange={e => setInstallments(e.target.value)} placeholder="e.g. 10" style={inputStyle} />
+      <label style={labelStyle}>Amount You Will Repay (€)</label>
+      <input
+        value={repayAmount} onChange={e => setRepayAmount(e.target.value)}
+        placeholder="Must be equal to or more than the amount borrowed" style={inputStyle} type="number" min="0"
+      />
 
-        <label style={labelStyle}>Repay Per</label>
-        <div style={{ display: "flex", gap: "14px" }}>
-          {[["day", "Day"], ["week", "Week"], ["month", "Month"]].map(([val, label]) => (
-            <button
-              key={val}
-              onClick={() => setFrequency(val)}
-              style={{
-                flex: 1, padding: "18px", borderRadius: "14px", cursor: "pointer",
-                fontFamily: "inherit", fontWeight: 700, fontSize: "1.3rem",
-                background: frequency === val ? "#44aaff" : "rgba(68,170,255,0.1)",
-                border: `2px solid ${frequency === val ? "#44aaff" : "rgba(68,170,255,0.3)"}`,
-                color: "#fff", transition: "all 0.2s",
-              }}
-            >
-              {label}
-            </button>
-          ))}
+      <label style={labelStyle}>Number of Installments</label>
+      <input
+        value={installments} onChange={e => setInstallments(e.target.value)}
+        placeholder="e.g. 5" style={inputStyle} type="number" min="1" step="1"
+      />
+
+      <label style={labelStyle}>Repayment Frequency</label>
+      <select value={frequency} onChange={e => setFrequency(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
+        {FREQUENCIES.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+      </select>
+
+      {showPreview && (
+        <div style={{ marginTop: "16px", padding: "12px 16px", background: "rgba(68,170,255,0.08)", border: "1px solid rgba(68,170,255,0.25)", borderRadius: "12px", color: "rgba(255,255,255,0.75)", fontSize: "0.9rem", lineHeight: 1.6 }}>
+          You receive <strong style={{ color: "#00ff88" }}>{fmt(amountNum)}</strong> and repay <strong style={{ color: "#ff6b6b" }}>{fmt(repayNum)}</strong>
+          {interest > 0 && <> (extra {fmt(interest)})</>}
+          {" "}in <strong>{instNum}</strong> installment{instNum > 1 ? "s" : ""} of about <strong>{fmt(perInstallment)}</strong>, {FREQUENCIES.find(f => f.value === frequency).label.toLowerCase()}.
         </div>
+      )}
 
-        {principal > 0 && installmentCount > 0 && (
-          <div style={{ marginTop: "28px", padding: "22px", background: "rgba(68,170,255,0.08)", border: "1px solid rgba(68,170,255,0.3)", borderRadius: "16px" }}>
-            <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "1.2rem", marginBottom: "6px" }}>You'll repay</div>
-            <div style={{ color: "#44aaff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "1px" }}>
-              €{totalRepayable.toLocaleString()} total
-            </div>
-            <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.15rem", marginTop: "8px" }}>
-              €{installmentAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} per {frequency} × {installmentCount}
-            </div>
-          </div>
-        )}
+      {error && <div style={{ color: "#ff6b6b", fontSize: "0.85rem", marginTop: "12px", padding: "10px", background: "rgba(255,0,0,0.1)", borderRadius: "8px" }}>{error}</div>}
 
-        {error && <div style={{ color: "#ff6b6b", fontSize: "1.15rem", marginTop: "20px" }}>{error}</div>}
-
-        {done ? (
-          <div style={{ textAlign: "center", color: "#00ff88", fontWeight: 700, fontSize: "1.4rem", padding: "20px", background: "rgba(0,255,136,0.1)", borderRadius: "16px", marginTop: "24px" }}>
-            ✅ Loan issued — funds credited!
-          </div>
-        ) : (
-          <div style={{ display: "flex", gap: "16px", marginTop: "28px" }}>
-            <button onClick={handleSubmit} disabled={saving} style={{
-              flex: 1, padding: "20px", background: "#44aaff", border: "none",
-              borderRadius: "16px", color: "#fff", fontWeight: 700, fontSize: "1.4rem",
-              cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.6 : 1,
-              fontFamily: "'Bebas Neue', sans-serif", letterSpacing: "1px",
-            }}>
-              {saving ? "Processing..." : "Confirm Loan"}
-            </button>
-            <button onClick={onClose} style={{
-              flex: 1, padding: "20px", background: "rgba(255,255,255,0.06)",
-              border: "2px solid rgba(255,255,255,0.2)", borderRadius: "16px",
-              color: "#fff", cursor: "pointer", fontSize: "1.4rem",
-              fontFamily: "'Bebas Neue', sans-serif", letterSpacing: "1px",
-            }}>
-              Cancel
-            </button>
-          </div>
-        )}
-      </div>
-    </Modal>
+      {done ? (
+        <div style={{ textAlign: "center", color: "#00ff88", fontWeight: 700, padding: "14px", background: "rgba(0,255,136,0.1)", borderRadius: "12px", marginTop: "16px" }}>
+          ✅ Loan Request Sent!
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: "12px", marginTop: "20px" }}>
+          <button onClick={handleSubmit} disabled={submitting || !manager} style={{
+            flex: 1, padding: "14px", background: "#FF1493", border: "none",
+            borderRadius: "12px", color: "#fff", fontWeight: 700,
+            cursor: submitting || !manager ? "not-allowed" : "pointer",
+            opacity: submitting || !manager ? 0.6 : 1,
+          }}>
+            {submitting ? "Sending..." : "Send Loan Request"}
+          </button>
+          <button onClick={onClose} style={{
+            flex: 1, padding: "14px", background: "rgba(255,255,255,0.06)",
+            border: "1px solid rgba(255,20,147,0.3)", borderRadius: "12px",
+            color: "#fff", cursor: "pointer",
+          }}>Cancel</button>
+        </div>
+      )}
+    </div>
   );
 }
