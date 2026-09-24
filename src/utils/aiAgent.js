@@ -1,10 +1,16 @@
 // ─────────────────────────────────────────────────────────────────────────
-// AI Agent conversation engine — Groq tool-calling loop.
-// Read tools run immediately. Write tools pause the loop and hand back a
-// "pendingConfirmation" for the UI to show a Yes/No card before anything
-// is written to Firebase.
+// AI Agent conversation engine — tool-calling loop, Gemini primary / Groq
+// fallback. Read tools run immediately. Write tools pause the loop and hand
+// back a "pendingConfirmation" for the UI to show a Yes/No card before
+// anything is written to Firebase.
 // ─────────────────────────────────────────────────────────────────────────
 import { LEAGUE_MAP, getToolSchemas, isWriteTool, runReadTool, previewWriteTool, executeWriteTool } from "./aiAgentTools";
+
+const GEMINI_API_KEYS = [
+  { name: "VITE_Gemini1", key: import.meta.env.VITE_Gemini1 },
+  { name: "VITE_Gemini2", key: import.meta.env.VITE_Gemini2 },
+  { name: "VITE_Gemini3", key: import.meta.env.VITE_Gemini3 },
+].filter((entry) => entry.key);
 
 const GROQ_API_KEYS = [
   { name: "VITE_CareerMode1", key: import.meta.env.VITE_CareerMode1 },
@@ -12,8 +18,18 @@ const GROQ_API_KEYS = [
   { name: "VITE_CareerMode3", key: import.meta.env.VITE_CareerMode3 },
 ].filter((entry) => entry.key);
 
+const GEMINI_MODEL = "gemini-3.6-flash";
+const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+
 const GROQ_MODEL = "openai/gpt-oss-120b"; // Groq's current recommended tool-use model (llama-3.3-70b-versatile was decommissioned Aug 16 2026)
 const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
+
+// Gemini keys are tried first (primary). Groq keys are only reached once
+// every Gemini key has failed (fallback).
+const AI_PROVIDERS = [
+  ...GEMINI_API_KEYS.map((e) => ({ ...e, provider: "Gemini", endpoint: GEMINI_ENDPOINT, model: GEMINI_MODEL })),
+  ...GROQ_API_KEYS.map((e) => ({ ...e, provider: "Groq", endpoint: GROQ_ENDPOINT, model: GROQ_MODEL })),
+];
 
 const MAX_LOOP_ITERATIONS = 8;
 
@@ -32,21 +48,22 @@ WRITE tools (all need user confirmation): add_result, delete_result, add_finance
 4. If a tool errors (team not found, ambiguous match), relay it and ask the user to clarify.
 5. Be concise. Use real numbers/names from tool results, never placeholders.`;
 
-async function callGroq(messages) {
+async function callAI(messages) {
   const failures = [];
 
-  for (const { name, key } of GROQ_API_KEYS) {
+  for (const { name, key, provider, endpoint, model } of AI_PROVIDERS) {
     try {
-      const res = await fetch(GROQ_ENDPOINT, {
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
         body: JSON.stringify({
-          model: GROQ_MODEL,
+          model,
           messages,
           tools: getToolSchemas(),
           tool_choice: "auto",
           temperature: 0.2,
           max_tokens: 700, // Groq's TPM limit is checked against this declared value, not actual usage — keep it tight
+          ...(provider === "Gemini" ? { reasoning_effort: "low" } : {}), // Gemini "thinking" is on by default and eats into max_tokens otherwise
         }),
       });
       const data = await res.json();
@@ -59,12 +76,12 @@ async function callGroq(messages) {
           err.message ? `Message: ${err.message}` : null,
           err.param ? `Param: ${err.param}` : null,
         ].filter(Boolean).join(" | ");
-        failures.push({ name, detail });
+        failures.push({ name: `${provider}/${name}`, detail });
         continue;
       }
       return data.choices[0].message;
     } catch (err) {
-      failures.push({ name, detail: `Network/Parse Error: ${err.message || "Unknown error"}` });
+      failures.push({ name: `${provider}/${name}`, detail: `Network/Parse Error: ${err.message || "Unknown error"}` });
     }
   }
 
@@ -114,7 +131,7 @@ export async function runAgentTurn(messages, iteration = 0) {
   }
   let assistantMessage;
   try {
-    assistantMessage = await callGroq(messages);
+    assistantMessage = await callAI(messages);
   } catch (e) {
     return { status: "error", messages, error: e.message || String(e) };
   }
