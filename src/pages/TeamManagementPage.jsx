@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { db, PATHS } from "../firebase";
-import { ref, onValue, push, update, get, remove, set } from "firebase/database";
+import { ref, onValue, push, update, get, remove } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
 import Navbar from "../components/Navbar";
 import BackgroundVideo from "../components/BackgroundVideo";
@@ -32,6 +32,8 @@ const GLASS = {
 const INCOME_CATEGORIES = [
   "Player Sales",
   "Player Loaned Out",
+  "Loan Received",
+  "Loan Repayments",
   "Stadium Income",
   "Sponsorship",
   "Broadcasting",
@@ -46,6 +48,8 @@ const EXPENSE_CATEGORIES = [
   "Stadium Upgrade",
   "Player Purchase",
   "Player Loan In",
+  "Loan Given",
+  "Loan Repayments",
   "Fines",
   "Recurring Expense",
 ];
@@ -55,33 +59,6 @@ const ALL_MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct",
 function formatBalance(num) {
   if (num === undefined || num === null) return "€0.00";
   return `€${Number(num).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-// Show "Loading..." until a section's first Firebase snapshot has arrived.
-// If that first response comes back empty, still wait up to `timeoutMs`
-// (default 2 minutes) before actually showing "no data found" — protects
-// against a slow/late-arriving snapshot being mistaken for genuine emptiness.
-function useTimedEmptyState(timeoutMs = 120000) {
-  const [timeoutReached, setTimeoutReached] = useState(false);
-  useEffect(() => {
-    const t = setTimeout(() => setTimeoutReached(true), timeoutMs);
-    return () => clearTimeout(t);
-  }, [timeoutMs]);
-  return timeoutReached;
-}
-
-function LoadingRow({ label = "Loading..." }) {
-  return (
-    <div style={{ textAlign: "center", padding: "48px 20px", color: "rgba(255,255,255,0.3)" }}>
-      <div style={{
-        width: "36px", height: "36px", margin: "0 auto 16px",
-        border: "3px solid rgba(255,20,147,0.2)", borderTop: "3px solid #FF1493",
-        borderRadius: "50%", animation: "spin 0.8s linear infinite",
-      }} />
-      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", letterSpacing: "2px" }}>{label}</div>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-    </div>
-  );
 }
 
 function formatAmount(num) {
@@ -134,7 +111,7 @@ async function processRecurringTransactions(team) {
       const txData = txSnap.val() || {};
 
       for (const [rid, rec] of Object.entries(recurringData)) {
-        if (rec.status === "completed" || rec.status === "cancelled" || rec.status === "paused") continue;
+        if (rec.status === "completed" || rec.status === "cancelled") continue;
 
         const isIncome = rec.type === "income";
         const dailyAmount = Number(rec.dailyAmount);
@@ -151,13 +128,12 @@ async function processRecurringTransactions(team) {
         const startDate = new Date(rec.startTs);
         startDate.setHours(0, 0, 0, 0);
         const debitedSet = new Set(linkedTxs.filter(t => t.debitDate).map(t => t.debitDate));
-        const skippedSet = new Set(rec.skippedDates ? Object.keys(rec.skippedDates) : []);
         const cursor = new Date(startDate);
         const writes = [];
 
         while (cursor <= todayMidnight) {
           const dateStr = cursor.toISOString().slice(0, 10);
-          if (!debitedSet.has(dateStr) && !skippedSet.has(dateStr)) {
+          if (!debitedSet.has(dateStr)) {
             const remaining = totalCap - totalDebited - writes.reduce((s, w) => s + w.amount, 0);
             if (remaining <= 0) break;
             const amount = Math.min(dailyAmount, remaining);
@@ -256,73 +232,130 @@ async function processRecurringTransactions(team) {
   }
 }
 
-// ─── LOAN INSTALLMENT PROCESSING (runs on page load) ───────────────────────
-async function processLoanInstallments(team) {
+// ─── PEER-TO-PEER CLUB LOANS ──────────────────────────────────────────────
+// Loans live on one shared record at career_club_loans/{loanId}:
+//   { borrowerClub, lenderClub, amount, repayAmount, installments, frequency,
+//     status: pending | active | completed | rejected,
+//     createdAt, acceptedAt, startTs, processedDates: { i1: "YYYY-MM-DD", ... } }
+// Nothing touches either club's balance until the lender accepts.
+
+function round2(n) {
+  return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+}
+
+function ymd(d) {
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+function txDateFields(d) {
+  return { month: ALL_MONTHS[d.getMonth()], monthIndex: d.getMonth(), year: d.getFullYear() };
+}
+
+// Due date of installment k (1-based): start date + k periods
+function addLoanPeriod(start, k, frequency) {
+  const d = new Date(start);
+  if (frequency === "day") {
+    d.setDate(d.getDate() + k);
+  } else if (frequency === "week") {
+    d.setDate(d.getDate() + 7 * k);
+  } else {
+    const day = start.getDate();
+    d.setDate(1);
+    d.setMonth(d.getMonth() + k);
+    const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    d.setDate(Math.min(day, daysInMonth));
+  }
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function loanFrequencyLabel(frequency) {
+  return frequency === "day" ? "day" : frequency === "week" ? "week" : "month";
+}
+
+function getLoanStats(loan) {
+  const n = Math.max(1, Math.floor(Number(loan.installments)) || 1);
+  const repay = Number(loan.repayAmount) || 0;
+  const amount = Number(loan.amount) || 0;
+  const paid = Object.keys(loan.processedDates || {}).length;
+  const per = round2(repay / n);
+  const repaid = paid >= n ? repay : round2(per * paid);
+  return { n, repay, amount, paid, per, repaid, interest: round2(repay - amount) };
+}
+
+// Runs on page load. For every active loan involving this club, pays each
+// installment that has come due — borrower expense + lender income are written
+// in ONE multi-path update, and the installment is marked in processedDates on
+// the shared loan record. Transaction keys are deterministic, so even if both
+// managers load the page at the same moment nothing is ever charged twice.
+async function processClubLoanInstallments(team) {
+  if (!team) return;
   try {
-    const loansSnap = await get(ref(db, `career_team_management/${team}/finance/loans`));
-    const loansData = loansSnap.val();
-    if (!loansData) return;
+    const snap = await get(ref(db, PATHS.clubLoans));
+    const all = snap.val();
+    if (!all) return;
 
-    const txSnap = await get(ref(db, `career_team_management/${team}/finance/transactions`));
-    const txData = txSnap.val() || {};
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-    const todayMidnight = new Date();
-    todayMidnight.setHours(0, 0, 0, 0);
+    for (const [id, loan] of Object.entries(all)) {
+      if (loan.status !== "active") continue;
+      if (loan.borrowerClub !== team && loan.lenderClub !== team) continue;
 
-    for (const [lid, loan] of Object.entries(loansData)) {
-      if (loan.status === "completed") continue;
-
-      const linkedTxs = Object.values(txData).filter(t => t.loanId === lid);
-      const totalRepaid = linkedTxs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
-      if (totalRepaid >= loan.totalRepayable) {
-        await update(ref(db, `career_team_management/${team}/finance/loans/${lid}`), { status: "completed" });
-        continue;
-      }
-
-      const debitedSet = new Set(linkedTxs.filter(t => t.debitDate).map(t => t.debitDate));
-      const stepDays = loan.frequency === "week" ? 7 : loan.frequency === "month" ? 30 : 1;
-      const startDate = new Date(loan.startTs);
+      const { n, repay, per } = getLoanStats(loan);
+      const processed = loan.processedDates || {};
+      const startDate = new Date(loan.startTs || loan.acceptedAt || Date.now());
       startDate.setHours(0, 0, 0, 0);
-      const cursor = new Date(startDate);
-      cursor.setDate(cursor.getDate() + stepDays); // first installment is due one period after issue
-      const writes = [];
 
-      while (cursor <= todayMidnight) {
-        const dateStr = cursor.toISOString().slice(0, 10);
-        if (!debitedSet.has(dateStr)) {
-          const remaining = loan.totalRepayable - totalRepaid - writes.reduce((s, w) => s + w.amount, 0);
-          if (remaining <= 0) break;
-          const amount = Math.min(loan.installmentAmount, remaining);
-          writes.push({
-            type: "expense",
-            category: "Loan Repayment",
-            source: `Installment (${loan.frequency})`,
-            amount,
-            month: ALL_MONTHS[cursor.getMonth()],
-            monthIndex: cursor.getMonth(),
-            year: cursor.getFullYear(),
-            createdAt: cursor.getTime(),
-            debitDate: dateStr,
-            loanId: lid,
-            addedByAdmin: true,
-            sentBy: "System (Loan Repayment)",
-            receivedBy: team,
-          });
-        }
-        cursor.setDate(cursor.getDate() + stepDays);
+      const updates = {};
+      let paidCount = Object.keys(processed).length;
+
+      for (let k = 1; k <= n; k++) {
+        if (processed[`i${k}`]) continue;
+        const due = addLoanPeriod(startDate, k, loan.frequency);
+        if (due > today) break;
+
+        const amount = k === n ? round2(repay - per * (n - 1)) : per;
+        const dateStr = ymd(due);
+        const common = {
+          amount,
+          ...txDateFields(due),
+          createdAt: due.getTime(),
+          debitDate: dateStr,
+          loanId: id,
+          installment: k,
+          sentBy: "System (Club Loan)",
+        };
+
+        updates[`${PATHS.clubLoans}/${id}/processedDates/i${k}`] = dateStr;
+        updates[`career_team_management/${loan.borrowerClub}/finance/transactions/loan_${id}_${k}_b`] = {
+          ...common,
+          type: "expense",
+          category: "Loan Repayments",
+          source: `Loan repayment ${k}/${n} · ${loan.lenderClub}`,
+          receivedBy: loan.lenderClub,
+        };
+        updates[`career_team_management/${loan.lenderClub}/finance/transactions/loan_${id}_${k}_l`] = {
+          ...common,
+          type: "income",
+          category: "Loan Repayments",
+          source: `Loan repayment ${k}/${n} · ${loan.borrowerClub}`,
+          receivedBy: loan.lenderClub,
+        };
+        paidCount++;
       }
 
-      for (const tx of writes) {
-        await push(ref(db, `career_team_management/${team}/finance/transactions`), tx);
+      if (Object.keys(updates).length === 0) continue;
+      if (paidCount >= n) {
+        updates[`${PATHS.clubLoans}/${id}/status`] = "completed";
+        updates[`${PATHS.clubLoans}/${id}/completedAt`] = Date.now();
       }
-
-      const newTotal = totalRepaid + writes.reduce((s, w) => s + w.amount, 0);
-      if (newTotal >= loan.totalRepayable) {
-        await update(ref(db, `career_team_management/${team}/finance/loans/${lid}`), { status: "completed" });
-      }
+      await update(ref(db), updates);
     }
   } catch (e) {
-    console.error("Loan installment error:", e);
+    console.error("Club loan installment error:", e);
   }
 }
 
@@ -332,9 +365,10 @@ function AdminTeamSelector({ onSelect }) {
   const [selected, setSelected] = useState("");
 
   useEffect(() => {
-    const unsub = onValue(ref(db, "career_team_management"), snap => {
+    const unsub = onValue(ref(db, PATHS.accounts), snap => {
       const data = snap.val() || {};
-      setTeams(Object.keys(data).sort());
+      const t = [...new Set(Object.values(data).filter(a => a.team).map(a => a.team))];
+      setTeams(t);
     });
     return () => unsub();
   }, []);
@@ -732,22 +766,21 @@ function SquadTabWrapper({ team, isAdmin, onEditSquad }) {
 }
 
 // ─── TRANSFERS TAB ─────────────────────────────────────────────────────────
+// One merged table (offers received + offers sent), newest first, searchable,
+// with each row expanding inline to show the full offer details.
 function TransfersTab({ team, teamIcons, isAdmin }) {
   const [negotiations, setNegotiations] = useState([]);
-  const [negLoading, setNegLoading] = useState(true);
-  const negEmptyTimeoutReached = useTimedEmptyState();
-  const [selectedOffer, setSelectedOffer] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     if (!team) return;
-    setNegLoading(true);
     const unsub = onValue(ref(db, `${PATHS.transfers}/negotiations`), snap => {
       const data = snap.val();
-      if (!data) { setNegotiations([]); setNegLoading(false); return; }
+      if (!data) { setNegotiations([]); return; }
       const all = Object.entries(data).map(([id, n]) => ({ id, ...n }));
       setNegotiations(all);
-      setNegLoading(false);
     });
     return () => unsub();
   }, [team]);
@@ -763,181 +796,144 @@ function TransfersTab({ team, teamIcons, isAdmin }) {
     setDeletingId(null);
   }
 
-  const offersReceived = negotiations.filter(n => n.toClub === team || n.playerClub === team);
-  const offersSent = negotiations.filter(n => n.fromClub === team);
+  const rows = negotiations
+    .filter(n => n.toClub === team || n.playerClub === team || n.fromClub === team)
+    .map(n => ({ ...n, direction: n.fromClub === team ? "Sent" : "Received" }))
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
-  const BlockHeader = ({ title, count, color }) => (
-    <div style={{ color, fontFamily: "'Bebas Neue', sans-serif", fontSize: "3rem", letterSpacing: "3px", marginBottom: "20px", display: "flex", alignItems: "center", gap: "12px" }}>
-      {title}
-      <span style={{ background: `${color}22`, border: `1px solid ${color}`, color, borderRadius: "20px", padding: "4px 28px", fontSize: "2rem" }}>{count}</span>
-    </div>
-  );
+  const q = search.trim().toLowerCase();
+  const visibleRows = !q ? rows : rows.filter(o => {
+    const hay = [
+      o.playerName, o.playerClub, o.fromClub, o.toClub, o.fromManagerName,
+      o.type, o.status, o.direction,
+      o.offerAmount, o.loanAmount, o.bidAmount,
+      o.createdAt ? formatDateTime(o.createdAt) : "",
+    ].filter(Boolean).join(" ").toLowerCase();
+    return hay.includes(q);
+  });
 
-  const EmptyState = ({ label }) => (
-    <div style={{ textAlign: "center", padding: "48px 20px", color: "rgba(255,255,255,0.2)" }}>
-      <div style={{ fontSize: "6rem", marginBottom: "12px" }}>📋</div>
-      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.2rem", letterSpacing: "2px" }}>{label}</div>
-    </div>
-  );
-
-  return (
-    <div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "28px" }}>
-        {/* Offers Received */}
-        <div style={{ ...GLASS, borderRadius: "20px", padding: "28px" }}>
-          <BlockHeader title="📥 OFFERS RECEIVED" count={offersReceived.length} color="#00ff88" />
-          {negLoading ? (
-            <LoadingRow />
-          ) : offersReceived.length === 0 ? (
-            negEmptyTimeoutReached ? <EmptyState label="No Offers Received" /> : <LoadingRow />
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              {offersReceived.map(offer => (
-                <NegotiationRowCard
-                  key={offer.id}
-                  offer={offer}
-                  teamIcons={teamIcons}
-                  onClick={() => setSelectedOffer(offer)}
-                  isAdmin={isAdmin}
-                  onDelete={() => handleDelete(offer.id)}
-                  deleting={deletingId === offer.id}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Offers Sent */}
-        <div style={{ ...GLASS, borderRadius: "20px", padding: "28px" }}>
-          <BlockHeader title="📤 OFFERS SENT" count={offersSent.length} color="#ffffff" />
-          {negLoading ? (
-            <LoadingRow />
-          ) : offersSent.length === 0 ? (
-            negEmptyTimeoutReached ? <EmptyState label="No Offers Sent" /> : <LoadingRow />
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              {offersSent.map(offer => (
-                <NegotiationRowCard
-                  key={offer.id}
-                  offer={offer}
-                  teamIcons={teamIcons}
-                  onClick={() => setSelectedOffer(offer)}
-                  isAdmin={isAdmin}
-                  onDelete={() => handleDelete(offer.id)}
-                  deleting={deletingId === offer.id}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {selectedOffer && <NegotiationDetailPopup offer={selectedOffer} onClose={() => setSelectedOffer(null)} />}
-    </div>
-  );
-}
-
-// ─── NEGOTIATION ROW CARD (1 per row, full width) ─────────────────────────
-function NegotiationRowCard({ offer, teamIcons, onClick, isAdmin, onDelete, deleting }) {
   const statusColors = { pending: "#ffaa44", accepted: "#00ff88", rejected: "#ff6b6b", cancelled: "#aaaaaa" };
-  const statusColor = statusColors[offer.status] || "#ffaa44";
-  const clubLogo = teamIcons?.[offer.playerClub] || teamIcons?.[offer.fromClub];
-  const typeColor = offer.type === "buy" ? "#ff1493" : offer.type === "loan" ? "#44aaff" : "#ffaa44";
+  const COLS = "2.4fr 1.1fr 1fr 2fr 1.3fr 1.1fr 1.6fr";
 
   return (
-    <div style={{
-      background: "rgba(255,255,255,0.04)",
-      border: "1px solid rgba(255,20,147,0.18)",
-      borderRadius: "16px",
-      overflow: "hidden",
-      display: "flex",
-      alignItems: "center",
-      gap: "24px",
-      padding: "28px 32px",
-      transition: "all 0.2s",
-      cursor: "pointer",
-    }}
-      onMouseOver={e => { e.currentTarget.style.background = "rgba(255,20,147,0.08)"; e.currentTarget.style.borderColor = "rgba(255,20,147,0.5)"; }}
-      onMouseOut={e => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; e.currentTarget.style.borderColor = "rgba(255,20,147,0.18)"; }}
-      onClick={onClick}
-    >
-      {/* Club logo / shirt */}
-      <div style={{ width: "112px", height: "112px", flexShrink: 0 }}>
-        {clubLogo
-          ? <img src={clubLogo} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
-          : <ShirtSVGSmall clubName={offer.playerClub} playerName={offer.playerName} squadNumber={null} />
-        }
+    <div style={{ ...GLASS, borderRadius: "20px", padding: "28px" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px", flexWrap: "wrap", marginBottom: "20px" }}>
+        <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3rem", letterSpacing: "3px", display: "flex", alignItems: "center", gap: "12px" }}>
+          🔁 TRANSFER OFFERS
+          <span style={{ background: "rgba(255,20,147,0.15)", border: "1px solid #ff1493", color: "#ff1493", borderRadius: "20px", padding: "4px 28px", fontSize: "2rem" }}>{rows.length}</span>
+        </div>
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="🔍 Search player, club, type, status..."
+          style={{ flex: "1 1 320px", maxWidth: "520px", padding: "14px 20px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.35)", borderRadius: "14px", color: "#fff", fontFamily: "inherit", fontSize: "1.1rem", outline: "none", boxSizing: "border-box" }}
+        />
       </div>
 
-      {/* Info */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ color: "#fff", fontWeight: 800, fontSize: "3.3rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{offer.playerName}</div>
-        <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "2.55rem", marginTop: "6px" }}>
-          {offer.playerClub} · <span style={{ color: "rgba(255,255,255,0.7)" }}>From: {offer.fromClub || offer.fromManagerName}</span>
+      {rows.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 20px", color: "rgba(255,255,255,0.2)" }}>
+          <div style={{ fontSize: "6rem", marginBottom: "12px" }}>📋</div>
+          <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.2rem", letterSpacing: "2px" }}>No Transfer Offers</div>
         </div>
-        <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.6rem", letterSpacing: "1px", marginTop: "8px" }}>
-          {offer.offerAmount || offer.loanAmount || offer.bidAmount || "—"}
+      ) : visibleRows.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 20px", color: "rgba(255,255,255,0.3)", fontSize: "1.4rem" }}>
+          No offers match "{search}"
         </div>
-      </div>
-
-      {/* Badges */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "12px", alignItems: "flex-end" }}>
-        <span style={{ background: `${typeColor}22`, color: typeColor, border: `1px solid ${typeColor}`, borderRadius: "8px", padding: "6px 20px", fontSize: "2.25rem", fontWeight: 700, textTransform: "uppercase" }}>
-          {offer.type}
-        </span>
-        <span style={{ background: `${statusColor}22`, color: statusColor, border: `1px solid ${statusColor}`, borderRadius: "8px", padding: "6px 20px", fontSize: "2.25rem", fontWeight: 700, textTransform: "uppercase" }}>
-          {offer.status}
-        </span>
-      </div>
-
-      {/* Admin delete */}
-      {isAdmin && (
-        <button
-          onClick={e => { e.stopPropagation(); onDelete(); }}
-          disabled={deleting}
-          style={{ marginLeft: "8px", width: "64px", height: "64px", background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.4)", borderRadius: "10px", color: "#ff6b6b", cursor: "pointer", fontSize: "2rem", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
-          title="Delete offer"
-        >
-          {deleting ? "..." : "🗑️"}
-        </button>
-      )}
-    </div>
-  );
-}
-
-// ─── NEGOTIATION DETAIL POPUP ─────────────────────────────────────────────
-function NegotiationDetailPopup({ offer, onClose }) {
-  if (!offer) return null;
-  const statusColors = { pending: "#ffaa44", accepted: "#00ff88", rejected: "#ff6b6b" };
-  const statusColor = statusColors[offer.status] || "#ffaa44";
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }} onClick={onClose}>
-      <div style={{ ...GLASS, borderRadius: "24px", padding: "36px", maxWidth: "900px", width: "100%", position: "relative" }} onClick={e => e.stopPropagation()}>
-        <button onClick={onClose} style={{ position: "absolute", top: "16px", right: "16px", background: "rgba(255,255,255,0.1)", border: "none", color: "#fff", borderRadius: "50%", width: "36px", height: "36px", cursor: "pointer", fontSize: "1.1rem" }}>✕</button>
-        <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3rem", letterSpacing: "2px", marginBottom: "6px" }}>{offer.playerName}</div>
-        <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "3.6rem", marginBottom: "20px" }}>{offer.playerClub}</div>
-        <div style={{ display: "flex", gap: "10px", marginBottom: "20px", flexWrap: "wrap" }}>
-          <span style={{ background: offer.type === "buy" ? "rgba(255,20,147,0.2)" : offer.type === "loan" ? "rgba(0,150,255,0.2)" : "rgba(255,170,0,0.2)", color: offer.type === "buy" ? "#ffffff" : offer.type === "loan" ? "#44aaff" : "#ffaa44", padding: "6px 16px", borderRadius: "20px", fontSize: "3rem", fontWeight: 700, textTransform: "uppercase" }}>{offer.type}</span>
-          <span style={{ background: `${statusColor}22`, color: statusColor, padding: "6px 16px", borderRadius: "20px", fontSize: "3rem", fontWeight: 700, textTransform: "uppercase" }}>{offer.status}</span>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "12px" }}>
-          {[
-            ["From Club", offer.fromClub],
-            ["Manager", offer.fromManagerName],
-            ["To Club", offer.toClub || offer.playerClub],
-            offer.type === "auction" ? ["Bid", offer.bidAmount] : offer.type === "loan" ? ["Loan Fee", offer.loanAmount] : ["Offer", offer.offerAmount],
-            offer.contractLength && ["Contract", offer.contractLength],
-            offer.loanTerm && ["Loan Term", offer.loanTerm],
-            offer.wage && ["Wage", offer.wage],
-            ["Sent", offer.createdAt ? formatDateTime(offer.createdAt) : "—"],
-          ].filter(Boolean).map(([label, value]) => (
-            <div key={label} style={{ background: "rgba(255,255,255,0.05)", borderRadius: "12px", padding: "14px 16px" }}>
-              <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "2.4rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "6px" }}>{label}</div>
-              <div style={{ color: "#fff", fontWeight: 700, fontSize: "3rem" }}>{value || "—"}</div>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <div style={{ minWidth: "900px" }}>
+            {/* Header row */}
+            <div style={{ display: "grid", gridTemplateColumns: COLS, gap: "12px", padding: "10px 20px", color: "rgba(255,255,255,0.4)", fontSize: "0.85rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px" }}>
+              <div>Player</div><div>Direction</div><div>Type</div><div>From → To</div><div>Amount</div><div>Status</div><div>Date</div>
             </div>
-          ))}
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              {visibleRows.map(offer => {
+                const isOpen = expandedId === offer.id;
+                const statusColor = statusColors[offer.status] || "#ffaa44";
+                const typeColor = offer.type === "buy" ? "#ff1493" : offer.type === "loan" ? "#44aaff" : "#ffaa44";
+                const isSent = offer.direction === "Sent";
+                const clubLogo = teamIcons?.[offer.playerClub] || teamIcons?.[offer.fromClub];
+                const amountText = offer.offerAmount || offer.loanAmount || offer.bidAmount || "—";
+                return (
+                  <div key={offer.id} style={{ background: isOpen ? "rgba(255,20,147,0.08)" : "rgba(255,255,255,0.04)", border: `1px solid ${isOpen ? "rgba(255,20,147,0.5)" : "rgba(255,20,147,0.18)"}`, borderRadius: "14px", overflow: "hidden", transition: "all 0.2s" }}>
+                    <div
+                      onClick={() => setExpandedId(isOpen ? null : offer.id)}
+                      style={{ display: "grid", gridTemplateColumns: COLS, gap: "12px", alignItems: "center", padding: "16px 20px", cursor: "pointer", color: "#fff", fontSize: "1.1rem" }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "12px", minWidth: 0 }}>
+                        <div style={{ width: "44px", height: "44px", flexShrink: 0 }}>
+                          {clubLogo
+                            ? <img src={clubLogo} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+                            : <ShirtSVGSmall clubName={offer.playerClub} playerName={offer.playerName} squadNumber={null} />}
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{offer.playerName}</div>
+                          <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.85rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{offer.playerClub}</div>
+                        </div>
+                      </div>
+                      <div>
+                        <span style={{ color: isSent ? "#ffffff" : "#00ff88", fontWeight: 700 }}>{isSent ? "📤 Sent" : "📥 Received"}</span>
+                      </div>
+                      <div>
+                        <span style={{ background: `${typeColor}22`, color: typeColor, border: `1px solid ${typeColor}`, borderRadius: "8px", padding: "3px 10px", fontSize: "0.8rem", fontWeight: 700, textTransform: "uppercase" }}>{offer.type}</span>
+                      </div>
+                      <div style={{ color: "rgba(255,255,255,0.75)", fontSize: "0.95rem", minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {offer.fromClub || offer.fromManagerName || "—"} → {offer.toClub || offer.playerClub || "—"}
+                      </div>
+                      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "1px" }}>{amountText}</div>
+                      <div>
+                        <span style={{ background: `${statusColor}22`, color: statusColor, border: `1px solid ${statusColor}`, borderRadius: "8px", padding: "3px 10px", fontSize: "0.8rem", fontWeight: 700, textTransform: "uppercase" }}>{offer.status}</span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", color: "rgba(255,255,255,0.55)", fontSize: "0.9rem" }}>
+                        <span>{offer.createdAt ? formatDateOnly(offer.createdAt) : "—"}</span>
+                        <span style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+                          {isAdmin && (
+                            <button
+                              onClick={e => { e.stopPropagation(); handleDelete(offer.id); }}
+                              disabled={deletingId === offer.id}
+                              style={{ width: "34px", height: "34px", background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.4)", borderRadius: "10px", color: "#ff6b6b", cursor: "pointer", fontSize: "0.95rem", display: "flex", alignItems: "center", justifyContent: "center" }}
+                              title="Delete offer"
+                            >
+                              {deletingId === offer.id ? "..." : "🗑️"}
+                            </button>
+                          )}
+                          <span style={{ color: "#ff1493", fontSize: "1rem" }}>{isOpen ? "▲" : "▼"}</span>
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Inline expansion */}
+                    {isOpen && (
+                      <div style={{ padding: "4px 20px 22px", borderTop: "1px solid rgba(255,20,147,0.15)" }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "12px", marginTop: "18px" }}>
+                          {[
+                            ["Player", offer.playerName],
+                            ["Player Club", offer.playerClub],
+                            ["From Club", offer.fromClub],
+                            ["Manager", offer.fromManagerName],
+                            ["To Club", offer.toClub || offer.playerClub],
+                            offer.type === "auction" ? ["Bid", offer.bidAmount] : offer.type === "loan" ? ["Loan Fee", offer.loanAmount] : ["Offer", offer.offerAmount],
+                            offer.contractLength && ["Contract", offer.contractLength],
+                            offer.loanTerm && ["Loan Term", offer.loanTerm],
+                            offer.wage && ["Wage", offer.wage],
+                            ["Sent", offer.createdAt ? formatDateTime(offer.createdAt) : "—"],
+                          ].filter(Boolean).map(([label, value]) => (
+                            <div key={label} style={{ background: "rgba(255,255,255,0.05)", borderRadius: "12px", padding: "14px 16px" }}>
+                              <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "6px" }}>{label}</div>
+                              <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.05rem" }}>{value || "—"}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -966,70 +962,279 @@ function ShirtSVGSmall({ clubName, playerName, squadNumber }) {
   );
 }
 
-// ─── EDIT RECURRING MODAL ────────────────────────────────────────────────────
-function EditRecurringModal({ rec, alreadyDebited, onSave, onClose }) {
-  const [description, setDescription] = useState(rec.description || "");
-  const [dailyAmount, setDailyAmount] = useState(String(rec.dailyAmount));
-  const [totalCap, setTotalCap] = useState(String(rec.totalCap));
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+// ─── CLUB LOANS SECTION (Finance tab) ─────────────────────────────────────
+function ClubLoansSection({ team, isAdmin }) {
+  const { manager } = useAdmin();
+  const [loans, setLoans] = useState([]);
+  const [expandedId, setExpandedId] = useState(null);
+  const [showRequest, setShowRequest] = useState(false);
+  const [busyId, setBusyId] = useState(null);
 
-  async function handleSave() {
-    if (!description.trim()) { setError("Title can't be empty."); return; }
-    if (!dailyAmount || Number(dailyAmount) <= 0) { setError("Enter a valid amount."); return; }
-    if (!totalCap || Number(totalCap) <= 0) { setError("Enter a valid cap."); return; }
-    setSaving(true);
-    setError("");
+  // Only the manager of the club being viewed can request / respond
+  const isTeamManager = !isAdmin && !!manager && manager.team === team;
+
+  useEffect(() => {
+    if (!team) return;
+    const unsub = onValue(ref(db, PATHS.clubLoans), snap => {
+      const data = snap.val() || {};
+      const list = Object.entries(data)
+        .map(([id, l]) => ({ id, ...l }))
+        .filter(l => l.lenderClub === team || l.borrowerClub === team)
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      setLoans(list);
+    });
+    return () => unsub();
+  }, [team]);
+
+  const incoming = loans.filter(l => l.lenderClub === team && l.status === "pending");
+  const outgoing = loans.filter(l => l.borrowerClub === team && (l.status === "pending" || l.status === "rejected"));
+  const running = loans.filter(l => l.status === "active" || l.status === "completed");
+
+  async function handleAccept(loan) {
+    if (!isTeamManager || busyId) return;
+    setBusyId(loan.id);
     try {
-      await onSave({ description, dailyAmount, totalCap }, alreadyDebited);
-      onClose();
+      // Re-read so a stale card can never be accepted twice
+      const cur = (await get(ref(db, `${PATHS.clubLoans}/${loan.id}`))).val();
+      if (!cur || cur.status !== "pending") {
+        alert("This loan request is no longer pending.");
+        return;
+      }
+      const amount = Number(cur.amount) || 0;
+
+      const lenderTxs = (await get(ref(db, `career_team_management/${cur.lenderClub}/finance/transactions`))).val() || {};
+      const lenderBalance = Object.values(lenderTxs).reduce((sum, tx) => {
+        const amt = Number(tx.amount) || 0;
+        return tx.type === "income" ? sum + amt : sum - amt;
+      }, 0);
+      if (lenderBalance < amount) {
+        alert(`Your club balance (${formatBalance(lenderBalance)}) is too low to lend ${formatBalance(amount)}.`);
+        return;
+      }
+
+      const now = new Date();
+      const startTs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      const common = { amount, ...txDateFields(now), createdAt: now.getTime(), loanId: loan.id, sentBy: "System (Club Loan)" };
+
+      // One atomic write: loan goes active AND the principal moves both ways
+      await update(ref(db), {
+        [`${PATHS.clubLoans}/${loan.id}/status`]: "active",
+        [`${PATHS.clubLoans}/${loan.id}/acceptedAt`]: now.getTime(),
+        [`${PATHS.clubLoans}/${loan.id}/acceptedByName`]: manager.username || "",
+        [`${PATHS.clubLoans}/${loan.id}/startTs`]: startTs,
+        [`career_team_management/${cur.lenderClub}/finance/transactions/loan_${loan.id}_out`]: {
+          ...common, type: "expense", category: "Loan Given",
+          source: `Loan to ${cur.borrowerClub}`, receivedBy: cur.borrowerClub,
+        },
+        [`career_team_management/${cur.borrowerClub}/finance/transactions/loan_${loan.id}_in`]: {
+          ...common, type: "income", category: "Loan Received",
+          source: `Loan from ${cur.lenderClub}`, receivedBy: cur.borrowerClub,
+        },
+      });
+      // First installment may already be due for very short schedules
+      processClubLoanInstallments(team);
     } catch (e) {
-      setError(e.message);
-      setSaving(false);
+      console.error(e);
+      alert("Could not accept the loan: " + e.message);
+    } finally {
+      setBusyId(null);
     }
   }
 
+  async function handleReject(loan) {
+    if (!isTeamManager || busyId) return;
+    if (!window.confirm(`Reject the loan request from ${loan.borrowerClub}?`)) return;
+    setBusyId(loan.id);
+    try {
+      const cur = (await get(ref(db, `${PATHS.clubLoans}/${loan.id}`))).val();
+      if (!cur || cur.status !== "pending") {
+        alert("This loan request is no longer pending.");
+        return;
+      }
+      await update(ref(db, `${PATHS.clubLoans}/${loan.id}`), {
+        status: "rejected",
+        respondedAt: Date.now(),
+        respondedByName: manager.username || "",
+      });
+    } catch (e) {
+      console.error(e);
+      alert("Could not reject the loan: " + e.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const blockHead = (title, color, count) => (
+    <div style={{ color, fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "2px", marginBottom: "16px", display: "flex", alignItems: "center", gap: "14px" }}>
+      {title}
+      <span style={{ background: `${color}22`, border: `1px solid ${color}`, borderRadius: "20px", padding: "2px 22px", fontSize: "1.8rem" }}>{count}</span>
+    </div>
+  );
+
+  const detailGrid = (loan, stats) => (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "12px", marginTop: "20px" }}>
+      {[
+        ["Borrower", loan.borrowerClub],
+        ["Lender", loan.lenderClub],
+        ["Amount Borrowed", formatAmount(stats.amount)],
+        ["Total To Repay", formatAmount(stats.repay)],
+        ["Extra Paid Back", `${formatAmount(stats.interest)}${stats.amount > 0 ? ` (${((stats.interest / stats.amount) * 100).toFixed(1)}%)` : ""}`],
+        ["Installments", `${stats.n} × ${formatAmount(stats.per)} per ${loanFrequencyLabel(loan.frequency)}`],
+        ["Requested By", loan.requestedByName || "—"],
+        ["Requested On", loan.createdAt ? formatDateTime(loan.createdAt) : "—"],
+      ].map(([label, value]) => (
+        <div key={label} style={{ background: "rgba(255,255,255,0.05)", borderRadius: "12px", padding: "16px 18px" }}>
+          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.1rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "6px" }}>{label}</div>
+          <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.5rem" }}>{value}</div>
+        </div>
+      ))}
+    </div>
+  );
+
   return (
-    <Modal active onClose={onClose}>
-      <div style={{ padding: "32px", minWidth: "320px" }}>
-        <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", color: "#44aaff", letterSpacing: "2px", marginBottom: "24px" }}>✏️ Edit Recurring</h2>
-
-        <label style={{ display: "block", color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>Title</label>
-        <input value={description} onChange={e => setDescription(e.target.value)} style={{ width: "100%", padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "12px", color: "#fff", fontFamily: "inherit", fontSize: "1rem", marginBottom: "16px" }} />
-
-        <label style={{ display: "block", color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>Amount (per day)</label>
-        <input type="number" value={dailyAmount} onChange={e => setDailyAmount(e.target.value)} style={{ width: "100%", padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "12px", color: "#fff", fontFamily: "inherit", fontSize: "1rem", marginBottom: "16px" }} />
-
-        <label style={{ display: "block", color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>Total Cap</label>
-        <input type="number" value={totalCap} onChange={e => setTotalCap(e.target.value)} style={{ width: "100%", padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "12px", color: "#fff", fontFamily: "inherit", fontSize: "1rem", marginBottom: "8px" }} />
-        <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "0.8rem", marginBottom: "16px" }}>
-          Already charged: {formatAmount(alreadyDebited)} — cap can't go below this.
-        </div>
-
-        {error && <div style={{ color: "#ff6b6b", fontSize: "0.9rem", marginBottom: "14px" }}>{error}</div>}
-
-        <div style={{ display: "flex", gap: "12px" }}>
-          <button onClick={handleSave} disabled={saving} style={{ flex: 1, padding: "14px", background: "#44aaff", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.6 : 1 }}>
-            {saving ? "Saving..." : "Save Changes"}
+    <div style={{ ...GLASS, borderRadius: "20px", padding: "48px", marginBottom: "40px" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "20px", flexWrap: "wrap", marginBottom: "28px" }}>
+        <div style={{ color: "#44aaff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "3px" }}>🏦 CLUB LOANS</div>
+        {isTeamManager && (
+          <button
+            onClick={() => setShowRequest(true)}
+            style={{ padding: "16px 30px", background: "#ff1493", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.3rem", cursor: "pointer" }}
+          >
+            ➕ Request Loan
           </button>
-          <button onClick={onClose} style={{ flex: 1, padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "12px", color: "#fff", cursor: "pointer" }}>
-            Cancel
-          </button>
-        </div>
+        )}
       </div>
-    </Modal>
+
+      {loans.length === 0 && (
+        <div style={{ textAlign: "center", padding: "32px 20px", color: "rgba(255,255,255,0.25)", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px" }}>
+          No Club Loans Yet
+        </div>
+      )}
+
+      {/* ── Incoming pending requests (you are the lender) ── */}
+      {incoming.length > 0 && (
+        <div style={{ marginBottom: "36px" }}>
+          {blockHead("📥 LOAN REQUESTS RECEIVED", "#44aaff", incoming.length)}
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            {incoming.map(loan => {
+              const stats = getLoanStats(loan);
+              const isOpen = expandedId === loan.id;
+              return (
+                <div key={loan.id} style={{ background: "rgba(68,170,255,0.07)", border: "1px solid rgba(68,170,255,0.35)", borderRadius: "16px", padding: "28px 34px" }}>
+                  <div onClick={() => setExpandedId(isOpen ? null : loan.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "16px", cursor: "pointer", flexWrap: "wrap" }}>
+                    <div>
+                      <div style={{ color: "#fff", fontWeight: 700, fontSize: "2rem" }}>{loan.borrowerClub} wants to borrow {formatAmount(stats.amount)}</div>
+                      <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.4rem", marginTop: "6px" }}>
+                        Repays {formatAmount(stats.repay)} in {stats.n} × {formatAmount(stats.per)} per {loanFrequencyLabel(loan.frequency)}
+                      </div>
+                    </div>
+                    <span style={{ color: "#44aaff", fontSize: "1.6rem", fontWeight: 700 }}>{isOpen ? "▲ Hide" : "▼ Details"}</span>
+                  </div>
+                  {isOpen && (
+                    <div>
+                      {detailGrid(loan, stats)}
+                      {isTeamManager ? (
+                        <div style={{ display: "flex", gap: "16px", marginTop: "24px", flexWrap: "wrap" }}>
+                          <button onClick={() => handleAccept(loan)} disabled={busyId === loan.id} style={{ flex: 1, minWidth: "200px", padding: "18px", background: "rgba(0,255,136,0.18)", border: "1px solid rgba(0,255,136,0.6)", borderRadius: "14px", color: "#00ff88", fontWeight: 800, fontSize: "1.4rem", cursor: busyId === loan.id ? "not-allowed" : "pointer", opacity: busyId === loan.id ? 0.6 : 1 }}>
+                            ✅ Accept
+                          </button>
+                          <button onClick={() => handleReject(loan)} disabled={busyId === loan.id} style={{ flex: 1, minWidth: "200px", padding: "18px", background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.5)", borderRadius: "14px", color: "#ff6b6b", fontWeight: 800, fontSize: "1.4rem", cursor: busyId === loan.id ? "not-allowed" : "pointer", opacity: busyId === loan.id ? 0.6 : 1 }}>
+                            ❌ Reject
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "1.2rem", marginTop: "18px" }}>Only {loan.lenderClub}'s manager can accept or reject this request.</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Outgoing requests (you are the borrower) ── */}
+      {outgoing.length > 0 && (
+        <div style={{ marginBottom: "36px" }}>
+          {blockHead("📤 LOAN REQUESTS SENT", "#ffaa44", outgoing.length)}
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            {outgoing.map(loan => {
+              const stats = getLoanStats(loan);
+              const rejected = loan.status === "rejected";
+              const color = rejected ? "#ff6b6b" : "#ffaa44";
+              return (
+                <div key={loan.id} style={{ background: rejected ? "rgba(255,107,107,0.06)" : "rgba(255,170,0,0.06)", border: `1px solid ${rejected ? "rgba(255,107,107,0.3)" : "rgba(255,170,0,0.3)"}`, borderRadius: "16px", padding: "28px 34px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "16px", flexWrap: "wrap" }}>
+                  <div>
+                    <div style={{ color: "#fff", fontWeight: 700, fontSize: "2rem" }}>{formatAmount(stats.amount)} from {loan.lenderClub}</div>
+                    <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.4rem", marginTop: "6px" }}>
+                      Repay {formatAmount(stats.repay)} · {stats.n} × {formatAmount(stats.per)} per {loanFrequencyLabel(loan.frequency)}
+                    </div>
+                  </div>
+                  <span style={{ background: `${color}22`, color, border: `1px solid ${color}`, borderRadius: "8px", padding: "8px 22px", fontSize: "1.5rem", fontWeight: 700, textTransform: "uppercase" }}>
+                    {rejected ? "Loan Request Rejected" : "Loan Request Pending"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Active + completed loans, from either side ── */}
+      {running.length > 0 && (
+        <div>
+          {blockHead("💼 ACTIVE & COMPLETED LOANS", "#00ff88", running.length)}
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            {running.map(loan => {
+              const stats = getLoanStats(loan);
+              const iAmBorrower = loan.borrowerClub === team;
+              const done = loan.status === "completed";
+              const accent = iAmBorrower ? "#ff6b6b" : "#00ff88";
+              const progress = Math.min((stats.paid / stats.n) * 100, 100);
+              return (
+                <div key={loan.id} style={{ background: iAmBorrower ? "rgba(255,107,107,0.05)" : "rgba(0,255,136,0.05)", border: `1px solid ${iAmBorrower ? "rgba(255,107,107,0.25)" : "rgba(0,255,136,0.25)"}`, borderRadius: "16px", padding: "32px 38px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "16px", flexWrap: "wrap", marginBottom: "20px" }}>
+                    <div>
+                      <div style={{ color: accent, fontSize: "1.5rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", marginBottom: "6px" }}>
+                        {iAmBorrower ? "💸 Borrowed from" : "🏦 Lent to"}
+                      </div>
+                      <div style={{ color: "#fff", fontWeight: 700, fontSize: "2.2rem" }}>{iAmBorrower ? loan.lenderClub : loan.borrowerClub}</div>
+                      <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "1.5rem", marginTop: "8px" }}>
+                        {formatAmount(stats.amount)} {iAmBorrower ? "received" : "lent"} · {formatAmount(stats.repay)} to {iAmBorrower ? "repay" : "be repaid"} · {stats.n} × {formatAmount(stats.per)} per {loanFrequencyLabel(loan.frequency)}
+                      </div>
+                      {loan.acceptedAt && (
+                        <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "1.3rem", marginTop: "4px" }}>Started {formatDateOnly(loan.acceptedAt)}</div>
+                      )}
+                    </div>
+                    <span style={{ background: done ? "rgba(0,255,136,0.15)" : `${accent}22`, color: done ? "#00ff88" : accent, border: `1px solid ${done ? "rgba(0,255,136,0.4)" : accent}`, borderRadius: "8px", padding: "8px 22px", fontSize: "1.5rem", fontWeight: 700, textTransform: "uppercase" }}>
+                      {done ? "Completed" : "Active"}
+                    </span>
+                  </div>
+                  <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: "8px", height: "16px", overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${progress}%`, background: done ? "#00ff88" : iAmBorrower ? "linear-gradient(to right, #ffaa44, #ff6b6b)" : "linear-gradient(to right, #00cc66, #00ff88)", borderRadius: "8px", transition: "width 0.5s" }} />
+                  </div>
+                  <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.5rem", marginTop: "12px" }}>
+                    {formatAmount(stats.repaid)} {iAmBorrower ? "repaid" : "received back"} of {formatAmount(stats.repay)} · {stats.paid}/{stats.n} installments
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <Modal active={showRequest} onClose={() => setShowRequest(false)}>
+        <RequestFinanceLoanModal team={team} onClose={() => setShowRequest(false)} />
+      </Modal>
+    </div>
   );
 }
 
 // ─── FINANCE TAB ──────────────────────────────────────────────────────────
 function FinanceTab({ team, isAdmin }) {
   const [transactions, setTransactions] = useState([]);
-  const [txLoading, setTxLoading] = useState(true);
-  const txEmptyTimeoutReached = useTimedEmptyState();
   const [recurringList, setRecurringList] = useState([]);
-  const [editingRecurring, setEditingRecurring] = useState(null);
-  const [loansList, setLoansList] = useState([]);
-  const [showRequestLoan, setShowRequestLoan] = useState(false);
   const [selectedTx, setSelectedTx] = useState(null);
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [dateFilter, setDateFilter] = useState({ days: 30, from: null, to: null });
@@ -1038,7 +1243,6 @@ function FinanceTab({ team, isAdmin }) {
 
   useEffect(() => {
     if (!team) return;
-    setTxLoading(true);
     const unsub = onValue(ref(db, `career_team_management/${team}/finance/transactions`), snap => {
       const data = snap.val();
       if (data) {
@@ -1046,16 +1250,6 @@ function FinanceTab({ team, isAdmin }) {
       } else {
         setTransactions([]);
       }
-      setTxLoading(false);
-    });
-    return () => unsub();
-  }, [team]);
-
-  useEffect(() => {
-    if (!team) return;
-    const unsub = onValue(ref(db, `career_team_management/${team}/finance/loans`), snap => {
-      const data = snap.val();
-      setLoansList(data ? Object.entries(data).map(([id, l]) => ({ id, ...l })) : []);
     });
     return () => unsub();
   }, [team]);
@@ -1147,51 +1341,6 @@ function FinanceTab({ team, isAdmin }) {
     }
   }
 
-  async function handlePauseRecurring(rid) {
-    try {
-      await update(ref(db, `career_team_management/${team}/finance/recurring/${rid}`), {
-        status: "paused",
-        pausedAt: new Date().toISOString().slice(0, 10),
-      });
-    } catch (e) {
-      console.error(e);
-    }
-  }
-
-  async function handleResumeRecurring(rec) {
-    try {
-      // Skip every day it was paused — resuming never charges a backlog lump sum.
-      const skippedDates = { ...(rec.skippedDates || {}) };
-      if (rec.pausedAt) {
-        const cursor = new Date(rec.pausedAt);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        while (cursor <= today) {
-          skippedDates[cursor.toISOString().slice(0, 10)] = true;
-          cursor.setDate(cursor.getDate() + 1);
-        }
-      }
-      await update(ref(db, `career_team_management/${team}/finance/recurring/${rec.id}`), {
-        status: "active",
-        pausedAt: null,
-        skippedDates,
-      });
-    } catch (e) {
-      console.error(e);
-    }
-  }
-
-  async function handleSaveEditRecurring(rid, { description, dailyAmount, totalCap }, alreadyDebited) {
-    if (Number(totalCap) < alreadyDebited) {
-      throw new Error(`Cap can't be set below what's already been charged (${formatAmount(alreadyDebited)}).`);
-    }
-    await update(ref(db, `career_team_management/${team}/finance/recurring/${rid}`), {
-      description: description.trim(),
-      dailyAmount: Number(dailyAmount),
-      totalCap: Number(totalCap),
-    });
-  }
-
   return (
     <div>
       {/* ── Chart ── */}
@@ -1271,23 +1420,6 @@ function FinanceTab({ team, isAdmin }) {
         </div>
       </div>
 
-      {/* ── Request Loan button (manager only) ── */}
-      {!isAdmin && (
-        <div style={{ textAlign: "center", marginBottom: "28px" }}>
-          <button
-            onClick={() => setShowRequestLoan(true)}
-            style={{
-              background: "linear-gradient(135deg, #44aaff, #2277dd)", border: "none",
-              borderRadius: "16px", padding: "40px 96px", color: "#fff", fontWeight: 700,
-              fontSize: "3.6rem", cursor: "pointer", fontFamily: "'Bebas Neue', sans-serif",
-              letterSpacing: "2px", boxShadow: "0 8px 24px rgba(68,170,255,0.3)",
-            }}
-          >
-            🏦 REQUEST LOAN
-          </button>
-        </div>
-      )}
-
       {/* ── Date Filter ── */}
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "28px" }}>
         <button onClick={() => setShowFilterModal(true)} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "14px 24px", background: "rgba(255,20,147,0.1)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: "14px", color: "#ffffff", fontWeight: 700, fontSize: "1.1rem", cursor: "pointer", transition: "all 0.2s" }}
@@ -1326,6 +1458,9 @@ function FinanceTab({ team, isAdmin }) {
         </div>
       </div>
 
+      {/* ── Club Loans (peer-to-peer) ── */}
+      <ClubLoansSection team={team} isAdmin={isAdmin} />
+
       {/* ── Active Recurring Transactions (Admin) ── */}
       {isAdmin && recurringList.length > 0 && (
         <div style={{ ...GLASS, borderRadius: "20px", padding: "48px", marginBottom: "40px" }}>
@@ -1357,24 +1492,10 @@ function FinanceTab({ team, isAdmin }) {
                       </div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-                      <span style={{ background: rec.status === "completed" ? "rgba(0,255,136,0.15)" : rec.status === "paused" ? "rgba(255,255,255,0.1)" : `${accentColor}22`, color: rec.status === "completed" ? "#00ff88" : rec.status === "paused" ? "rgba(255,255,255,0.6)" : accentColor, border: `1px solid ${rec.status === "completed" ? "rgba(0,255,136,0.4)" : rec.status === "paused" ? "rgba(255,255,255,0.3)" : accentBorder}`, borderRadius: "8px", padding: "8px 20px", fontSize: "1.6rem", fontWeight: 700, textTransform: "uppercase" }}>
-                        {rec.status === "paused" ? "Paused" : rec.status}
+                      <span style={{ background: rec.status === "completed" ? "rgba(0,255,136,0.15)" : `${accentColor}22`, color: rec.status === "completed" ? "#00ff88" : accentColor, border: `1px solid ${rec.status === "completed" ? "rgba(0,255,136,0.4)" : accentBorder}`, borderRadius: "8px", padding: "8px 20px", fontSize: "1.6rem", fontWeight: 700, textTransform: "uppercase" }}>
+                        {rec.status}
                       </span>
-                      {rec.status !== "completed" && (
-                        rec.status === "paused" ? (
-                          <button onClick={() => handleResumeRecurring(rec)} style={{ width: "56px", height: "56px", background: "rgba(0,255,136,0.15)", border: "1px solid rgba(0,255,136,0.4)", borderRadius: "8px", color: "#00ff88", cursor: "pointer", fontSize: "1.8rem" }} title="Resume">
-                            ▶️
-                          </button>
-                        ) : (
-                          <button onClick={() => handlePauseRecurring(rec.id)} style={{ width: "56px", height: "56px", background: "rgba(255,170,68,0.15)", border: "1px solid rgba(255,170,68,0.4)", borderRadius: "8px", color: "#ffaa44", cursor: "pointer", fontSize: "1.8rem" }} title="Pause">
-                            ⏸️
-                          </button>
-                        )
-                      )}
-                      <button onClick={() => setEditingRecurring(rec)} style={{ width: "56px", height: "56px", background: "rgba(68,170,255,0.15)", border: "1px solid rgba(68,170,255,0.4)", borderRadius: "8px", color: "#44aaff", cursor: "pointer", fontSize: "1.8rem" }} title="Edit">
-                        ✏️
-                      </button>
-                      <button onClick={() => handleDeleteRecurring(rec.id)} style={{ width: "56px", height: "56px", background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.4)", borderRadius: "8px", color: "#ff6b6b", cursor: "pointer", fontSize: "1.8rem" }} title="Delete">
+                      <button onClick={() => handleDeleteRecurring(rec.id)} style={{ width: "56px", height: "56px", background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.4)", borderRadius: "8px", color: "#ff6b6b", cursor: "pointer", fontSize: "1.8rem" }}>
                         🗑️
                       </button>
                     </div>
@@ -1392,54 +1513,14 @@ function FinanceTab({ team, isAdmin }) {
         </div>
       )}
 
-      {/* ── Active Loans ── */}
-      {loansList.length > 0 && (
-        <div style={{ ...GLASS, borderRadius: "20px", padding: "48px", marginBottom: "40px" }}>
-          <div style={{ color: "#44aaff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "3px", marginBottom: "28px" }}>🏦 LOANS</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-            {loansList.map(loan => {
-              const linkedTxs = transactions.filter(t => t.loanId === loan.id);
-              const totalRepaid = linkedTxs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
-              const progress = Math.min((totalRepaid / loan.totalRepayable) * 100, 100);
-              return (
-                <div key={loan.id} style={{ background: "rgba(68,170,255,0.06)", border: "1px solid rgba(68,170,255,0.2)", borderRadius: "16px", padding: "40px 48px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "24px" }}>
-                    <div>
-                      <div style={{ color: "#44aaff", fontSize: "1.7rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", marginBottom: "8px" }}>🏦 Loan</div>
-                      <div style={{ color: "#fff", fontWeight: 700, fontSize: "2.2rem" }}>{formatAmount(loan.principal)} borrowed</div>
-                      <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.7rem", marginTop: "8px" }}>
-                        Repaying {formatAmount(loan.totalRepayable)} total (100% interest) · {formatAmount(loan.installmentAmount)}/{loan.frequency}
-                      </div>
-                    </div>
-                    <span style={{ background: loan.status === "completed" ? "rgba(0,255,136,0.15)" : "rgba(68,170,255,0.15)", color: loan.status === "completed" ? "#00ff88" : "#44aaff", border: `1px solid ${loan.status === "completed" ? "rgba(0,255,136,0.4)" : "rgba(68,170,255,0.4)"}`, borderRadius: "8px", padding: "8px 20px", fontSize: "1.6rem", fontWeight: 700, textTransform: "uppercase" }}>
-                      {loan.status}
-                    </span>
-                  </div>
-                  <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: "8px", height: "16px", overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${progress}%`, background: loan.status === "completed" ? "#00ff88" : "linear-gradient(to right, #2277dd, #44aaff)", borderRadius: "8px", transition: "width 0.5s" }} />
-                  </div>
-                  <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.6rem", marginTop: "12px" }}>
-                    {formatAmount(totalRepaid)} repaid of {formatAmount(loan.totalRepayable)} ({progress.toFixed(1)}%)
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
       {/* ── Transaction History ── */}
       <div style={{ ...GLASS, borderRadius: "20px", padding: "48px" }}>
         <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "3px", marginBottom: "28px" }}>📋 TRANSACTION HISTORY</div>
-        {txLoading ? (
-          <LoadingRow />
-        ) : transactions.length === 0 ? (
-          txEmptyTimeoutReached ? (
-            <div style={{ textAlign: "center", padding: "48px 20px", color: "rgba(255,255,255,0.2)" }}>
-              <div style={{ fontSize: "3rem", marginBottom: "12px" }}>💳</div>
-              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px" }}>No Transactions Yet</div>
-            </div>
-          ) : <LoadingRow />
+        {transactions.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "48px 20px", color: "rgba(255,255,255,0.2)" }}>
+            <div style={{ fontSize: "3rem", marginBottom: "12px" }}>💳</div>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px" }}>No Transactions Yet</div>
+          </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
             {transactions.map(tx => {
@@ -1491,21 +1572,6 @@ function FinanceTab({ team, isAdmin }) {
           onApply={filter => { setDateFilter(filter); setShowFilterModal(false); }}
           onClose={() => setShowFilterModal(false)}
         />
-      )}
-
-      {/* ── Edit Recurring Modal ── */}
-      {editingRecurring && (
-        <EditRecurringModal
-          rec={editingRecurring}
-          alreadyDebited={transactions.filter(t => t.recurringId === editingRecurring.id).reduce((s, t) => s + (Number(t.amount) || 0), 0)}
-          onSave={async (fields, alreadyDebited) => handleSaveEditRecurring(editingRecurring.id, fields, alreadyDebited)}
-          onClose={() => setEditingRecurring(null)}
-        />
-      )}
-
-      {/* ── Request Loan Modal ── */}
-      {showRequestLoan && (
-        <RequestFinanceLoanModal team={team} onClose={() => setShowRequestLoan(false)} />
       )}
     </div>
   );
@@ -1652,15 +1718,15 @@ export default function TeamManagementPage() {
     if (!team || recurringProcessed.current) return;
     recurringProcessed.current = true;
     processRecurringTransactions(team);
-    processLoanInstallments(team);
+    processClubLoanInstallments(team);
   }, [team]);
 
   // ── Load all teams for admin dropdown ──────────────────────────────
   useEffect(() => {
     if (!isAdmin) return;
-    const unsub = onValue(ref(db, "career_team_management"), snap => {
+    const unsub = onValue(ref(db, PATHS.accounts), snap => {
       const data = snap.val() || {};
-      const teams = Object.keys(data).sort();
+      const teams = [...new Set(Object.values(data).filter(a => a.team).map(a => a.team))];
       setAllTeams(teams);
     });
     return () => unsub();
@@ -1674,22 +1740,18 @@ export default function TeamManagementPage() {
     return () => unsub();
   }, []);
 
-  // ── Load balance — can go negative; auto-toggles bankruptcy on the club record ──
-  const [bankrupt, setBankruptState] = useState(false);
+  // ── Load balance ──────────────────────────────────────────────────
   useEffect(() => {
     if (!team) return;
     const unsub = onValue(ref(db, `career_team_management/${team}/finance/transactions`), snap => {
       const data = snap.val();
-      const total = data
-        ? Object.values(data).reduce((sum, tx) => {
-            const amt = Number(tx.amount) || 0;
-            return tx.type === "income" ? sum + amt : sum - amt;
-          }, 0)
-        : 0;
-      setBalance(total);
-      const isBankrupt = total < 0;
-      setBankruptState(isBankrupt);
-      set(ref(db, `career_team_management/${team}/bankrupt`), isBankrupt).catch(() => {});
+      if (!data) { setBalance(0); return; }
+      const txs = Object.values(data);
+      const total = txs.reduce((sum, tx) => {
+        const amt = Number(tx.amount) || 0;
+        return tx.type === "income" ? sum + amt : sum - amt;
+      }, 0);
+      setBalance(Math.max(0, total));
     });
     return () => unsub();
   }, [team]);
@@ -1822,28 +1884,18 @@ export default function TeamManagementPage() {
           )}
           <div style={{ marginTop: "12px" }}>
             <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.2rem", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "4px" }}>Balance</div>
-            {/* ── HOT PINK BALANCE (RED WHEN NEGATIVE) ── */}
+            {/* ── HOT PINK BALANCE ── */}
             <div style={{
               fontFamily: "'Bebas Neue', sans-serif",
               fontSize: "clamp(3rem, 8vw, 5.5rem)",
               letterSpacing: "4px",
-              color: balance < 0 ? "#ff3333" : "#ff1493",
-              textShadow: balance < 0 ? "0 0 30px rgba(255,50,50,0.6)" : "0 0 30px rgba(255,20,147,0.5)",
+              color: "#ff1493",
+              textShadow: "0 0 30px rgba(255,20,147,0.5)",
               lineHeight: 1,
               wordBreak: "break-all",
             }}>
               {formatBalance(balance)}
             </div>
-            {bankrupt && (
-              <div style={{
-                marginTop: "14px", display: "inline-flex", alignItems: "center", gap: "10px",
-                background: "rgba(255,50,50,0.12)", border: "1px solid rgba(255,50,50,0.4)",
-                borderRadius: "12px", padding: "10px 20px", color: "#ff6b6b",
-                fontWeight: 700, fontSize: "1.1rem", letterSpacing: "1px",
-              }}>
-                🚨 BANKRUPT — new expenses are blocked until balance recovers
-              </div>
-            )}
           </div>
         </div>
 
