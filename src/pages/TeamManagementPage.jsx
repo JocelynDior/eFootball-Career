@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { db, PATHS } from "../firebase";
 import { ref, onValue, push, update, get, remove } from "firebase/database";
@@ -965,9 +966,10 @@ function ShirtSVGSmall({ clubName, playerName, squadNumber }) {
 // ─── CLUB LOANS SECTION (Finance tab) ─────────────────────────────────────
 function ClubLoansSection({ team, isAdmin }) {
   const { manager } = useAdmin();
-  const [loans, setLoans] = useState([]);
+  const [allLoans, setAllLoans] = useState([]);
   const [expandedId, setExpandedId] = useState(null);
   const [showRequest, setShowRequest] = useState(false);
+  const [viewAll, setViewAll] = useState(true); // admin: all clubs vs. just this club
   const [busyId, setBusyId] = useState(null);
 
   // Only the manager of the club being viewed can request / respond
@@ -979,12 +981,16 @@ function ClubLoansSection({ team, isAdmin }) {
       const data = snap.val() || {};
       const list = Object.entries(data)
         .map(([id, l]) => ({ id, ...l }))
-        .filter(l => l.lenderClub === team || l.borrowerClub === team)
         .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-      setLoans(list);
+      setAllLoans(list);
     });
     return () => unsub();
   }, [team]);
+
+  const adminOverview = isAdmin && viewAll;
+  const loans = adminOverview
+    ? allLoans
+    : allLoans.filter(l => l.lenderClub === team || l.borrowerClub === team);
 
   const incoming = loans.filter(l => l.lenderClub === team && l.status === "pending");
   const outgoing = loans.filter(l => l.borrowerClub === team && (l.status === "pending" || l.status === "rejected"));
@@ -1095,6 +1101,13 @@ function ClubLoansSection({ team, isAdmin }) {
     <div style={{ ...GLASS, borderRadius: "20px", padding: "48px", marginBottom: "40px" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "20px", flexWrap: "wrap", marginBottom: "28px" }}>
         <div style={{ color: "#44aaff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "3px" }}>🏦 CLUB LOANS</div>
+        {isAdmin && (
+          <div style={{ display: "flex", gap: "10px" }}>
+            {[[true, "All Clubs"], [false, `${team} Only`]].map(([val, label]) => (
+              <button key={label} onClick={() => setViewAll(val)} style={{ padding: "12px 24px", borderRadius: "12px", cursor: "pointer", fontWeight: 700, fontSize: "1.2rem", background: viewAll === val ? "rgba(68,170,255,0.2)" : "rgba(255,255,255,0.05)", border: `1px solid ${viewAll === val ? "#44aaff" : "rgba(255,255,255,0.15)"}`, color: viewAll === val ? "#44aaff" : "rgba(255,255,255,0.5)" }}>{label}</button>
+            ))}
+          </div>
+        )}
         {isTeamManager && (
           <button
             onClick={() => setShowRequest(true)}
@@ -1111,8 +1124,53 @@ function ClubLoansSection({ team, isAdmin }) {
         </div>
       )}
 
+      {/* ── Admin overview: every loan between every club ── */}
+      {adminOverview && loans.length > 0 && (
+        <div>
+          {blockHead("👁️ ALL LOANS BETWEEN CLUBS", "#44aaff", loans.length)}
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            {loans.map(loan => {
+              const stats = getLoanStats(loan);
+              const meta = {
+                pending: ["Pending", "#ffaa44"], rejected: ["Rejected", "#ff6b6b"],
+                active: ["Active", "#44aaff"], completed: ["Completed", "#00ff88"],
+              }[loan.status] || [loan.status || "—", "#aaaaaa"];
+              const started = loan.status === "active" || loan.status === "completed";
+              const progress = Math.min((stats.paid / stats.n) * 100, 100);
+              return (
+                <div key={loan.id} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,20,147,0.2)", borderRadius: "16px", padding: "28px 34px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "16px", flexWrap: "wrap" }}>
+                    <div>
+                      <div style={{ color: "#fff", fontWeight: 700, fontSize: "2rem" }}>{loan.borrowerClub} ← {loan.lenderClub}</div>
+                      <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.4rem", marginTop: "6px" }}>
+                        {formatAmount(stats.amount)} borrowed · {formatAmount(stats.repay)} to repay · {stats.n} × {formatAmount(stats.per)} per {loanFrequencyLabel(loan.frequency)}
+                      </div>
+                      <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "1.2rem", marginTop: "4px" }}>
+                        Requested {loan.createdAt ? formatDateOnly(loan.createdAt) : "—"}{loan.requestedByName ? ` by ${loan.requestedByName}` : ""}
+                        {loan.acceptedAt ? ` · Accepted ${formatDateOnly(loan.acceptedAt)}` : ""}
+                      </div>
+                    </div>
+                    <span style={{ background: `${meta[1]}22`, color: meta[1], border: `1px solid ${meta[1]}`, borderRadius: "8px", padding: "8px 22px", fontSize: "1.5rem", fontWeight: 700, textTransform: "uppercase" }}>{meta[0]}</span>
+                  </div>
+                  {started && (
+                    <div style={{ marginTop: "18px" }}>
+                      <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: "8px", height: "16px", overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${progress}%`, background: loan.status === "completed" ? "#00ff88" : "linear-gradient(to right, #44aaff, #00ff88)", borderRadius: "8px" }} />
+                      </div>
+                      <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.4rem", marginTop: "10px" }}>
+                        {formatAmount(stats.repaid)} repaid of {formatAmount(stats.repay)} · {stats.paid}/{stats.n} installments
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* ── Incoming pending requests (you are the lender) ── */}
-      {incoming.length > 0 && (
+      {!adminOverview && incoming.length > 0 && (
         <div style={{ marginBottom: "36px" }}>
           {blockHead("📥 LOAN REQUESTS RECEIVED", "#44aaff", incoming.length)}
           <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
@@ -1155,7 +1213,7 @@ function ClubLoansSection({ team, isAdmin }) {
       )}
 
       {/* ── Outgoing requests (you are the borrower) ── */}
-      {outgoing.length > 0 && (
+      {!adminOverview && outgoing.length > 0 && (
         <div style={{ marginBottom: "36px" }}>
           {blockHead("📤 LOAN REQUESTS SENT", "#ffaa44", outgoing.length)}
           <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
@@ -1182,7 +1240,7 @@ function ClubLoansSection({ team, isAdmin }) {
       )}
 
       {/* ── Active + completed loans, from either side ── */}
-      {running.length > 0 && (
+      {!adminOverview && running.length > 0 && (
         <div>
           {blockHead("💼 ACTIVE & COMPLETED LOANS", "#00ff88", running.length)}
           <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
@@ -1224,9 +1282,13 @@ function ClubLoansSection({ team, isAdmin }) {
         </div>
       )}
 
-      <Modal active={showRequest} onClose={() => setShowRequest(false)}>
-        <RequestFinanceLoanModal team={team} onClose={() => setShowRequest(false)} />
-      </Modal>
+      {/* Portalled to <body>: a backdrop-filter ancestor would otherwise trap the fixed overlay and clip the bottom of the popup */}
+      {showRequest && createPortal(
+        <Modal active={showRequest} onClose={() => setShowRequest(false)}>
+          <RequestFinanceLoanModal team={team} onClose={() => setShowRequest(false)} />
+        </Modal>,
+        document.body
+      )}
     </div>
   );
 }
