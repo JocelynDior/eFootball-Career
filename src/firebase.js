@@ -23,6 +23,7 @@ export const PATHS = {
   fixtures: "career_fixtures",
   rankings: "career_rankings",
   transfers: "career_transfers",
+  clubLoans: "career_club_loans",
   accounts: "career_accounts",
   globalSettings: "career_global_settings",
   leagueSettings: (league) => `career_${league}_settings`,
