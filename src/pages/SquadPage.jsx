@@ -451,8 +451,8 @@ function TransfersTab({ team }) {
 
   const bought = transactions.filter(t => t.category === "Player Purchase");
   const sold = transactions.filter(t => t.category === "Player Sales");
-  const loanedIn = transactions.filter(t => t.category === "Player Loans" && t.type === "expense");
-  const loanedOut = transactions.filter(t => t.category === "Player Loans" && t.type === "income");
+  const loanedIn = transactions.filter(t => t.category === "Player Loan In");
+  const loanedOut = transactions.filter(t => t.category === "Player Loaned Out");
 
   return (
     <div>
