@@ -486,8 +486,6 @@ export default function ManagerRankingsPage() {
     players:  { ready: false, loading: false, timedOut: false, phase: "", count: 0, total: 0 },
     clubs:    { ready: false, loading: false, timedOut: false, phase: "", count: 0, total: 0 },
   });
-  const tabTimers = useRef({});
-
   function setTabLoading(t, updates) { setTabState(prev => ({ ...prev, [t]: { ...prev[t], ...updates } })); }
 
   /* ── ui ── */
@@ -537,11 +535,32 @@ export default function ManagerRankingsPage() {
   }, []);
 
   /* ── Load a tab on demand ── */
-  const loadingRef = useRef({});
+  const loadingRef  = useRef({});   // guards against double-firing
+  const tabTimerRef = useRef({});   // per-tab 30-min timeout handles
+
+  function startTabTimeout(tabKey) {
+    if (tabTimerRef.current[tabKey]) clearTimeout(tabTimerRef.current[tabKey]);
+    tabTimerRef.current[tabKey] = setTimeout(() => {
+      setTabState(prev => {
+        if (prev[tabKey].ready) return prev;           // already done, ignore
+        return { ...prev, [tabKey]: { ...prev[tabKey], loading: false, timedOut: true } };
+      });
+      loadingRef.current[tabKey] = false;
+    }, 1800000);
+  }
 
   async function loadTab(tabKey) {
-    if (tabState[tabKey].ready || tabState[tabKey].loading || loadingRef.current[tabKey]) return;
+    // Use loadingRef (a real ref) to guard — avoids stale closure on tabState
+    if (loadingRef.current[tabKey]) return;
     if (accounts === null || rankData === null) return;
+    // Guard via a separate readyRef so we don't close over stale tabState
+    setTabState(prev => {
+      if (prev[tabKey].ready) { loadingRef.current[tabKey] = false; }
+      return prev;
+    });
+    // Small tick to let the setState above flush before we check
+    await new Promise(r => setTimeout(r, 0));
+    if (!loadingRef.current[tabKey]) return;   // was reset above = already ready
     loadingRef.current[tabKey] = true;
     setTabLoading(tabKey, { loading: true, timedOut: false });
     startTabTimeout(tabKey);
@@ -586,12 +605,14 @@ export default function ManagerRankingsPage() {
           return (b.trophies||[]).length - (a.trophies||[]).length;
         });
         setManagers(mgrList);
+        if (tabTimerRef.current["managers"]) clearTimeout(tabTimerRef.current["managers"]);
         setTabLoading("managers", { ready: true, loading: false });
 
       } else if (tabKey === "players") {
         setTabLoading("players", { phase: "Calculating player stats...", count: 0, total: LEAGUES.length * 2 });
         const playerList = await fetchAllPlayers((c, t) => setTabLoading("players", { count: c, total: t }));
         setPlayers(playerList);
+        if (tabTimerRef.current["players"]) clearTimeout(tabTimerRef.current["players"]);
         setTabLoading("players", { ready: true, loading: false });
 
       } else if (tabKey === "clubs") {
@@ -603,12 +624,13 @@ export default function ManagerRankingsPage() {
         setTabLoading("clubs", { phase: "Calculating club stats...", count: 0, total: clubList.length });
         const builtClubs = await fetchAllClubs(clubList, (c, t) => setTabLoading("clubs", { count: c, total: t }));
         setClubs(builtClubs);
+        if (tabTimerRef.current["clubs"]) clearTimeout(tabTimerRef.current["clubs"]);
         setTabLoading("clubs", { ready: true, loading: false });
       }
     } catch (e) {
       setTabLoading(tabKey, { loading: false });
+      loadingRef.current[tabKey] = false;
     }
-    loadingRef.current[tabKey] = false;
   }
 
   /* ── Load managers tab on first data ready, load other tabs when switched to ── */
