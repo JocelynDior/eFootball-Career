@@ -136,10 +136,10 @@ const css = `
   .rmr-toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:${T.bg3}; border:1px solid ${T.borderPink}; color:${T.text}; padding:12px 24px; border-radius:40px; font-size:.9rem; z-index:9999; opacity:0; transition:opacity .3s,bottom .3s; pointer-events:none; white-space:nowrap; }
   .rmr-toast.show { opacity:1; bottom:32px; }
 
-  .rmr-player-card { background:${T.bg2}; border:1px solid ${T.border}; border-radius:${T.radiusXl}; padding:22px 24px; display:flex; align-items:center; gap:18px; animation:rmrFadeUp .4s ease both; transition:all .25s; }
+  .rmr-player-card { background:${T.bg2}; border:1px solid ${T.border}; border-radius:${T.radiusXl}; padding:44px 48px; display:flex; align-items:center; gap:36px; animation:rmrFadeUp .4s ease both; transition:all .25s; }
   .rmr-player-card:hover { border-color:${T.borderPink}; transform:translateY(-2px); }
-  .rmr-player-icon { width:64px; height:64px; border-radius:50%; border:2px solid ${T.borderPink}; background:${T.bg3}; object-fit:cover; flex-shrink:0; }
-  .rmr-player-rank { font-family:'Bebas Neue',sans-serif; font-size:1.5rem; color:${T.pink}; min-width:44px; text-align:center; }
+  .rmr-player-icon { width:120px; height:120px; border-radius:50%; border:3px solid ${T.borderPink}; background:${T.bg3}; object-fit:cover; flex-shrink:0; }
+  .rmr-player-rank { font-family:'Bebas Neue',sans-serif; font-size:4rem; color:${T.pink}; min-width:80px; text-align:center; }
 
   .rmr-club-stat-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin:18px 0; }
   .rmr-club-stat { background:${T.bg3}; border-radius:${T.radius}; padding:14px 6px; text-align:center; }
@@ -356,7 +356,17 @@ export default function ManagerRankingsPage() {
           const [uid,acc]=entries[i];
           const rd=rankData[uid]||{};
           const tenures=[];
-          if(acc.teamHistory) for(const e of Object.values(acc.teamHistory)){if(e.team&&e.team!=="None")tenures.push({team:e.team,assignedAt:e.assignedAt||0,removedAt:e.removedAt||Date.now()});}
+          // Build tenures from teamHistory — each entry has a real removedAt (they left)
+          // Only the CURRENT team uses Date.now() as the removedAt (still there)
+          if(acc.teamHistory) {
+            for(const e of Object.values(acc.teamHistory)){
+              if(!e.team||e.team==="None") continue;
+              // If this team matches current team AND no removedAt, skip — handled below
+              if(e.team===acc.team&&!e.removedAt) continue;
+              tenures.push({team:e.team,assignedAt:e.assignedAt||0,removedAt:e.removedAt||e.assignedAt||0});
+            }
+          }
+          // Current team: from teamAssignedAt until now
           if(acc.team) tenures.push({team:acc.team,assignedAt:acc.teamAssignedAt||0,removedAt:Date.now()});
           list.push({uid,username:acc.username||"Unknown",team:acc.team||null,profilePhoto:acc.profilePhoto||null,status:rd.overrideStatus||(acc.team?"active":"free-agent"),trophies:rd.trophies||[],medals:rd.medals||[],individualAwards:rd.individualAwards||[],records:rd.records||[],description:rd.description||"",trophyCabinet:rd.trophyCabinet||{},tenures,stats:{w:0,d:0,l:0,gs:0,gc:0,gd:0,fw:0,fl:0,mp:0,winRate:0,lossRate:0,matchHistory:[]}});
           upd("managers",{count:i+1});
@@ -480,9 +490,9 @@ export default function ManagerRankingsPage() {
                     </div>
                     <div style={{background:T.bg3,borderRadius:T.radius,padding:"16px 20px",marginBottom:18,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                       <span style={{fontSize:".8rem",color:T.muted,textTransform:"uppercase",letterSpacing:1}}>🏆 Total Score</span>
-                      <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>
-                        <span style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.7rem",color:T.muted,letterSpacing:1,lineHeight:1}}>{rankLabel}</span>
-                        <span style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.7rem",color:T.pink,letterSpacing:1,lineHeight:1}}>{score.toFixed(1)}</span>
+                      <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+                        <span style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"5rem",color:T.muted,letterSpacing:1,lineHeight:1}}>{rankLabel}</span>
+                        <span style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"5rem",color:T.pink,letterSpacing:1,lineHeight:1}}>{score.toFixed(1)}</span>
                       </div>
                     </div>
                     <div className="rmr-stat-grid">
@@ -508,16 +518,16 @@ export default function ManagerRankingsPage() {
               :filteredPlr.map((p,idx)=>(
                 <div key={p.name+idx} className="rmr-player-card" style={{animationDelay:`${idx*0.03}s`}}>
                   <div className="rmr-player-rank">{idx===0?"🥇":idx===1?"🥈":idx===2?"🥉":`#${idx+1}`}</div>
-                  {p.image?<img src={p.image} alt={p.name} className="rmr-player-icon"/>:<div className="rmr-player-icon" style={{display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1.6rem"}}>⚽</div>}
+                  {p.image?<img src={p.image} alt={p.name} className="rmr-player-icon"/>:<div className="rmr-player-icon" style={{display:"flex",alignItems:"center",justifyContent:"center",fontSize:"3.5rem"}}>⚽</div>}
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontWeight:700,fontSize:"1.15rem",marginBottom:4}}>{p.name}</div>
-                    <div style={{fontSize:".9rem",color:T.muted}}>{p.team||"Unknown Club"}</div>
+                    <div style={{fontWeight:700,fontSize:"3rem",marginBottom:8}}>{p.name}</div>
+                    <div style={{fontSize:"2rem",color:T.muted}}>{p.team||"Unknown Club"}</div>
                   </div>
-                  <div style={{display:"flex",gap:16,flexShrink:0}}>
+                  <div style={{display:"flex",gap:32,flexShrink:0}}>
                     {[["Goals",p.goals],["Assists",p.assists],["Total",p.combined]].map(([l,v])=>(
                       <div key={l} style={{textAlign:"center"}}>
-                        <div style={{fontSize:".72rem",color:T.muted,textTransform:"uppercase",letterSpacing:.5}}>{l}</div>
-                        <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.5rem",color:l==="Total"?"#fff":T.pink,fontWeight:l==="Total"?700:400}}>{v}</div>
+                        <div style={{fontSize:"1.2rem",color:T.muted,textTransform:"uppercase",letterSpacing:.5}}>{l}</div>
+                        <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"4rem",color:l==="Total"?"#fff":T.pink,fontWeight:l==="Total"?700:400}}>{v}</div>
                       </div>
                     ))}
                   </div>
