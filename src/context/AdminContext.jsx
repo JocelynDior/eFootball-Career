@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useState, useEffect, useMemo } from "react";
 import { verifyAdminKey } from "../utils/adminKey";
 import { db, PATHS } from "../firebase";
 import { ref, onValue, set, update } from "firebase/database";
@@ -10,6 +10,7 @@ export function AdminProvider({ children }) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [manager, setManager] = useState(null);
   const [managerLoading, setManagerLoading] = useState(true);
+  const [remoteTeamIcons, setRemoteTeamIcons] = useState({});
 
   useEffect(() => {
     const saved = localStorage.getItem("careerAdminMode");
@@ -51,6 +52,21 @@ export function AdminProvider({ children }) {
     });
     return () => unsub();
   }, [manager?.uid]);
+
+  // Uploaded team icons live in career_team_icons — entries are either a plain URL
+  // string (Navbar upload) or { imageUrl } (TeamIconUploadModal). Normalise both.
+  useEffect(() => {
+    const unsub = onValue(ref(db, PATHS.teamIcons), snap => {
+      const data = snap.val() || {};
+      const map = {};
+      Object.entries(data).forEach(([name, val]) => {
+        const url = typeof val === "string" ? val : val?.imageUrl;
+        if (url) map[name] = url;
+      });
+      setRemoteTeamIcons(map);
+    });
+    return () => unsub();
+  }, []);
 
   function loginAdmin(key) {
     if (verifyAdminKey(key)) {
@@ -111,13 +127,22 @@ export function AdminProvider({ children }) {
     await update(ref(db, `${PATHS.accounts}/${uid}`), fields);
   }
 
-  // No-op: kept so any component still calling updateTeamIcon doesn't crash
-  function updateTeamIcon() {}
+  // Instantly reflect a freshly uploaded icon everywhere (the Firebase listener
+  // above keeps it in sync afterwards).
+  function updateTeamIcon(teamName, url) {
+    if (!teamName || !url) return;
+    setRemoteTeamIcons(prev => ({ ...prev, [teamName]: url }));
+  }
+
+  const teamIconsCache = useMemo(
+    () => ({ ...LOCAL_TEAM_ICONS, ...remoteTeamIcons }),
+    [remoteTeamIcons]
+  );
 
   return (
     <AdminContext.Provider value={{
       isAdmin, loginAdmin, logoutAdmin,
-      teamIconsCache: LOCAL_TEAM_ICONS,
+      teamIconsCache,
       updateTeamIcon,
       manager, managerLoading,
       registerManager, loginManager, logoutManager,
