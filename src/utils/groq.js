@@ -1,30 +1,54 @@
+// ─────────────────────────────────────────────────────────────────────────
+// AI provider layer — Gemini is primary, Groq is the fallback used only if
+// every Gemini key fails. Both speak the OpenAI chat/completions format, so
+// the same request/response shape works for either provider.
+// ─────────────────────────────────────────────────────────────────────────
+
+const GEMINI_API_KEYS = [
+  { name: "VITE_Gemini1", key: import.meta.env.VITE_Gemini1 },
+  { name: "VITE_Gemini2", key: import.meta.env.VITE_Gemini2 },
+  { name: "VITE_Gemini3", key: import.meta.env.VITE_Gemini3 },
+].filter((entry) => entry.key);
+
 const GROQ_API_KEYS = [
   { name: "VITE_CareerMode1", key: import.meta.env.VITE_CareerMode1 },
   { name: "VITE_CareerMode2", key: import.meta.env.VITE_CareerMode2 },
   { name: "VITE_CareerMode3", key: import.meta.env.VITE_CareerMode3 },
 ].filter((entry) => entry.key);
 
+const GEMINI_MODEL = "gemini-3.6-flash";
+const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+
 const GROQ_MODEL = "openai/gpt-oss-120b";
 const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
 
+// Gemini keys are tried first (primary). Groq keys are only reached once
+// every Gemini key has failed (fallback).
+const AI_PROVIDERS = [
+  ...GEMINI_API_KEYS.map((e) => ({ ...e, provider: "Gemini", endpoint: GEMINI_ENDPOINT, model: GEMINI_MODEL })),
+  ...GROQ_API_KEYS.map((e) => ({ ...e, provider: "Groq", endpoint: GROQ_ENDPOINT, model: GROQ_MODEL })),
+];
+
+// Name kept as `askGroq` so existing imports elsewhere in the app don't need to change.
 export async function askGroq(systemPrompt, userPrompt) {
   const failures = [];
 
-  for (const { name, key } of GROQ_API_KEYS) {
+  for (const { name, key, provider, endpoint, model } of AI_PROVIDERS) {
     try {
-      const res = await fetch(GROQ_ENDPOINT, {
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${key}`,
         },
         body: JSON.stringify({
-          model: GROQ_MODEL,
+          model,
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt },
           ],
           temperature: 0.3,
+          ...(provider === "Gemini" ? { reasoning_effort: "low" } : {}),
         }),
       });
       const data = await res.json();
@@ -37,16 +61,15 @@ export async function askGroq(systemPrompt, userPrompt) {
           err.message ? `Message: ${err.message}` : null,
           err.param ? `Param: ${err.param}` : null,
         ].filter(Boolean).join(" | ");
-        failures.push({ name, detail });
+        failures.push({ name: `${provider}/${name}`, detail });
         continue;
       }
       return data.choices[0].message.content;
     } catch (err) {
-      failures.push({ name, detail: `Network/Parse Error: ${err.message || "Unknown error"}` });
+      failures.push({ name: `${provider}/${name}`, detail: `Network/Parse Error: ${err.message || "Unknown error"}` });
     }
   }
 
-  // All keys failed — report each one with full detail
   const errorReport = failures
     .map((f, i) => `Key ${i + 1} [${f.name}]:\n  → ${f.detail}`)
     .join("\n\n");
