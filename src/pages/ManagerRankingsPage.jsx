@@ -72,9 +72,10 @@ const css = `
   .rmr-add-btn:hover { border-color:${T.borderPink}; color:${T.pink}; }
 
   /* tabs */
-  .rmr-tabs { display:flex; gap:4px; background:${T.bg2}; border:1px solid ${T.border}; border-radius:40px; padding:5px; margin-bottom:28px; }
-  .rmr-tab  { flex:1; padding:12px 10px; border:none; border-radius:36px; cursor:pointer; font-size:1rem; font-weight:600; font-family:inherit; transition:all .2s; color:${T.muted}; background:transparent; }
-  .rmr-tab.active { background:linear-gradient(135deg,${T.pink},${T.pinkDark}); color:#fff; box-shadow:0 4px 14px rgba(255,20,147,.3); }
+  .rmr-tabs { display:flex; justify-content:stretch; background:rgba(255,255,255,0.04); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); border:1px solid rgba(255,20,147,0.2); border-radius:50px; padding:8px; gap:4px; margin-bottom:28px; overflow-x:auto; }
+  .rmr-tab  { flex:1 1 0; background:transparent; border:none; color:rgba(255,255,255,0.6); padding:20px 16px; border-radius:30px; font-weight:700; font-size:1.7rem; cursor:pointer; letter-spacing:0.4px; transition:all 0.25s; font-family:inherit; white-space:nowrap; text-align:center; min-width:0; }
+  .rmr-tab.active { background:#FF1493; color:#fff; }
+  .rmr-tab:not(.active):hover { background:rgba(255,255,255,0.1); }
 
   /* stat grid */
   .rmr-stat-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:20px; }
@@ -479,12 +480,15 @@ export default function ManagerRankingsPage() {
   const [clubs, setClubs]         = useState([]);
   const [rawClubs, setRawClubs]   = useState([]);     // from career_team_management
 
-  /* ── loading ── */
-  const [phase, setPhase]         = useState("Connecting to database...");
-  const [loadCount, setLoadCount] = useState(0);
-  const [loadTotal, setLoadTotal] = useState(0);
-  const [timedOut, setTimedOut]   = useState(false);
-  const [dataReady, setDataReady] = useState(false);  // true once all 3 tabs are built
+  /* ── per-tab loading ── */
+  const [tabState, setTabState] = useState({
+    managers: { ready: false, loading: false, timedOut: false, phase: "", count: 0, total: 0 },
+    players:  { ready: false, loading: false, timedOut: false, phase: "", count: 0, total: 0 },
+    clubs:    { ready: false, loading: false, timedOut: false, phase: "", count: 0, total: 0 },
+  });
+  const tabTimers = useRef({});
+
+  function setTabLoading(t, updates) { setTabState(prev => ({ ...prev, [t]: { ...prev[t], ...updates } })); }
 
   /* ── ui ── */
   const [tab, setTab]             = useState("managers");
@@ -500,11 +504,7 @@ export default function ManagerRankingsPage() {
   const slideIntervalRef          = useRef(null);
   const [slideIdx, setSlideIdx]   = useState(0);
 
-  /* ── timeout (2 min) ── */
-  useEffect(() => {
-    const t = setTimeout(() => { if (!dataReady) setTimedOut(true); }, 120000);
-    return () => clearTimeout(t);
-  }, [dataReady]);
+
 
   /* ── restore admin ── */
   useEffect(() => {
@@ -536,88 +536,89 @@ export default function ManagerRankingsPage() {
     return () => unsub();
   }, []);
 
-  /* ── BUILD everything once accounts + rankData are loaded ── */
-  useEffect(() => {
+  /* ── Load a tab on demand ── */
+  const loadingRef = useRef({});
+
+  async function loadTab(tabKey) {
+    if (tabState[tabKey].ready || tabState[tabKey].loading || loadingRef.current[tabKey]) return;
     if (accounts === null || rankData === null) return;
+    loadingRef.current[tabKey] = true;
+    setTabLoading(tabKey, { loading: true, timedOut: false });
+    startTabTimeout(tabKey);
 
-    async function build() {
-      /* ── PHASE 1: Managers (basic, no heavy result fetch) ── */
-      const entries = Object.entries(accounts);
-      setPhase("Calculating manager stats...");
-      setLoadCount(0);
-      setLoadTotal(entries.length);
-
-      const mgrList = [];
-      for (let i = 0; i < entries.length; i++) {
-        const [uid, acc] = entries[i];
-        const rd = rankData[uid] || {};
-        // Build tenures from teamHistory
-        const tenures = [];
-        if (acc.teamHistory) {
-          for (const entry of Object.values(acc.teamHistory)) {
-            if (entry.team && entry.team !== "None") {
-              tenures.push({ team: entry.team, assignedAt: entry.assignedAt || 0, removedAt: entry.removedAt || Date.now() });
+    try {
+      if (tabKey === "managers") {
+        const entries = Object.entries(accounts);
+        setTabLoading("managers", { phase: "Calculating manager stats...", count: 0, total: entries.length });
+        const mgrList = [];
+        for (let i = 0; i < entries.length; i++) {
+          const [uid, acc] = entries[i];
+          const rd = rankData[uid] || {};
+          const tenures = [];
+          if (acc.teamHistory) {
+            for (const entry of Object.values(acc.teamHistory)) {
+              if (entry.team && entry.team !== "None") {
+                tenures.push({ team: entry.team, assignedAt: entry.assignedAt || 0, removedAt: entry.removedAt || Date.now() });
+              }
             }
           }
+          if (acc.team) tenures.push({ team: acc.team, assignedAt: acc.teamAssignedAt || 0, removedAt: Date.now() });
+          mgrList.push({
+            uid,
+            username: acc.username || "Unknown",
+            team: acc.team || null,
+            profilePhoto: acc.profilePhoto || null,
+            status: rd.overrideStatus || (acc.team ? "active" : "free-agent"),
+            trophies: rd.trophies || [],
+            medals: rd.medals || [],
+            individualAwards: rd.individualAwards || [],
+            records: rd.records || [],
+            description: rd.description || "",
+            trophyCabinet: rd.trophyCabinet || {},
+            tenures,
+            stats: { w:0,d:0,l:0,gs:0,gc:0,gd:0,fw:0,fl:0,mp:0,winRate:0,lossRate:0,matchHistory:[] },
+          });
+          setTabLoading("managers", { count: i + 1 });
         }
-        // Current team
-        if (acc.team) {
-          tenures.push({ team: acc.team, assignedAt: acc.teamAssignedAt || 0, removedAt: Date.now() });
-        }
-
-        mgrList.push({
-          uid,
-          username:    acc.username || "Unknown",
-          team:        acc.team || null,
-          profilePhoto: acc.profilePhoto || null,
-          status:      rd.overrideStatus || (acc.team ? "active" : "free-agent"),
-          trophies:    rd.trophies || [],
-          medals:      rd.medals   || [],
-          individualAwards: rd.individualAwards || [],
-          records:     rd.records  || [],
-          description: rd.description || "",
-          trophyCabinet: rd.trophyCabinet || {},
-          tenures,
-          stats: { w:0,d:0,l:0,gs:0,gc:0,gd:0,fw:0,fl:0,mp:0,winRate:0,lossRate:0,matchHistory:[] },
+        mgrList.sort((a, b) => {
+          const sa = totalScore(a), sb = totalScore(b);
+          if (sa !== sb) return sb - sa;
+          return (b.trophies||[]).length - (a.trophies||[]).length;
         });
-        setLoadCount(i + 1);
+        setManagers(mgrList);
+        setTabLoading("managers", { ready: true, loading: false });
+
+      } else if (tabKey === "players") {
+        setTabLoading("players", { phase: "Calculating player stats...", count: 0, total: LEAGUES.length * 2 });
+        const playerList = await fetchAllPlayers((c, t) => setTabLoading("players", { count: c, total: t }));
+        setPlayers(playerList);
+        setTabLoading("players", { ready: true, loading: false });
+
+      } else if (tabKey === "clubs") {
+        const clubSnap = await get(ref(db, "career_team_management"));
+        const clubData = clubSnap.val() || {};
+        const clubList = Object.entries(clubData).map(([name, val]) => ({
+          name, badge: val.info?.badge || null, bankrupt: val.bankrupt || false,
+        }));
+        setTabLoading("clubs", { phase: "Calculating club stats...", count: 0, total: clubList.length });
+        const builtClubs = await fetchAllClubs(clubList, (c, t) => setTabLoading("clubs", { count: c, total: t }));
+        setClubs(builtClubs);
+        setTabLoading("clubs", { ready: true, loading: false });
       }
-
-      mgrList.sort((a, b) => {
-        const sa = totalScore(a), sb = totalScore(b);
-        if (sa !== sb) return sb - sa;
-        if ((b.trophies||[]).length !== (a.trophies||[]).length) return b.trophies.length - a.trophies.length;
-        return 0;
-      });
-      setManagers(mgrList);
-
-      /* ── PHASE 2: Players ── */
-      setPhase("Calculating player stats...");
-      setLoadCount(0);
-      setLoadTotal(LEAGUES.length * 2);
-      const playerList = await fetchAllPlayers((c, t) => { setLoadCount(c); setLoadTotal(t); });
-      setPlayers(playerList);
-
-      /* ── PHASE 3: Clubs ── */
-      setPhase("Calculating club stats...");
-      setLoadCount(0);
-      // rawClubs may not be ready yet — re-read directly
-      const clubSnap = await get(ref(db, "career_team_management"));
-      const clubData = clubSnap.val() || {};
-      const clubList = Object.entries(clubData).map(([name, val]) => ({
-        name,
-        badge: val.info?.badge || null,
-        bankrupt: val.bankrupt || false,
-      }));
-      setLoadTotal(clubList.length);
-      const builtClubs = await fetchAllClubs(clubList, (c, t) => { setLoadCount(c); setLoadTotal(t); });
-      setClubs(builtClubs);
-
-      setDataReady(true);
+    } catch (e) {
+      setTabLoading(tabKey, { loading: false });
     }
+    loadingRef.current[tabKey] = false;
+  }
 
-    build();
+  /* ── Load managers tab on first data ready, load other tabs when switched to ── */
+  useEffect(() => {
+    if (accounts !== null && rankData !== null) loadTab("managers");
   }, [accounts, rankData]);
+
+  useEffect(() => {
+    loadTab(tab);
+  }, [tab, accounts, rankData]);
 
   function showToast(msg) {
     setToast(msg);
@@ -695,7 +696,7 @@ export default function ManagerRankingsPage() {
   const filteredPlr = players.filter(p => p.name.toLowerCase().includes(q) || (p.team||"").toLowerCase().includes(q));
   const filteredClb = clubs.filter(c => c.name.toLowerCase().includes(q));
 
-  const isLoading = !dataReady && !timedOut;
+  const ts = tabState[tab];
 
   /* ─── RENDER ──────────────────────────────────────────────────────────── */
   return (
@@ -737,16 +738,22 @@ export default function ManagerRankingsPage() {
           {/* Tabs */}
           <div className="rmr-tabs">
             {[["managers","👔 Managers"],["players","⚽ Players"],["clubs","🏟️ Clubs"]].map(([key, label]) => (
-              <button key={key} className={`rmr-tab${tab === key ? " active" : ""}`} onClick={() => setTab(key)}>{label}</button>
+              <button
+                key={key}
+                className={`rmr-tab${tab === key ? " active" : ""}`}
+                onClick={() => setTab(key)}
+                onMouseOver={e => { if (tab !== key) e.currentTarget.style.background = "rgba(255,255,255,0.1)"; }}
+                onMouseOut={e => { if (tab !== key) e.currentTarget.style.background = "transparent"; }}
+              >{label}</button>
             ))}
           </div>
 
-          {/* ── LOADING ── */}
-          {isLoading && <LoadingScreen phase={phase} count={loadCount} total={loadTotal} timedOut={false} />}
-          {timedOut  && <LoadingScreen phase="" count={0} total={0} timedOut={true} />}
+          {/* ── PER-TAB LOADING / TIMEOUT ── */}
+          {ts.loading && <LoadingScreen phase={ts.phase} count={ts.count} total={ts.total} timedOut={false} />}
+          {ts.timedOut && <LoadingScreen phase="" count={0} total={0} timedOut={true} />}
 
           {/* ── MANAGERS TAB ── */}
-          {!isLoading && !timedOut && tab === "managers" && (
+          {ts.ready && tab === "managers" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
               {filteredMgr.length === 0
                 ? <div style={{ textAlign: "center", color: T.dim, padding: "60px 20px", fontSize: "1rem" }}>No managers found.</div>
@@ -812,7 +819,7 @@ export default function ManagerRankingsPage() {
           )}
 
           {/* ── PLAYERS TAB ── */}
-          {!isLoading && !timedOut && tab === "players" && (
+          {ts.ready && tab === "players" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               {filteredPlr.length === 0
                 ? <div style={{ textAlign: "center", color: T.dim, padding: "60px 20px", fontSize: "1rem" }}>No players found.</div>
@@ -848,7 +855,7 @@ export default function ManagerRankingsPage() {
           )}
 
           {/* ── CLUBS TAB ── */}
-          {!isLoading && !timedOut && tab === "clubs" && (
+          {ts.ready && tab === "clubs" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
               {filteredClb.length === 0
                 ? <div style={{ textAlign: "center", color: T.dim, padding: "60px 20px", fontSize: "1rem" }}>No clubs found.</div>
