@@ -1,6 +1,5 @@
 import { useNavigate } from "react-router-dom";
 import { useAdmin } from "../context/AdminContext";
-import { useAIAgentPanel } from "../context/AIAgentPanelContext";
 import { useState } from "react";
 
 const menuItems = [
@@ -17,7 +16,6 @@ const menuItems = [
 export default function SideMenu({ open, onClose }) {
   const navigate = useNavigate();
   const { isAdmin, loginAdmin, logoutAdmin, manager, logoutManager } = useAdmin();
-  const { openPanel } = useAIAgentPanel();
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [keyInput, setKeyInput] = useState("");
   const [keyError, setKeyError] = useState("");
@@ -197,7 +195,7 @@ export default function SideMenu({ open, onClose }) {
           {/* ── Admin AI Assistant (admin only) ── */}
           {isAdmin && (
             <div
-              onClick={() => { openPanel(); onClose(); }}
+              onClick={() => { navigate("/admin/ai-agent"); onClose(); }}
               style={{
                 padding: "32px 36px", margin: "12px 0",
                 background: "rgba(255,20,147,0.06)", backdropFilter: "blur(10px)",
