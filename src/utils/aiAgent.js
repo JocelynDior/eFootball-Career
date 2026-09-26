@@ -1,16 +1,10 @@
 // ─────────────────────────────────────────────────────────────────────────
-// AI Agent conversation engine — tool-calling loop, Gemini primary / Groq
-// fallback. Read tools run immediately. Write tools pause the loop and hand
-// back a "pendingConfirmation" for the UI to show a Yes/No card before
-// anything is written to Firebase.
+// AI Agent conversation engine — Groq tool-calling loop.
+// Read tools run immediately. Write tools pause the loop and hand back a
+// "pendingConfirmation" for the UI to show a Yes/No card before anything
+// is written to Firebase.
 // ─────────────────────────────────────────────────────────────────────────
 import { LEAGUE_MAP, getToolSchemas, isWriteTool, runReadTool, previewWriteTool, executeWriteTool } from "./aiAgentTools";
-
-const GEMINI_API_KEYS = [
-  { name: "VITE_Gemini1", key: import.meta.env.VITE_Gemini1 },
-  { name: "VITE_Gemini2", key: import.meta.env.VITE_Gemini2 },
-  { name: "VITE_Gemini3", key: import.meta.env.VITE_Gemini3 },
-].filter((entry) => entry.key);
 
 const GROQ_API_KEYS = [
   { name: "VITE_CareerMode1", key: import.meta.env.VITE_CareerMode1 },
@@ -18,52 +12,44 @@ const GROQ_API_KEYS = [
   { name: "VITE_CareerMode3", key: import.meta.env.VITE_CareerMode3 },
 ].filter((entry) => entry.key);
 
-const GEMINI_MODEL = "gemini-3.6-flash";
-const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
-
 const GROQ_MODEL = "openai/gpt-oss-120b"; // Groq's current recommended tool-use model (llama-3.3-70b-versatile was decommissioned Aug 16 2026)
 const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
 
-// Gemini keys are tried first (primary). Groq keys are only reached once
-// every Gemini key has failed (fallback).
-const AI_PROVIDERS = [
-  ...GEMINI_API_KEYS.map((e) => ({ ...e, provider: "Gemini", endpoint: GEMINI_ENDPOINT, model: GEMINI_MODEL })),
-  ...GROQ_API_KEYS.map((e) => ({ ...e, provider: "Groq", endpoint: GROQ_ENDPOINT, model: GROQ_MODEL })),
-];
-
 const MAX_LOOP_ITERATIONS = 8;
 
-export const SYSTEM_PROMPT = `Admin assistant for an eFootball career-mode site. You read the live database and, when asked, change it.
+export const SYSTEM_PROMPT = `Admin assistant for an eFootball career-mode site. You read the live database and, when asked, change it. You have full read and write access to everything an admin can do manually — anything not covered by a specific tool below is reachable through read_data/write_data.
 
 Leagues: ${Object.entries(LEAGUE_MAP).map(([n]) => n).join(", ")}. Seasons are numbers as strings ("1", "2").
 
+READ tools: get_league_seasons, get_teams_in_league, get_league_table, get_team_season_stats, get_results, get_top_scorers, get_top_assistants, get_fixtures_by_date, get_team_finance, get_transfer_market, get_club_info, get_managers, get_stadium_info, get_squad, get_manager_rankings, get_pending_results, get_manager_history, get_global_settings, get_league_settings, get_club_loans, read_data.
+
+WRITE tools (all need user confirmation): add_result, delete_result, approve_pending_result, add_finance_transaction, edit_finance_transaction, delete_finance_transaction, add_recurring_finance, add_recurring_kit_sales, set_recurring_status, add_fixture, delete_transfer_entry, update_club_objectives, update_stadium, update_manager_ranking, edit_squad_player, set_transfer_window, request_club_loan, respond_club_loan, delete_club_loan, write_data.
+
+read_data and write_data reach any other database path directly (seasons, calendar events, cup groups, rankings extras, site content, club history, auctions, negotiations, etc.) — use read_data first to see the current shape of something before writing it with write_data. Neither tool can touch manager keys or passwords; refuse and explain if asked to.
+
 Rules:
-1. If anything is ambiguous or missing (team, season, league, amount, date), ASK — never guess.
-READ tools: get_league_seasons, get_teams_in_league, get_league_table, get_team_season_stats, get_results, get_top_scorers, get_top_assistants, get_fixtures_by_date, get_team_finance, get_transfer_market, get_club_info, get_managers, get_stadium_info, get_squad, get_manager_rankings, get_pending_results, get_manager_history, get_global_settings, get_league_settings.
+1. If anything is ambiguous or missing (team, season, league, amount, date, which path), ASK — never guess.
+2. Prefer the specific tool over read_data/write_data whenever one exists — it validates input and keeps derived data (like league tables or loan balances) consistent. Fall back to read_data/write_data only when nothing more specific fits.
+3. Always use read tools to answer questions; never rely on memory for live data.
+4. Call the matching write tool once you have enough info — the system shows the user a confirmation before anything is written, so you don't need to ask "are you sure" yourself.
+5. If a tool errors (team not found, ambiguous match, blocked path), relay it and ask the user to clarify.
+6. Be concise. Use real numbers/names from tool results, never placeholders.`;
 
-WRITE tools (all need user confirmation): add_result, delete_result, add_finance_transaction, add_recurring_finance, add_recurring_kit_sales, add_fixture, delete_transfer_entry, update_club_objectives, update_stadium, update_manager_ranking, approve_pending_result.
-
-2. Always use read tools to answer questions; never rely on memory for live data.
-3. Call the matching write tool once you have enough info — the system shows the user a confirmation before anything is written, so you don't need to ask "are you sure" yourself.
-4. If a tool errors (team not found, ambiguous match), relay it and ask the user to clarify.
-5. Be concise. Use real numbers/names from tool results, never placeholders.`;
-
-async function callAI(messages) {
+async function callGroq(messages) {
   const failures = [];
 
-  for (const { name, key, provider, endpoint, model } of AI_PROVIDERS) {
+  for (const { name, key } of GROQ_API_KEYS) {
     try {
-      const res = await fetch(endpoint, {
+      const res = await fetch(GROQ_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
         body: JSON.stringify({
-          model,
+          model: GROQ_MODEL,
           messages,
           tools: getToolSchemas(),
           tool_choice: "auto",
           temperature: 0.2,
           max_tokens: 700, // Groq's TPM limit is checked against this declared value, not actual usage — keep it tight
-          ...(provider === "Gemini" ? { reasoning_effort: "low" } : {}), // Gemini "thinking" is on by default and eats into max_tokens otherwise
         }),
       });
       const data = await res.json();
@@ -76,12 +62,12 @@ async function callAI(messages) {
           err.message ? `Message: ${err.message}` : null,
           err.param ? `Param: ${err.param}` : null,
         ].filter(Boolean).join(" | ");
-        failures.push({ name: `${provider}/${name}`, detail });
+        failures.push({ name, detail });
         continue;
       }
       return data.choices[0].message;
     } catch (err) {
-      failures.push({ name: `${provider}/${name}`, detail: `Network/Parse Error: ${err.message || "Unknown error"}` });
+      failures.push({ name, detail: `Network/Parse Error: ${err.message || "Unknown error"}` });
     }
   }
 
@@ -131,7 +117,7 @@ export async function runAgentTurn(messages, iteration = 0) {
   }
   let assistantMessage;
   try {
-    assistantMessage = await callAI(messages);
+    assistantMessage = await callGroq(messages);
   } catch (e) {
     return { status: "error", messages, error: e.message || String(e) };
   }
