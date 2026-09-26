@@ -66,6 +66,13 @@ export function saveSessionMessages(id, messages) {
   writeAll(all);
 }
 
+export function deleteSession(id) {
+  const all = readAll();
+  const next = all.filter((s) => s.id !== id);
+  writeAll(next);
+  return next;
+}
+
 export function renameSession(id, title) {
   const all = readAll();
   const idx = all.findIndex(s => s.id === id);
