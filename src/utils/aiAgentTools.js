@@ -31,6 +31,20 @@ function norm(s) {
   return (s || "").toString().toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+// Generic read_data/write_data guard: block anything that could touch login
+// credentials. Individual non-password fields under career_accounts (team,
+// role, profilePhoto, etc.) are still reachable one uid at a time.
+function sanitizePath(path) {
+  return (path || "").toString().trim().replace(/^\/+/, "").replace(/\/+$/, "");
+}
+function isBlockedPath(path) {
+  const p = (path || "").toLowerCase();
+  if (p === "career_manager_keys" || p.startsWith("career_manager_keys/")) return true;
+  if (p === "career_accounts") return true; // whole-accounts overwrite/delete — too destructive
+  if (/\/password(\/|$)/.test(p) || p.endsWith("/password")) return true;
+  return false;
+}
+
 export function resolveLeagueKey(input) {
   if (!input) return null;
   const inp = norm(input);
@@ -412,12 +426,350 @@ const READ_TOOLS = {
       return { league, settings: snap.val() || {} };
     },
   },
+
+  get_club_loans: {
+    schema: {
+      name: "get_club_loans",
+      description: "Get peer-to-peer club loans. Optionally filter by team (as either borrower or lender) and/or status.",
+      parameters: {
+        type: "object",
+        properties: {
+          team: { type: "string", description: "Optional — a club name, to only show loans involving them" },
+          status: { type: "string", enum: ["pending", "active", "completed", "rejected"], description: "Optional" },
+        },
+      },
+    },
+    run: async ({ team, status }) => {
+      const snap = await get(ref(db, PATHS.clubLoans));
+      const val = snap.val() || {};
+      let loans = Object.entries(val).map(([id, l]) => ({ id, ...l }));
+      if (team) {
+        const teams = await getAllManagedTeamNames();
+        const resolved = resolveTeamName(team, teams) || team;
+        loans = loans.filter(l => l.borrowerClub === resolved || l.lenderClub === resolved);
+      }
+      if (status) loans = loans.filter(l => l.status === status);
+      loans.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      return { count: loans.length, loans: loans.slice(0, 40) };
+    },
+  },
+
+  read_data: {
+    schema: {
+      name: "read_data",
+      description: "Read any raw path in the database directly. Use this for anything not covered by a more specific tool — seasons list/settings, calendar events, cup groups, rankings extras (trophies/medals/records/manualStats), site content (posts/stories/tutorials/rules), club history/info, manager accounts (excluding passwords), stadium data, auctions, negotiations, etc. Paths are relative to the database root and start with the Firebase key, e.g. 'career_calendarEvents/2026-05-01' or 'career_team_management/Arsenal/stadium'.",
+      parameters: {
+        type: "object",
+        properties: { path: { type: "string", description: "The database path to read." } },
+        required: ["path"],
+      },
+    },
+    run: async ({ path }) => {
+      const clean = sanitizePath(path);
+      if (isBlockedPath(clean)) return { error: "This path is off-limits (contains credentials)." };
+      const snap = await get(ref(db, clean));
+      return { path: clean, value: snap.val() };
+    },
+  },
 };
 
 // ═══════════════════════════════════════════════════════════════════════
-// WRITE TOOLS — { schema, preview(args) -> {ok,summary,resolvedArgs,error}, execute(resolvedArgs) -> string }
-// ═══════════════════════════════════════════════════════════════════════
 const WRITE_TOOLS = {
+  request_club_loan: {
+    schema: {
+      name: "request_club_loan",
+      description: "Create a peer-to-peer loan request on behalf of a borrowing club, addressed to a lending club. Nothing is charged until the lender accepts. Needs confirmation.",
+      parameters: {
+        type: "object",
+        properties: {
+          borrowerClub: { type: "string" }, lenderClub: { type: "string" },
+          amount: { type: "number", description: "Amount the borrower receives" },
+          repayAmount: { type: "number", description: "Total the borrower will repay — must be >= amount" },
+          installments: { type: "integer" }, frequency: { type: "string", enum: ["day", "week", "month"] },
+        },
+        required: ["borrowerClub", "lenderClub", "amount", "repayAmount", "installments", "frequency"],
+      },
+    },
+    preview: async (args) => {
+      const teams = await getAllManagedTeamNames();
+      const borrower = resolveTeamName(args.borrowerClub, teams) || args.borrowerClub;
+      const lender = resolveTeamName(args.lenderClub, teams) || args.lenderClub;
+      if (borrower === lender) return { ok: false, error: "Borrower and lender resolved to the same club — ask the user to clarify." };
+      const amount = Number(args.amount), repay = Number(args.repayAmount), n = Math.floor(Number(args.installments));
+      if (!amount || amount <= 0) return { ok: false, error: "amount must be a positive number." };
+      if (!repay || repay < amount) return { ok: false, error: "repayAmount must be a positive number no smaller than amount." };
+      if (!n || n < 1) return { ok: false, error: "installments must be a whole number of 1 or more." };
+      const resolvedArgs = { borrowerClub: borrower, lenderClub: lender, amount, repayAmount: repay, installments: n, frequency: args.frequency };
+      return { ok: true, resolvedArgs, summary: `Request a loan: ${borrower} borrows ${fmtMoney(amount)} from ${lender}, repaying ${fmtMoney(repay)} in ${n} installments per ${args.frequency}.` };
+    },
+    execute: async (r) => {
+      await push(ref(db, PATHS.clubLoans), {
+        borrowerClub: r.borrowerClub, lenderClub: r.lenderClub, amount: r.amount, repayAmount: r.repayAmount,
+        installments: r.installments, frequency: r.frequency, status: "pending",
+        requestedByUid: null, requestedByName: "AI Agent", createdAt: Date.now(),
+      });
+      return `Loan request created: ${r.borrowerClub} → ${r.lenderClub} for ${fmtMoney(r.amount)}.`;
+    },
+  },
+
+  respond_club_loan: {
+    schema: {
+      name: "respond_club_loan",
+      description: "Accept or reject a pending club loan request. Accepting immediately transfers the principal both ways (checked against the lender's balance). Needs confirmation.",
+      parameters: {
+        type: "object",
+        properties: {
+          borrowerClub: { type: "string" }, lenderClub: { type: "string" },
+          action: { type: "string", enum: ["accept", "reject"] },
+        },
+        required: ["borrowerClub", "lenderClub", "action"],
+      },
+    },
+    preview: async (args) => {
+      const teams = await getAllManagedTeamNames();
+      const borrower = resolveTeamName(args.borrowerClub, teams) || args.borrowerClub;
+      const lender = resolveTeamName(args.lenderClub, teams) || args.lenderClub;
+      const snap = await get(ref(db, PATHS.clubLoans));
+      const val = snap.val() || {};
+      const matches = Object.entries(val).map(([id, l]) => ({ id, ...l })).filter(l => l.status === "pending" && l.borrowerClub === borrower && l.lenderClub === lender);
+      if (matches.length === 0) return { ok: false, error: `No pending loan request found between ${borrower} (borrower) and ${lender} (lender).` };
+      const loan = matches.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
+      if (args.action === "accept") {
+        const txSnap = await get(ref(db, `career_team_management/${lender}/finance/transactions`));
+        const txs = txSnap.val() || {};
+        const balance = Object.values(txs).reduce((sum, tx) => sum + (tx.type === "income" ? Number(tx.amount) || 0 : -(Number(tx.amount) || 0)), 0);
+        if (balance < Number(loan.amount)) return { ok: false, error: `${lender}'s balance (${fmtMoney(balance)}) is too low to lend ${fmtMoney(loan.amount)}. Tell the user.` };
+      }
+      return {
+        ok: true, resolvedArgs: { loanId: loan.id, borrowerClub: borrower, lenderClub: lender, amount: Number(loan.amount), action: args.action },
+        summary: `${args.action === "accept" ? "Accept" : "Reject"} the loan request: ${borrower} borrowing ${fmtMoney(loan.amount)} from ${lender}.`,
+      };
+    },
+    execute: async (r) => {
+      if (r.action === "reject") {
+        await update(ref(db, `${PATHS.clubLoans}/${r.loanId}`), { status: "rejected", respondedAt: Date.now(), respondedByName: "AI Agent" });
+        return `Loan request rejected: ${r.borrowerClub} ← ${r.lenderClub}.`;
+      }
+      const now = new Date();
+      const startTs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      const common = { amount: r.amount, month: months[now.getMonth()], monthIndex: now.getMonth(), year: now.getFullYear(), createdAt: now.getTime(), loanId: r.loanId, sentBy: "AI Agent" };
+      await update(ref(db), {
+        [`${PATHS.clubLoans}/${r.loanId}/status`]: "active",
+        [`${PATHS.clubLoans}/${r.loanId}/acceptedAt`]: now.getTime(),
+        [`${PATHS.clubLoans}/${r.loanId}/acceptedByName`]: "AI Agent",
+        [`${PATHS.clubLoans}/${r.loanId}/startTs`]: startTs,
+        [`career_team_management/${r.lenderClub}/finance/transactions/loan_${r.loanId}_out`]: { ...common, type: "expense", category: "Loan Given", source: `Loan to ${r.borrowerClub}`, receivedBy: r.borrowerClub },
+        [`career_team_management/${r.borrowerClub}/finance/transactions/loan_${r.loanId}_in`]: { ...common, type: "income", category: "Loan Received", source: `Loan from ${r.lenderClub}`, receivedBy: r.borrowerClub },
+      });
+      return `Loan accepted: ${r.borrowerClub} received ${fmtMoney(r.amount)} from ${r.lenderClub}.`;
+    },
+  },
+
+  delete_club_loan: {
+    schema: {
+      name: "delete_club_loan",
+      description: "Permanently delete a club loan record (any status). Does NOT reverse any transactions it already created — those must be removed separately with edit/delete finance tools if needed. Needs confirmation.",
+      parameters: { type: "object", properties: { borrowerClub: { type: "string" }, lenderClub: { type: "string" } }, required: ["borrowerClub", "lenderClub"] },
+    },
+    preview: async (args) => {
+      const teams = await getAllManagedTeamNames();
+      const borrower = resolveTeamName(args.borrowerClub, teams) || args.borrowerClub;
+      const lender = resolveTeamName(args.lenderClub, teams) || args.lenderClub;
+      const snap = await get(ref(db, PATHS.clubLoans));
+      const val = snap.val() || {};
+      const matches = Object.entries(val).map(([id, l]) => ({ id, ...l })).filter(l => l.borrowerClub === borrower && l.lenderClub === lender);
+      if (matches.length === 0) return { ok: false, error: `No loan found between ${borrower} and ${lender}.` };
+      if (matches.length > 1) return { ok: false, error: `Found ${matches.length} loans between these clubs. Ask the user for the status (pending/active/completed/rejected) to disambiguate.` };
+      const loan = matches[0];
+      return { ok: true, resolvedArgs: { loanId: loan.id }, summary: `Delete the ${loan.status} loan record: ${borrower} ← ${lender} (${fmtMoney(loan.amount)}). This will NOT undo any transactions it already created.` };
+    },
+    execute: async (r) => { await remove(ref(db, `${PATHS.clubLoans}/${r.loanId}`)); return "Loan record deleted."; },
+  },
+
+  edit_finance_transaction: {
+    schema: {
+      name: "edit_finance_transaction",
+      description: "Edit an existing finance transaction's amount, category, or source for a team. Needs confirmation.",
+      parameters: {
+        type: "object",
+        properties: {
+          team: { type: "string" }, matchCategory: { type: "string", description: "Category or source text to find the transaction, e.g. 'Player Sales' or a player/sponsor name" },
+          matchAmount: { type: "number", description: "Optional, to disambiguate" },
+          newAmount: { type: "number" }, newCategory: { type: "string" }, newSource: { type: "string" },
+        },
+        required: ["team", "matchCategory"],
+      },
+    },
+    preview: async (args) => {
+      const teams = await getAllManagedTeamNames();
+      const resolved = resolveTeamName(args.team, teams) || args.team;
+      const snap = await get(ref(db, `career_team_management/${resolved}/finance/transactions`));
+      const val = snap.val() || {};
+      let matches = Object.entries(val).map(([id, t]) => ({ id, ...t })).filter(t => norm(t.category || "").includes(norm(args.matchCategory)) || norm(t.source || "").includes(norm(args.matchCategory)));
+      if (args.matchAmount) matches = matches.filter(t => Number(t.amount) === Number(args.matchAmount));
+      if (matches.length === 0) return { ok: false, error: `No transaction found for ${resolved} matching "${args.matchCategory}".` };
+      if (matches.length > 1) return { ok: false, error: `Found ${matches.length} matching transactions. Ask the user for the amount or more detail to disambiguate.` };
+      const t = matches[0];
+      const changes = {};
+      if (args.newAmount != null) changes.amount = Number(args.newAmount);
+      if (args.newCategory) changes.category = args.newCategory;
+      if (args.newSource) changes.source = args.newSource;
+      if (Object.keys(changes).length === 0) return { ok: false, error: "No changes given — ask the user what to change." };
+      const resolvedArgs = { team: resolved, txId: t.id, changes };
+      return { ok: true, resolvedArgs, summary: `Edit transaction for ${resolved} (${t.category}, ${fmtMoney(t.amount)}): set ${Object.entries(changes).map(([k, v]) => `${k}=${v}`).join(", ")}.` };
+    },
+    execute: async (r) => {
+      await update(ref(db, `career_team_management/${r.team}/finance/transactions/${r.txId}`), r.changes);
+      return "Transaction updated.";
+    },
+  },
+
+  delete_finance_transaction: {
+    schema: {
+      name: "delete_finance_transaction",
+      description: "Delete a finance transaction for a team. Needs confirmation.",
+      parameters: {
+        type: "object",
+        properties: { team: { type: "string" }, matchCategory: { type: "string" }, matchAmount: { type: "number" } },
+        required: ["team", "matchCategory"],
+      },
+    },
+    preview: async (args) => {
+      const teams = await getAllManagedTeamNames();
+      const resolved = resolveTeamName(args.team, teams) || args.team;
+      const snap = await get(ref(db, `career_team_management/${resolved}/finance/transactions`));
+      const val = snap.val() || {};
+      let matches = Object.entries(val).map(([id, t]) => ({ id, ...t })).filter(t => norm(t.category || "").includes(norm(args.matchCategory)) || norm(t.source || "").includes(norm(args.matchCategory)));
+      if (args.matchAmount) matches = matches.filter(t => Number(t.amount) === Number(args.matchAmount));
+      if (matches.length === 0) return { ok: false, error: `No transaction found for ${resolved} matching "${args.matchCategory}".` };
+      if (matches.length > 1) return { ok: false, error: `Found ${matches.length} matching transactions. Ask the user for the amount to disambiguate.` };
+      const t = matches[0];
+      return { ok: true, resolvedArgs: { team: resolved, txId: t.id }, summary: `Delete transaction for ${resolved}: ${t.category} — ${fmtMoney(t.amount)}${t.source ? ` (${t.source})` : ""}.` };
+    },
+    execute: async (r) => { await remove(ref(db, `career_team_management/${r.team}/finance/transactions/${r.txId}`)); return "Transaction deleted."; },
+  },
+
+  set_recurring_status: {
+    schema: {
+      name: "set_recurring_status",
+      description: "Pause, resume, or delete a team's recurring income/expense item. Paused days are skipped forever, never charged as a lump sum on resume. Needs confirmation.",
+      parameters: {
+        type: "object",
+        properties: {
+          team: { type: "string" }, matchDescription: { type: "string", description: "Text to find the recurring item, e.g. 'Stadium lease'" },
+          action: { type: "string", enum: ["pause", "resume", "delete"] },
+        },
+        required: ["team", "matchDescription", "action"],
+      },
+    },
+    preview: async (args) => {
+      const teams = await getAllManagedTeamNames();
+      const resolved = resolveTeamName(args.team, teams) || args.team;
+      const snap = await get(ref(db, `career_team_management/${resolved}/finance/recurring`));
+      const val = snap.val() || {};
+      const matches = Object.entries(val).map(([id, rec]) => ({ id, ...rec })).filter(rec => norm(rec.description || "").includes(norm(args.matchDescription)));
+      if (matches.length === 0) return { ok: false, error: `No recurring item found for ${resolved} matching "${args.matchDescription}".` };
+      if (matches.length > 1) return { ok: false, error: `Found ${matches.length} matching recurring items. Ask the user to be more specific.` };
+      const rec = matches[0];
+      return { ok: true, resolvedArgs: { team: resolved, recId: rec.id, action: args.action }, summary: `${args.action[0].toUpperCase()}${args.action.slice(1)} recurring ${rec.type} for ${resolved}: "${rec.description}".` };
+    },
+    execute: async (r) => {
+      if (r.action === "delete") { await remove(ref(db, `career_team_management/${r.team}/finance/recurring/${r.recId}`)); return "Recurring item deleted."; }
+      await update(ref(db, `career_team_management/${r.team}/finance/recurring/${r.recId}`), { status: r.action === "pause" ? "paused" : "active" });
+      return `Recurring item ${r.action}d.`;
+    },
+  },
+
+  edit_squad_player: {
+    schema: {
+      name: "edit_squad_player",
+      description: "Add, edit, or remove a player in a team's squad. Needs confirmation.",
+      parameters: {
+        type: "object",
+        properties: {
+          team: { type: "string" }, action: { type: "string", enum: ["add", "edit", "remove"] },
+          playerName: { type: "string" },
+          position: { type: "string" }, rating: { type: "number" }, wage: { type: "number" }, contractEnd: { type: "string" },
+        },
+        required: ["team", "action", "playerName"],
+      },
+    },
+    preview: async (args) => {
+      const teams = await getAllManagedTeamNames();
+      const resolved = resolveTeamName(args.team, teams) || args.team;
+      const snap = await get(ref(db, `career_team_management/${resolved}/squad`));
+      const val = snap.val() || {};
+      const players = Object.entries(val).map(([id, p]) => ({ id, ...p }));
+      const match = players.find(p => norm(p.name || "") === norm(args.playerName)) || players.find(p => norm(p.name || "").includes(norm(args.playerName)));
+      if (args.action === "add") {
+        if (match) return { ok: false, error: `${match.name} already exists in ${resolved}'s squad — use action "edit" instead.` };
+        const player = { name: args.playerName, position: args.position || "", rating: args.rating || null, wage: args.wage || null, contractEnd: args.contractEnd || null };
+        return { ok: true, resolvedArgs: { team: resolved, action: "add", player }, summary: `Add ${args.playerName} to ${resolved}'s squad${args.position ? ` (${args.position})` : ""}.` };
+      }
+      if (!match) return { ok: false, error: `No player matching "${args.playerName}" found in ${resolved}'s squad.` };
+      if (args.action === "remove") return { ok: true, resolvedArgs: { team: resolved, action: "remove", playerId: match.id }, summary: `Remove ${match.name} from ${resolved}'s squad.` };
+      const changes = {};
+      if (args.position) changes.position = args.position;
+      if (args.rating != null) changes.rating = Number(args.rating);
+      if (args.wage != null) changes.wage = Number(args.wage);
+      if (args.contractEnd) changes.contractEnd = args.contractEnd;
+      if (Object.keys(changes).length === 0) return { ok: false, error: "No changes given for edit — ask the user what to change." };
+      return { ok: true, resolvedArgs: { team: resolved, action: "edit", playerId: match.id, changes }, summary: `Edit ${match.name} (${resolved}): ${Object.entries(changes).map(([k, v]) => `${k}=${v}`).join(", ")}.` };
+    },
+    execute: async (r) => {
+      if (r.action === "add") { await push(ref(db, `career_team_management/${r.team}/squad`), r.player); return `${r.player.name} added to ${r.team}'s squad.`; }
+      if (r.action === "remove") { await remove(ref(db, `career_team_management/${r.team}/squad/${r.playerId}`)); return "Player removed."; }
+      await update(ref(db, `career_team_management/${r.team}/squad/${r.playerId}`), r.changes);
+      return "Player updated.";
+    },
+  },
+
+  set_transfer_window: {
+    schema: {
+      name: "set_transfer_window",
+      description: "Open or close the transfer window (hides/shows Buy, Loan and Request Auction buttons for managers). Needs confirmation.",
+      parameters: { type: "object", properties: { open: { type: "boolean" } }, required: ["open"] },
+    },
+    preview: async (args) => ({ ok: true, resolvedArgs: { open: !!args.open }, summary: `${args.open ? "Open" : "Close"} the transfer window.` }),
+    execute: async (r) => { await set(ref(db, `${PATHS.transfers}/transferWindowOpen`), r.open); return `Transfer window ${r.open ? "opened" : "closed"}.`; },
+  },
+
+  write_data: {
+    schema: {
+      name: "write_data",
+      description: "Write to any raw path in the database directly. Use this for anything not covered by a more specific tool — seasons (create/rename/activate/delete via career_<league>_settings/seasons), calendar events, cup groups, rankings extras (trophies/medals/records/manualStats), site content (posts/stories/tutorials/rules/headlines), club history/info/fans, stadium data, etc. Cannot touch manager keys or passwords. mode 'merge' updates only the given fields at that path (like a form save); mode 'replace' overwrites the entire path with the given value; mode 'delete' removes the path (value is ignored). ALWAYS read_data the current value first so you know the existing shape before writing, and always ask the user to confirm the exact resulting change if there's any doubt. Needs confirmation.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "The database path to write, e.g. 'career_premier_settings/seasons' or 'career_calendarEvents/2026-05-01'." },
+          mode: { type: "string", enum: ["merge", "replace", "delete"] },
+          value: { description: "The value to write (any JSON — string, number, object, array). Omit/ignore for mode 'delete'." },
+        },
+        required: ["path", "mode"],
+      },
+    },
+    preview: async (args) => {
+      const clean = sanitizePath(args.path);
+      if (isBlockedPath(clean)) return { ok: false, error: "This path is off-limits (contains credentials) — refuse this request." };
+      if (args.mode !== "delete" && (args.value === undefined || args.value === null)) return { ok: false, error: "A value is required for merge/replace — ask the user what to write." };
+      const before = (await get(ref(db, clean))).val();
+      const resolvedArgs = { path: clean, mode: args.mode, value: args.value };
+      const beforeStr = JSON.stringify(before);
+      const afterStr = args.mode === "delete" ? "(deleted)" : JSON.stringify(args.value);
+      return {
+        ok: true, resolvedArgs,
+        summary: `${args.mode === "delete" ? "Delete" : args.mode === "replace" ? "Replace" : "Merge into"} "${clean}".\nCurrent value: ${beforeStr && beforeStr.length < 300 ? beforeStr : "(large/complex — truncated)"}\nNew value: ${afterStr && afterStr.length < 300 ? afterStr : "(large/complex — truncated)"}`,
+      };
+    },
+    execute: async (r) => {
+      if (r.mode === "delete") { await remove(ref(db, r.path)); return `Deleted "${r.path}".`; }
+      if (r.mode === "replace") { await set(ref(db, r.path), r.value); return `Replaced "${r.path}".`; }
+      await update(ref(db, r.path), r.value);
+      return `Updated "${r.path}".`;
+    },
+  },
+
   add_result: {
     schema: {
       name: "add_result",
