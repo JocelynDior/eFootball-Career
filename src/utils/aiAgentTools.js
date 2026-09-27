@@ -515,12 +515,12 @@ const WRITE_TOOLS = {
   respond_club_loan: {
     schema: {
       name: "respond_club_loan",
-      description: "Accept or reject a pending club loan request. Accepting immediately transfers the principal both ways (checked against the lender's balance). Needs confirmation.",
+      description: "Accept, reject, or cancel a pending club loan request (cancel = the borrower withdrawing their own request; reject = the lender declining it). Accepting immediately transfers the principal both ways (checked against the lender's balance). Needs confirmation.",
       parameters: {
         type: "object",
         properties: {
           borrowerClub: { type: "string" }, lenderClub: { type: "string" },
-          action: { type: "string", enum: ["accept", "reject"] },
+          action: { type: "string", enum: ["accept", "reject", "cancel"] },
         },
         required: ["borrowerClub", "lenderClub", "action"],
       },
@@ -540,15 +540,16 @@ const WRITE_TOOLS = {
         const balance = Object.values(txs).reduce((sum, tx) => sum + (tx.type === "income" ? Number(tx.amount) || 0 : -(Number(tx.amount) || 0)), 0);
         if (balance < Number(loan.amount)) return { ok: false, error: `${lender}'s balance (${fmtMoney(balance)}) is too low to lend ${fmtMoney(loan.amount)}. Tell the user.` };
       }
+      const verb = args.action === "accept" ? "Accept" : args.action === "cancel" ? "Cancel" : "Reject";
       return {
         ok: true, resolvedArgs: { loanId: loan.id, borrowerClub: borrower, lenderClub: lender, amount: Number(loan.amount), action: args.action },
-        summary: `${args.action === "accept" ? "Accept" : "Reject"} the loan request: ${borrower} borrowing ${fmtMoney(loan.amount)} from ${lender}.`,
+        summary: `${verb} the loan request: ${borrower} borrowing ${fmtMoney(loan.amount)} from ${lender}.`,
       };
     },
     execute: async (r) => {
-      if (r.action === "reject") {
-        await update(ref(db, `${PATHS.clubLoans}/${r.loanId}`), { status: "rejected", respondedAt: Date.now(), respondedByName: "AI Agent" });
-        return `Loan request rejected: ${r.borrowerClub} ← ${r.lenderClub}.`;
+      if (r.action === "reject" || r.action === "cancel") {
+        await update(ref(db, `${PATHS.clubLoans}/${r.loanId}`), { status: r.action === "cancel" ? "cancelled" : "rejected", respondedAt: Date.now(), respondedByName: "AI Agent" });
+        return `Loan request ${r.action === "cancel" ? "cancelled" : "rejected"}: ${r.borrowerClub} ← ${r.lenderClub}.`;
       }
       const now = new Date();
       const startTs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
