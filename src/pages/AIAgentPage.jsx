@@ -261,7 +261,7 @@ export default function AIAgentPage() {
 
   return (
     <div style={{
-      position: "fixed", inset: 0, zIndex: 500,
+      position: "fixed", inset: 0, zIndex: 950,
       background: "rgba(6,6,16,0.98)", display: "flex", flexDirection: "column",
       fontFamily: "'Inter', sans-serif",
     }}>
