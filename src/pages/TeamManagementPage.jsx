@@ -993,7 +993,7 @@ function ClubLoansSection({ team, isAdmin }) {
     : allLoans.filter(l => l.lenderClub === team || l.borrowerClub === team);
 
   const incoming = loans.filter(l => l.lenderClub === team && l.status === "pending");
-  const outgoing = loans.filter(l => l.borrowerClub === team && (l.status === "pending" || l.status === "rejected"));
+  const outgoing = loans.filter(l => l.borrowerClub === team && (l.status === "pending" || l.status === "rejected" || l.status === "cancelled"));
   const running = loans.filter(l => l.status === "active" || l.status === "completed");
 
   async function handleAccept(loan) {
@@ -1070,6 +1070,31 @@ function ClubLoansSection({ team, isAdmin }) {
     }
   }
 
+  // Borrower cancels their own request while it's still pending — nothing has
+  // moved yet, so this is a straight status change, same as a reject.
+  async function handleCancel(loan) {
+    if (!isTeamManager || busyId) return;
+    if (!window.confirm(`Cancel your loan request to ${loan.lenderClub}?`)) return;
+    setBusyId(loan.id);
+    try {
+      const cur = (await get(ref(db, `${PATHS.clubLoans}/${loan.id}`))).val();
+      if (!cur || cur.status !== "pending") {
+        alert("This loan request is no longer pending.");
+        return;
+      }
+      await update(ref(db, `${PATHS.clubLoans}/${loan.id}`), {
+        status: "cancelled",
+        respondedAt: Date.now(),
+        respondedByName: manager.username || "",
+      });
+    } catch (e) {
+      console.error(e);
+      alert("Could not cancel the loan: " + e.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   const blockHead = (title, color, count) => (
     <div style={{ color, fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "2px", marginBottom: "16px", display: "flex", alignItems: "center", gap: "14px" }}>
       {title}
@@ -1132,7 +1157,7 @@ function ClubLoansSection({ team, isAdmin }) {
             {loans.map(loan => {
               const stats = getLoanStats(loan);
               const meta = {
-                pending: ["Pending", "#ffaa44"], rejected: ["Rejected", "#ff6b6b"],
+                pending: ["Pending", "#ffaa44"], rejected: ["Rejected", "#ff6b6b"], cancelled: ["Cancelled", "#aaaaaa"],
                 active: ["Active", "#44aaff"], completed: ["Completed", "#00ff88"],
               }[loan.status] || [loan.status || "—", "#aaaaaa"];
               const started = loan.status === "active" || loan.status === "completed";
@@ -1220,18 +1245,27 @@ function ClubLoansSection({ team, isAdmin }) {
             {outgoing.map(loan => {
               const stats = getLoanStats(loan);
               const rejected = loan.status === "rejected";
-              const color = rejected ? "#ff6b6b" : "#ffaa44";
+              const cancelled = loan.status === "cancelled";
+              const pending = loan.status === "pending";
+              const color = rejected ? "#ff6b6b" : cancelled ? "#aaaaaa" : "#ffaa44";
               return (
-                <div key={loan.id} style={{ background: rejected ? "rgba(255,107,107,0.06)" : "rgba(255,170,0,0.06)", border: `1px solid ${rejected ? "rgba(255,107,107,0.3)" : "rgba(255,170,0,0.3)"}`, borderRadius: "16px", padding: "28px 34px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "16px", flexWrap: "wrap" }}>
+                <div key={loan.id} style={{ background: rejected ? "rgba(255,107,107,0.06)" : cancelled ? "rgba(170,170,170,0.06)" : "rgba(255,170,0,0.06)", border: `1px solid ${rejected ? "rgba(255,107,107,0.3)" : cancelled ? "rgba(170,170,170,0.3)" : "rgba(255,170,0,0.3)"}`, borderRadius: "16px", padding: "28px 34px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "16px", flexWrap: "wrap" }}>
                   <div>
                     <div style={{ color: "#fff", fontWeight: 700, fontSize: "2rem" }}>{formatAmount(stats.amount)} from {loan.lenderClub}</div>
                     <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.4rem", marginTop: "6px" }}>
                       Repay {formatAmount(stats.repay)} · {stats.n} × {formatAmount(stats.per)} per {loanFrequencyLabel(loan.frequency)}
                     </div>
                   </div>
-                  <span style={{ background: `${color}22`, color, border: `1px solid ${color}`, borderRadius: "8px", padding: "8px 22px", fontSize: "1.5rem", fontWeight: 700, textTransform: "uppercase" }}>
-                    {rejected ? "Loan Request Rejected" : "Loan Request Pending"}
-                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+                    <span style={{ background: `${color}22`, color, border: `1px solid ${color}`, borderRadius: "8px", padding: "8px 22px", fontSize: "1.5rem", fontWeight: 700, textTransform: "uppercase" }}>
+                      {rejected ? "Loan Request Rejected" : cancelled ? "Loan Request Cancelled" : "Loan Request Pending"}
+                    </span>
+                    {pending && isTeamManager && (
+                      <button onClick={() => handleCancel(loan)} disabled={busyId === loan.id} style={{ padding: "12px 24px", background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.5)", borderRadius: "10px", color: "#ff6b6b", fontWeight: 700, fontSize: "1.3rem", cursor: busyId === loan.id ? "not-allowed" : "pointer", opacity: busyId === loan.id ? 0.6 : 1 }}>
+                        {busyId === loan.id ? "..." : "Cancel"}
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}
