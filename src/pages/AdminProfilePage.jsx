@@ -7,6 +7,7 @@ import { db, PATHS } from "../firebase";
 import { ref, onValue } from "firebase/database";
 import AdminManagerModal from "../modals/AdminManagerModal";
 import AdminClubModal from "../modals/AdminClubModal";
+import { getAllSquadStatuses, getSquadFinesSettings, setSquadFinesEnabled, describeMissing, FINE_AMOUNT } from "../utils/squadFines";
 
 const inputStyle = {
   width: "100%",
@@ -25,6 +26,7 @@ const inputStyle = {
 const ADMIN_TABS = [
   { id: "managers", label: "MANAGERS" },
   { id: "clubs", label: "CLUBS" },
+  { id: "squadfines", label: "SQUAD FINES" },
 ];
 
 // ── Manager card ─────────────────────────────────────────────────────────
@@ -163,6 +165,10 @@ export default function AdminProfilePage() {
   const [selectedClub, setSelectedClub] = useState(null);
   const [mgrSearch, setMgrSearch] = useState("");
   const [clubSearch, setClubSearch] = useState("");
+  const [squadStatuses, setSquadStatuses] = useState(null);
+  const [finesEnabled, setFinesEnabled] = useState(false);
+  const [finesLoading, setFinesLoading] = useState(false);
+  const [finesToggling, setFinesToggling] = useState(false);
 
   // Load all managers
   useEffect(() => {
@@ -176,6 +182,34 @@ export default function AdminProfilePage() {
     });
     return () => unsub();
   }, []);
+
+  // Squad fines: settings + every managed club's current status
+  async function loadSquadFines() {
+    setFinesLoading(true);
+    try {
+      const [settings, statuses] = await Promise.all([getSquadFinesSettings(), getAllSquadStatuses()]);
+      setFinesEnabled(settings.enabled);
+      setSquadStatuses(statuses);
+    } catch (e) {
+      console.error(e);
+    }
+    setFinesLoading(false);
+  }
+  useEffect(() => {
+    if (tab === "squadfines") loadSquadFines();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  async function handleToggleFines() {
+    setFinesToggling(true);
+    try {
+      await setSquadFinesEnabled(!finesEnabled);
+      await loadSquadFines();
+    } catch (e) {
+      alert("Could not update squad fines: " + e.message);
+    }
+    setFinesToggling(false);
+  }
 
   // Load all clubs from career_team_management
   useEffect(() => {
@@ -401,6 +435,78 @@ export default function AdminProfilePage() {
                     manager={getClubManager(club.name)}
                     onClick={setSelectedClub}
                   />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === "squadfines" && (
+          <div style={{
+            background: "rgba(255,255,255,0.03)",
+            backdropFilter: "blur(24px)",
+            border: "1px solid rgba(255,20,147,0.2)",
+            borderRadius: "24px",
+            padding: "24px",
+            boxShadow: "0 8px 40px rgba(0,0,0,0.3)",
+          }}>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "16px", flexWrap: "wrap", marginBottom: "20px" }}>
+              <div>
+                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", color: "#fff", letterSpacing: "2px", marginBottom: "4px" }}>
+                  🚨 Squad Completion Fines
+                </div>
+                <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.78rem" }}>
+                  {FINE_AMOUNT.toLocaleString("en-US")} per day for a club missing its squad image, Starting XI, Original 11, or full bench. No grace period.
+                </div>
+              </div>
+              <button
+                onClick={handleToggleFines}
+                disabled={finesToggling}
+                style={{
+                  padding: "12px 22px", borderRadius: "12px", fontWeight: 700, fontSize: "0.85rem", cursor: finesToggling ? "not-allowed" : "pointer",
+                  background: finesEnabled ? "rgba(0,255,136,0.15)" : "rgba(255,255,255,0.08)",
+                  border: `1px solid ${finesEnabled ? "rgba(0,255,136,0.5)" : "rgba(255,255,255,0.2)"}`,
+                  color: finesEnabled ? "#00ff88" : "rgba(255,255,255,0.6)",
+                }}
+              >
+                {finesToggling ? "..." : finesEnabled ? "✅ Enabled — click to disable" : "Disabled — click to enable"}
+              </button>
+            </div>
+
+            {finesLoading ? (
+              <div style={{ textAlign: "center", padding: "32px", color: "rgba(255,255,255,0.3)", fontSize: "0.9rem" }}>Loading squad statuses…</div>
+            ) : !squadStatuses || squadStatuses.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "32px", color: "rgba(255,255,255,0.3)", fontSize: "0.9rem" }}>No managed clubs yet.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                {squadStatuses.map(s => (
+                  <div key={s.team} style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap",
+                    padding: "14px 18px", borderRadius: "14px",
+                    background: s.complete ? "rgba(0,255,136,0.05)" : "rgba(255,50,50,0.06)",
+                    border: `1px solid ${s.complete ? "rgba(0,255,136,0.2)" : "rgba(255,50,50,0.25)"}`,
+                  }}>
+                    <div>
+                      <div style={{ color: "#fff", fontWeight: 700, fontSize: "0.95rem" }}>{s.team}</div>
+                      {!s.complete && (
+                        <div style={{ color: "#ff6b6b", fontSize: "0.78rem", marginTop: "2px" }}>Missing: {describeMissing(s.missing)}</div>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+                      {s.daysFined > 0 && (
+                        <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.78rem" }}>
+                          {s.daysFined} day{s.daysFined === 1 ? "" : "s"} fined · {s.totalFined.toLocaleString("en-US")} total
+                        </span>
+                      )}
+                      <span style={{
+                        padding: "5px 14px", borderRadius: "20px", fontSize: "0.75rem", fontWeight: 700,
+                        background: s.complete ? "rgba(0,255,136,0.15)" : "rgba(255,50,50,0.15)",
+                        color: s.complete ? "#00ff88" : "#ff6b6b",
+                      }}>
+                        {s.complete ? "COMPLETE" : "INCOMPLETE"}
+                      </span>
+                    </div>
+                  </div>
                 ))}
               </div>
             )}
