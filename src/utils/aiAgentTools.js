@@ -15,16 +15,16 @@ export const LEAGUE_MAP = {
   "Serie A": "seriea",
   "Bundesliga": "bundesliga",
   "Ligue 1": "ligue1",
-  "Champions League": "ucl",
-  "Europa League": "uel",
-  "Club World Cup": "cwc",
+  "Champions League": "champions",
+  "Europa League": "europa",
+  "Club World Cup": "clubworldcup",
   "Super Cup": "sc",
   "World Cup": "wc",
   "FA Cup": "facup",
   "Copa del Rey": "copadelrey",
   "Coppa Italia": "coppaitalia",
   "DFB Pokal": "dfbpokal",
-  "Coupe de France": "dfbpokal", // shares the same DB path as DFB Pokal in this app
+  "Coupe de France": "coupesdefrance",
 };
 
 function norm(s) {
