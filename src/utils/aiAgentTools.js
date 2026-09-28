@@ -7,6 +7,7 @@
 import { db, PATHS, ref, get, set, push, update, remove } from "../firebase";
 import { recalculateTable } from "./tableLogic";
 import { getSASTToday } from "./sastTime";
+import { getAllSquadStatuses, getSquadFinesSettings, setSquadFinesEnabled, describeMissing, checkSquadCompleteness, FINE_AMOUNT } from "./squadFines";
 
 // ── League name <-> internal key map (matches the keys used across pages) ──
 export const LEAGUE_MAP = {
@@ -454,6 +455,24 @@ const READ_TOOLS = {
     },
   },
 
+  get_squad_fine_status: {
+    schema: {
+      name: "get_squad_fine_status",
+      description: "Get the squad-completion fine system's on/off status, and the current squad-completeness status for every managed club (or one team). A club is fined 5,000,000 per day it's missing its squad image, Starting XI, Original 11, or full bench.",
+      parameters: { type: "object", properties: { team: { type: "string", description: "Optional — check just one club" } } },
+    },
+    run: async ({ team }) => {
+      const settings = await getSquadFinesSettings();
+      if (team) {
+        const teams = await getAllManagedTeamNames();
+        const resolved = resolveTeamName(team, teams) || team;
+        const check = await checkSquadCompleteness(resolved);
+        return { enabled: settings.enabled, team: resolved, ...check, missingText: describeMissing(check.missing) };
+      }
+      const statuses = await getAllSquadStatuses();
+      return { enabled: settings.enabled, fineAmount: FINE_AMOUNT, clubs: statuses };
+    },
+  },
   read_data: {
     schema: {
       name: "read_data",
@@ -734,6 +753,16 @@ const WRITE_TOOLS = {
     },
     preview: async (args) => ({ ok: true, resolvedArgs: { open: !!args.open }, summary: `${args.open ? "Open" : "Close"} the transfer window.` }),
     execute: async (r) => { await set(ref(db, `${PATHS.transfers}/transferWindowOpen`), r.open); return `Transfer window ${r.open ? "opened" : "closed"}.`; },
+  },
+
+  set_squad_fines_enabled: {
+    schema: {
+      name: "set_squad_fines_enabled",
+      description: "Turn the automatic squad-completion fine system on or off. When turning it on, fines only start counting from the day it's enabled — nothing is backfined for earlier days. Needs confirmation.",
+      parameters: { type: "object", properties: { enabled: { type: "boolean" } }, required: ["enabled"] },
+    },
+    preview: async (args) => ({ ok: true, resolvedArgs: { enabled: !!args.enabled }, summary: `${args.enabled ? "Enable" : "Disable"} automatic squad-completion fines (${FINE_AMOUNT.toLocaleString("en-US")}/day per incomplete club).` }),
+    execute: async (r) => { await setSquadFinesEnabled(r.enabled); return `Squad fines ${r.enabled ? "enabled" : "disabled"}.`; },
   },
 
   write_data: {
