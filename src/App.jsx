@@ -9,6 +9,7 @@ import BackgroundMusic from "./components/BackgroundMusic";
 import SoundEffects from "./components/SoundEffects";
 import BottomNavBar from "./components/BottomNavBar";
 import AutoRefresher from "./components/AutoRefresher";
+import { processSquadFinesForAllClubs } from "./utils/squadFines";
 import FeedPage from "./pages/FeedPage";
 import PremierLeaguePage from "./pages/PremierLeaguePage";
 import LaLigaPage from "./pages/LaLigaPage";
@@ -101,6 +102,13 @@ function InactivityWatcher() {
   return null;
 }
 
+function SquadFineSweeper() {
+  useEffect(() => {
+    processSquadFinesForAllClubs();
+  }, []);
+  return null;
+}
+
 function AppInner() {
   return (
     <>
@@ -108,6 +116,7 @@ function AppInner() {
       <SoundEffects />
       <InactivityWatcher />
       <AutoRefresher />
+      <SquadFineSweeper />
       <Routes>
         <Route path="/" element={<FeedPage />} />
 
