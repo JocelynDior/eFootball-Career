@@ -4,9 +4,10 @@ import Navbar from "../components/Navbar";
 import BackgroundVideo from "../components/BackgroundVideo";
 import TabBar from "../components/TabBar";
 import { useAdmin } from "../context/AdminContext";
-import { db, PATHS } from "../firebase";
+import { db } from "../firebase";
 import { ref, onValue } from "firebase/database";
 import { uploadToImgBB } from "../utils/imgUpload";
+import { getManagerRank } from "../utils/managerRankings";
 
 const GLASS = {
   background: "rgba(255,255,255,0.04)",
@@ -42,7 +43,6 @@ const labelStyle = {
 
 const TABS = [
   { id: "career", label: "CAREER" },
-  { id: "objectives", label: "OBJECTIVES" },
   { id: "account", label: "ACCOUNT" },
 ];
 
@@ -56,14 +56,15 @@ function StatBlock({ icon, label, value }) {
     <div style={{
       ...GLASS,
       borderRadius: "22px",
-      padding: "36px 28px",
+      padding: "28px 12px",
+      minWidth: 0,
       display: "flex", flexDirection: "column", alignItems: "center",
       justifyContent: "center", textAlign: "center",
       gap: "10px",
     }}>
-      <div style={{ fontSize: "3.6rem" }}>{icon}</div>
-      <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "2.1rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px" }}>{label}</div>
-      <div style={{ color: "#fff", fontWeight: 700, fontSize: "3rem", lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: "clamp(2.4rem, 5vw, 3.6rem)" }}>{icon}</div>
+      <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "clamp(1.2rem, 3vw, 2.1rem)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px" }}>{label}</div>
+      <div style={{ color: "#fff", fontWeight: 700, fontSize: "clamp(1.5rem, 3.6vw, 3rem)", lineHeight: 1.1, maxWidth: "100%", overflowWrap: "anywhere" }}>{value}</div>
     </div>
   );
 }
@@ -74,8 +75,7 @@ export default function ManagerProfilePage() {
   const [tab, setTab] = useState("career");
   const [teamBalance, setTeamBalance] = useState(null);
   const [managingDirector, setManagingDirector] = useState("");
-  const [fans, setFans] = useState(0);
-  const [objectives, setObjectives] = useState([]);
+  const [rankInfo, setRankInfo] = useState(undefined); // undefined = loading, null = unranked
 
   // Account edit state
   const [editSection, setEditSection] = useState(null);
@@ -119,31 +119,15 @@ export default function ManagerProfilePage() {
     return () => unsub();
   }, [manager?.team]);
 
-  // Live fans count from Firebase
+  // Rank comes from the same calculation as the Manager Rankings page
   useEffect(() => {
-    if (!manager?.team) return;
-    const unsub = onValue(ref(db, PATHS.clubFans(manager.team)), snap => {
-      const val = snap.val();
-      setFans(typeof val === "number" ? val : 0);
-    });
-    return () => unsub();
-  }, [manager?.team]);
-
-  // Load objectives set by admin for this club
-  useEffect(() => {
-    if (!manager?.team) return;
-    const unsub = onValue(ref(db, PATHS.clubObjectives(manager.team)), snap => {
-      const data = snap.val();
-      if (Array.isArray(data)) {
-        setObjectives(data);
-      } else if (data && typeof data === "object") {
-        setObjectives(Object.values(data));
-      } else {
-        setObjectives([]);
-      }
-    });
-    return () => unsub();
-  }, [manager?.team]);
+    if (!manager?.uid) return;
+    let cancelled = false;
+    getManagerRank(manager.uid)
+      .then(r => { if (!cancelled) setRankInfo(r); })
+      .catch(() => { if (!cancelled) setRankInfo(null); });
+    return () => { cancelled = true; };
+  }, [manager?.uid, manager?.team]);
 
   if (!manager) {
     return (
@@ -290,12 +274,11 @@ export default function ManagerProfilePage() {
           </div>
         )}
 
-        {/* 4-block stat grid (2x2) */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "32px" }}>
-          <StatBlock icon="🏆" label="Rank" value={manager.rank ? `#${manager.rank}` : "Unranked"} />
-          <StatBlock icon="💰" label="Team Balance" value={teamBalance !== null ? formatBalance(teamBalance) : "Loading..."} />
-          <StatBlock icon="📣" label="Fans" value={fans.toLocaleString("en-US")} />
+        {/* 3 stat blocks in one row: Rank, Club, Balance */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "12px", marginBottom: "32px" }}>
+          <StatBlock icon="🏆" label="Rank" value={rankInfo === undefined ? (manager.rank ? `#${manager.rank}` : "…") : rankInfo ? `#${rankInfo.rank}` : "Unranked"} />
           <StatBlock icon="🏟️" label="Club" value={manager.team || "—"} />
+          <StatBlock icon="💰" label="Balance" value={teamBalance !== null ? formatBalance(teamBalance) : "Loading..."} />
         </div>
 
         {/* Tabs */}
@@ -306,80 +289,6 @@ export default function ManagerProfilePage() {
         {/* Career Tab — blank */}
         {tab === "career" && (
           <div style={{ minHeight: "200px" }} />
-        )}
-
-        {/* Objectives Tab */}
-        {tab === "objectives" && (
-          <div style={{ marginBottom: "80px" }}>
-            {/* Disclaimer banner */}
-            <div style={{
-              background: "rgba(255,20,147,0.08)",
-              border: "1px solid rgba(255,20,147,0.3)",
-              borderRadius: "20px",
-              padding: "28px 32px",
-              marginBottom: "28px",
-              display: "flex",
-              gap: "16px",
-              alignItems: "flex-start",
-            }}>
-              <span style={{ fontSize: "3rem", flexShrink: 0 }}>⚠️</span>
-              <p style={{
-                color: "rgba(255,255,255,0.85)",
-                fontSize: "2.2rem",
-                lineHeight: 1.6,
-                margin: 0,
-                fontWeight: 600,
-              }}>
-                If You Fail All Objectives You Will Be Sacked, If You Pass A Objective You Will Be Given Rewards. Objective Difficulty Set Based On Club Level, Bigger Clubs = Hard Objectives. Check Rules &amp; Tutorials Page For More Information
-              </p>
-            </div>
-
-            {/* Objectives list */}
-            {objectives.length === 0 ? (
-              <div style={{ ...GLASS, borderRadius: "24px", padding: "80px 40px", textAlign: "center" }}>
-                <div style={{ fontSize: "5rem", marginBottom: "20px" }}>🎯</div>
-                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.5rem", color: "rgba(255,255,255,0.3)", letterSpacing: "4px" }}>
-                  No Objectives Set Yet
-                </div>
-                <div style={{ color: "rgba(255,255,255,0.25)", fontSize: "2rem", marginTop: "12px" }}>
-                  The admin will set your club objectives soon.
-                </div>
-              </div>
-            ) : (
-              <div style={{ ...GLASS, borderRadius: "24px", padding: "40px 44px" }}>
-                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.2rem", color: "#FF1493", letterSpacing: "3px", marginBottom: "28px" }}>
-                  🎯 Club Objectives
-                </div>
-                <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "18px" }}>
-                  {objectives.map((obj, i) => (
-                    <li key={i} style={{
-                      display: "flex",
-                      alignItems: "flex-start",
-                      gap: "20px",
-                      background: "rgba(255,20,147,0.06)",
-                      border: "1px solid rgba(255,20,147,0.15)",
-                      borderRadius: "16px",
-                      padding: "24px 28px",
-                    }}>
-                      <span style={{
-                        width: "36px", height: "36px", borderRadius: "50%",
-                        background: "rgba(255,20,147,0.2)",
-                        border: "1px solid rgba(255,20,147,0.4)",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        color: "#FF1493", fontWeight: 700, fontSize: "1.8rem",
-                        flexShrink: 0,
-                      }}>
-                        {i + 1}
-                      </span>
-                      <span style={{ color: "#fff", fontSize: "2.4rem", lineHeight: 1.5, paddingTop: "4px" }}>
-                        {obj}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
         )}
 
         {/* Account Tab */}
