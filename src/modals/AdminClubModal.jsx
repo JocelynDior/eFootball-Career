@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { db, PATHS } from "../firebase";
 import { ref, onValue, update, remove, set } from "firebase/database";
+import { teamMoveUpdates } from "../utils/teamHistory";
 
 const inputStyle = {
   width: "100%",
@@ -85,22 +86,15 @@ export default function AdminClubModal({ club, managers, onClose, onSaved }) {
     if (!selectedManagerUid) { setManagerMsg("Please select a manager."); return; }
     setManagerSaving(true);
     const now = Date.now();
-    // Find current manager of club and add history entry
+    // The manager leaving this club, and the one arriving (who may be coming from another club)
     const currentMgr = managers.find(m => m.team === club.name);
+    const incomingMgr = managers.find(m => m.uid === selectedManagerUid);
     const updates = {};
-    if (currentMgr) {
-      const histEntry = {
-        team: club.name,
-        assignedAt: currentMgr.teamAssignedAt || now,
-        removedAt: now,
-      };
-      updates[`${PATHS.accounts}/${currentMgr.uid}/team`] = null;
-      updates[`${PATHS.accounts}/${currentMgr.uid}/teamHistory/${now}`] = histEntry;
+    if (currentMgr && currentMgr.uid !== selectedManagerUid) {
+      Object.assign(updates, teamMoveUpdates(currentMgr.uid, currentMgr, null, now));
     }
-    // Assign new manager
-    updates[`${PATHS.accounts}/${selectedManagerUid}/team`] = club.name;
-    updates[`${PATHS.accounts}/${selectedManagerUid}/teamAssignedAt`] = now;
-    await update(ref(db), updates);
+    Object.assign(updates, teamMoveUpdates(selectedManagerUid, incomingMgr, club.name, now));
+    if (Object.keys(updates).length) await update(ref(db), updates);
     setManagerSaving(false);
     setManagerMsg("Manager changed!");
     setTimeout(() => { setManagerMsg(""); setView("main"); onSaved(); }, 1500);
@@ -111,7 +105,8 @@ export default function AdminClubModal({ club, managers, onClose, onSaved }) {
     // Remove team from manager who owns it
     const currentMgr = managers.find(m => m.team === club.name);
     if (currentMgr) {
-      await update(ref(db, `${PATHS.accounts}/${currentMgr.uid}`), { team: null });
+      const updates = teamMoveUpdates(currentMgr.uid, currentMgr, null);
+      if (Object.keys(updates).length) await update(ref(db), updates);
     }
     // Remove club data
     await remove(ref(db, `career_team_management/${club.name}`));
