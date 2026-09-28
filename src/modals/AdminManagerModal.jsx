@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { db, PATHS } from "../firebase";
 import { ref, update, remove } from "firebase/database";
+import { teamMoveUpdates } from "../utils/teamHistory";
 
 const inputStyle = {
   width: "100%",
@@ -52,7 +53,7 @@ export default function AdminManagerModal({ mgr, onClose, onSaved }) {
 
   // Team history
   const teamHistory = mgr.teamHistory
-    ? Object.values(mgr.teamHistory).sort((a, b) => (b.assignedAt || 0) - (a.assignedAt || 0))
+    ? Object.values(mgr.teamHistory).sort((a, b) => (b.removedAt || b.assignedAt || 0) - (a.removedAt || a.assignedAt || 0))
     : [];
 
   async function handleResetPassword() {
@@ -68,18 +69,8 @@ export default function AdminManagerModal({ mgr, onClose, onSaved }) {
   async function handleChangeTeam() {
     if (!newTeam.trim()) { setTeamMsg("Team name cannot be empty."); return; }
     setTeamSaving(true);
-    const now = Date.now();
-    const historyEntry = {
-      team: mgr.team || "None",
-      assignedAt: mgr.teamAssignedAt || now,
-      removedAt: now,
-    };
-    const updates = {
-      [`${PATHS.accounts}/${mgr.uid}/team`]: newTeam.trim(),
-      [`${PATHS.accounts}/${mgr.uid}/teamAssignedAt`]: now,
-      [`${PATHS.accounts}/${mgr.uid}/teamHistory/${now}`]: historyEntry,
-    };
-    await update(ref(db), updates);
+    const updates = teamMoveUpdates(mgr.uid, mgr, newTeam.trim());
+    if (Object.keys(updates).length) await update(ref(db), updates);
     setTeamSaving(false);
     setTeamMsg("Team updated!");
     setTimeout(() => { setTeamMsg(""); setView("main"); onSaved(); }, 1500);
@@ -230,12 +221,32 @@ export default function AdminManagerModal({ mgr, onClose, onSaved }) {
             </button>
 
             {/* Team History */}
-            {teamHistory.length > 0 && (
+            {(teamHistory.length > 0 || mgr.team) && (
               <div style={{ ...sectionStyle, marginTop: "8px" }}>
                 <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "14px" }}>
                   📋 Team History
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  {mgr.team && (
+                    <div style={{
+                      background: "rgba(0,200,100,0.07)",
+                      border: "1px solid rgba(0,200,100,0.25)",
+                      borderRadius: "10px",
+                      padding: "12px 14px",
+                    }}>
+                      <div style={{ color: "#fff", fontWeight: 600, fontSize: "0.9rem" }}>{mgr.team} <span style={{ color: "#4ade80", fontSize: "0.7rem", marginLeft: "6px" }}>CURRENT</span></div>
+                      <div style={{ display: "flex", gap: "16px", marginTop: "5px" }}>
+                        <div>
+                          <span style={{ color: "rgba(255,255,255,0.35)", fontSize: "0.68rem", textTransform: "uppercase" }}>Assigned </span>
+                          <span style={{ color: "rgba(255,255,255,0.65)", fontSize: "0.78rem" }}>{mgr.teamAssignedAt ? formatDate(mgr.teamAssignedAt) : "Unknown"}</span>
+                        </div>
+                        <div>
+                          <span style={{ color: "rgba(255,255,255,0.35)", fontSize: "0.68rem", textTransform: "uppercase" }}>Left </span>
+                          <span style={{ color: "rgba(255,255,255,0.65)", fontSize: "0.78rem" }}>Present</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   {teamHistory.map((entry, i) => (
                     <div key={i} style={{
                       background: "rgba(255,20,147,0.05)",
@@ -247,11 +258,11 @@ export default function AdminManagerModal({ mgr, onClose, onSaved }) {
                       <div style={{ display: "flex", gap: "16px", marginTop: "5px" }}>
                         <div>
                           <span style={{ color: "rgba(255,255,255,0.35)", fontSize: "0.68rem", textTransform: "uppercase" }}>Assigned </span>
-                          <span style={{ color: "rgba(255,255,255,0.65)", fontSize: "0.78rem" }}>{formatDate(entry.assignedAt)}</span>
+                          <span style={{ color: "rgba(255,255,255,0.65)", fontSize: "0.78rem" }}>{entry.assignedAt ? formatDate(entry.assignedAt) : "Unknown"}</span>
                         </div>
                         <div>
                           <span style={{ color: "rgba(255,255,255,0.35)", fontSize: "0.68rem", textTransform: "uppercase" }}>Left </span>
-                          <span style={{ color: "rgba(255,255,255,0.65)", fontSize: "0.78rem" }}>{formatDate(entry.removedAt)}</span>
+                          <span style={{ color: "rgba(255,255,255,0.65)", fontSize: "0.78rem" }}>{entry.removedAt ? formatDate(entry.removedAt) : "Unknown"}</span>
                         </div>
                       </div>
                     </div>
