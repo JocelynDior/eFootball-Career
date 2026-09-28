@@ -242,26 +242,15 @@ export default function AdminProfilePage() {
     <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif" }}>
       <Navbar />
 
-      <div style={{ maxWidth: "700px", margin: "0 auto", padding: "36px 20px 80px" }}>
+      <div style={{ width: "100%", boxSizing: "border-box", padding: "36px 40px 80px" }}>
 
         {/* ── Admin profile card ── */}
         <div style={{
-          background: "rgba(255,255,255,0.03)",
-          backdropFilter: "blur(24px)",
-          border: "1px solid rgba(255,20,147,0.2)",
-          borderRadius: "24px",
-          padding: "36px",
-          marginBottom: "20px",
-          boxShadow: "0 8px 40px rgba(0,0,0,0.35)",
-          position: "relative", overflow: "hidden",
+          width: "100%",
+          padding: "0 0 32px",
+          marginBottom: "28px",
+          borderBottom: "1px solid rgba(255,255,255,0.08)",
         }}>
-          {/* Glow */}
-          <div style={{
-            position: "absolute", top: "-60px", right: "-60px",
-            width: "200px", height: "200px", borderRadius: "50%",
-            background: "radial-gradient(circle, rgba(255,20,147,0.2) 0%, transparent 70%)",
-            pointerEvents: "none",
-          }} />
 
           <div style={{ display: "flex", alignItems: "center", gap: "24px", flexWrap: "wrap" }}>
             <div style={{
