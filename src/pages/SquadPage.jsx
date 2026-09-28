@@ -5,6 +5,7 @@ import { db, PATHS } from "../firebase";
 import { ref, set, onValue, remove, push, update, get } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
 import { uploadToImgBB } from "../utils/imgUpload";
+import { checkSquadCompleteness, describeMissing, getSquadFinesSettings, FINE_AMOUNT } from "../utils/squadFines";
 import Navbar from "../components/Navbar";
 import BackgroundVideo from "../components/BackgroundVideo";
 import TabBar from "../components/TabBar";
@@ -478,6 +479,7 @@ export default function SquadPage() {
   const [infoTick, setInfoTick] = useState(0);
   const [activeTab, setActiveTab] = useState("squad");
   const [allManagers, setAllManagers] = useState([]);
+  const [fineStatus, setFineStatus] = useState(null); // { enabled, complete, missing, daysFined }
 
   const team = manager?.team || adminTeam;
   const teamPath = team ? `career_team_management/${team}/squad` : null;
@@ -522,6 +524,27 @@ export default function SquadPage() {
   const startingPlayers = players.filter(p => p.role === "starting");
   const benchPlayers = players.filter(p => p.role === "bench");
   const reservePlayers = players.filter(p => p.role === "reserve");
+
+  // Squad-completion fine status — recheck whenever the squad or its info changes
+  useEffect(() => {
+    if (!team) return;
+    let cancelled = false;
+    (async () => {
+      const [settings, check, finedSnap] = await Promise.all([
+        getSquadFinesSettings(),
+        checkSquadCompleteness(team),
+        get(ref(db, `career_team_management/${team}/squad_info/finedDates`)),
+      ]);
+      if (cancelled || !check.ok) return;
+      setFineStatus({
+        enabled: settings.enabled,
+        complete: check.complete,
+        missing: check.missing,
+        daysFined: Object.keys(finedSnap.val() || {}).length,
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [team, players, squadInfo]);
 
   function getPlayerForSlot(role, index) {
     const list = role === "starting" ? startingPlayers : role === "bench" ? benchPlayers : reservePlayers;
@@ -689,6 +712,18 @@ export default function SquadPage() {
         {defaultError && (
           <div style={{ padding: "16px 24px", borderRadius: "12px", marginBottom: "20px", background: defaultError.startsWith("✅") ? "rgba(0,255,136,0.1)" : "rgba(255,50,50,0.1)", border: `1px solid ${defaultError.startsWith("✅") ? "rgba(0,255,136,0.3)" : "rgba(255,50,50,0.3)"}`, color: defaultError.startsWith("✅") ? "#00ff88" : "#ff6b6b", fontSize: "1.8rem" }}>
             {defaultError}
+          </div>
+        )}
+
+        {fineStatus?.enabled && !fineStatus.complete && (
+          <div style={{ background: "rgba(255,50,50,0.08)", border: "1px solid rgba(255,50,50,0.35)", borderRadius: "14px", padding: "20px 26px", marginBottom: "20px" }}>
+            <div style={{ color: "#ff6b6b", fontWeight: 700, fontSize: "1.9rem", marginBottom: "6px" }}>
+              ⚠️ Incomplete Squad — {FINE_AMOUNT.toLocaleString("en-US")} fine every day this stays incomplete
+            </div>
+            <div style={{ color: "rgba(255,255,255,0.7)", fontSize: "1.7rem" }}>
+              Missing: {describeMissing(fineStatus.missing)}.
+              {fineStatus.daysFined > 0 && ` Already fined for ${fineStatus.daysFined} day${fineStatus.daysFined === 1 ? "" : "s"}.`}
+            </div>
           </div>
         )}
 
