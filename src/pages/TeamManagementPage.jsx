@@ -33,6 +33,7 @@ const GLASS = {
 const INCOME_CATEGORIES = [
   "Player Sales",
   "Player Loaned Out",
+  "Player Swap Cash",
   "Loan Received",
   "Loan Repayments",
   "Stadium Income",
@@ -49,6 +50,7 @@ const EXPENSE_CATEGORIES = [
   "Stadium Upgrade",
   "Player Purchase",
   "Player Loan In",
+  "Player Swap Cash",
   "Loan Given",
   "Loan Repayments",
   "Fines",
