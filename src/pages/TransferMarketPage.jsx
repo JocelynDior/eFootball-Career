@@ -438,61 +438,6 @@ function AuctionDeadlineModal({ onClose }) {
   );
 }
 
-// ── Transfer Window Toggle (admin only) ──────────────────────────────────────
-function TransferWindowModal({ onClose }) {
-  const [windowOpen, setWindowOpen] = useState(true);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    const unsub = onValue(ref(db, `${PATHS.globalSettings}/transferWindowOpen`), snap => {
-      const val = snap.val();
-      setWindowOpen(val === null || val === undefined ? true : !!val);
-      setLoading(false);
-    });
-    return () => unsub();
-  }, []);
-
-  async function handleToggle(open) {
-    setSaving(true);
-    await set(ref(db, `${PATHS.globalSettings}/transferWindowOpen`), open);
-    setSaving(false);
-    onClose();
-  }
-
-  return (
-    <div style={{ fontFamily: "'Inter', sans-serif", maxWidth: "440px", margin: "0 auto", textAlign: "center" }}>
-      <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3rem", letterSpacing: "3px", marginBottom: "12px" }}>🪟 TRANSFER WINDOW</div>
-      {loading ? (
-        <div style={{ color: "rgba(255,255,255,0.4)", padding: "20px" }}>Loading...</div>
-      ) : (
-        <>
-          <div style={{ marginBottom: "28px" }}>
-            <span style={{
-              display: "inline-block", padding: "10px 28px", borderRadius: "30px",
-              background: windowOpen ? "rgba(0,255,136,0.12)" : "rgba(255,107,107,0.12)",
-              border: `1px solid ${windowOpen ? "rgba(0,255,136,0.3)" : "rgba(255,107,107,0.3)"}`,
-              color: windowOpen ? "#00ff88" : "#ff6b6b",
-              fontWeight: 700, fontSize: "1.2rem",
-            }}>
-              {windowOpen ? "🟢 CURRENTLY OPEN" : "🔴 CURRENTLY CLOSED"}
-            </span>
-          </div>
-          <div style={{ display: "flex", gap: "12px" }}>
-            <button onClick={() => handleToggle(true)} disabled={saving || windowOpen} style={{ flex: 1, padding: "18px", background: windowOpen ? "rgba(0,255,136,0.08)" : "#00cc66", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.1rem", cursor: windowOpen || saving ? "not-allowed" : "pointer", opacity: windowOpen ? 0.5 : 1 }}>
-              🟢 Open Window
-            </button>
-            <button onClick={() => handleToggle(false)} disabled={saving || !windowOpen} style={{ flex: 1, padding: "18px", background: !windowOpen ? "rgba(255,107,107,0.08)" : "rgba(255,68,68,0.8)", border: "none", borderRadius: "14px", color: "#fff", fontWeight: 700, fontSize: "1.1rem", cursor: !windowOpen || saving ? "not-allowed" : "pointer", opacity: !windowOpen ? 0.5 : 1 }}>
-              🔴 Close Window
-            </button>
-          </div>
-          <button onClick={onClose} style={{ width: "100%", marginTop: "12px", padding: "16px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "14px", color: "#fff", cursor: "pointer" }}>Cancel</button>
-        </>
-      )}
-    </div>
-  );
-}
-
 function formatDate(ts) {
   if (!ts) return null;
   return new Date(ts).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
@@ -564,7 +509,7 @@ function ContractDetailsModal({ offer, onClose }) {
   );
 }
 
-function NegotiationCard({ offer, isOwn, isAdmin, manager, onViewContract }) {
+function NegotiationCard({ offer, isOwn, isAdmin, manager, windowOpen, onViewContract }) {
   const statusColors = { pending: "#ffaa44", accepted: "#00ff88", rejected: "#ff6b6b", cancelled: "#aaaaaa" };
   const statusColor = statusColors[offer.status] || "#ffaa44";
   const [processing, setProcessing] = useState(false);
@@ -581,14 +526,47 @@ function NegotiationCard({ offer, isOwn, isAdmin, manager, onViewContract }) {
       const buyingClub = offer.fromClub;
       const sellingClub = offer.toClub || offer.playerClub;
 
+      if (offer.type === "swap") {
+        // Move the requesting club's player to the target club, and vice versa —
+        // a real two-way squad swap, same as buy/loan but in both directions.
+        const moveOne = async (fromClub, toClub, playerName) => {
+          const snap = await get(ref(db, `career_team_management/${fromClub}/squad`));
+          const data = snap.val();
+          if (!data) return;
+          for (const [key, p] of Object.entries(data)) {
+            if (p.name === playerName) {
+              await remove(ref(db, `career_team_management/${fromClub}/squad/${key}`));
+              const { loanStatus, loanClub, loanFrom, ...cleanPlayer } = p;
+              await push(ref(db, `career_team_management/${toClub}/squad`), cleanPlayer);
+              break;
+            }
+          }
+        };
+        await moveOne(offer.swapPlayerClub, sellingClub, offer.swapPlayerName); // their new player, from the requester
+        await moveOne(sellingClub, buyingClub, offer.playerName); // the requester's new player, from the accepting club
+
+        const cash = Number((offer.cashAddOn || "0").replace(/[^0-9.]/g, ""));
+        if (cash > 0) {
+          await push(ref(db, `career_team_management/${buyingClub}/finance/transactions`), {
+            type: "expense", category: "Player Swap Cash", source: `${offer.swapPlayerName} ⇄ ${offer.playerName}`, amount: cash, month: monthName, monthIndex, year, createdAt: Date.now(),
+          });
+          await push(ref(db, `career_team_management/${sellingClub}/finance/transactions`), {
+            type: "income", category: "Player Swap Cash", source: `${offer.swapPlayerName} ⇄ ${offer.playerName}`, amount: cash, month: monthName, monthIndex, year, createdAt: Date.now(),
+          });
+        }
+        await update(ref(db, `${PATHS.transfers}/negotiations/${offer.id}`), { status: "accepted", acceptedAt: Date.now() });
+        setProcessing(false);
+        return;
+      }
+
       if (buyingClub && amt > 0) {
         await push(ref(db, `career_team_management/${buyingClub}/finance/transactions`), {
-          type: "expense", category: offer.type === "loan" ? "Player Loan In" : "Player Purchase", source: offer.playerName, amount: amt, month: monthName, monthIndex, year, createdAt: Date.now(),
+          type: "expense", category: "Player Purchase", source: offer.playerName, amount: amt, month: monthName, monthIndex, year, createdAt: Date.now(),
         });
       }
       if (sellingClub && amt > 0) {
         await push(ref(db, `career_team_management/${sellingClub}/finance/transactions`), {
-          type: "income", category: offer.type === "loan" ? "Player Loaned Out" : "Player Sales", source: offer.playerName, amount: amt, month: monthName, monthIndex, year, createdAt: Date.now(),
+          type: "income", category: "Player Sales", source: offer.playerName, amount: amt, month: monthName, monthIndex, year, createdAt: Date.now(),
         });
       }
 
@@ -645,19 +623,26 @@ function NegotiationCard({ offer, isOwn, isAdmin, manager, onViewContract }) {
   return (
     <div style={{ padding: "24px 28px", background: isOwn ? "rgba(255,20,147,0.1)" : "rgba(255,255,255,0.03)", border: `1px solid ${isOwn ? "rgba(255,20,147,0.4)" : "rgba(255,255,255,0.08)"}`, borderRadius: "20px", marginBottom: "14px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "14px" }}>
-        <div style={{ color: "#fff", fontWeight: 700, fontSize: "2.6rem", lineHeight: 1.1 }}>{offer.playerName}</div>
+        <div style={{ color: "#fff", fontWeight: 700, fontSize: offer.type === "swap" ? "1.8rem" : "2.6rem", lineHeight: 1.2 }}>
+          {offer.type === "swap" ? <>{offer.swapPlayerName} <span style={{ color: "#44aaff" }}>⇄</span> {offer.playerName}</> : offer.playerName}
+        </div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "6px" }}>
-          <span style={{ background: offer.type === "buy" ? "rgba(255,20,147,0.2)" : offer.type === "loan" ? "rgba(0,150,255,0.2)" : offer.type === "freeAgent" ? "rgba(0,255,136,0.2)" : "rgba(255,170,0,0.2)", color: offer.type === "buy" ? "#FF1493" : offer.type === "loan" ? "#44aaff" : offer.type === "freeAgent" ? "#00ff88" : "#ffaa44", padding: "5px 14px", borderRadius: "20px", fontSize: "0.9rem", fontWeight: 700, textTransform: "uppercase" }}>{offer.type === "freeAgent" ? "FREE AGENT" : offer.type}</span>
+          <span style={{ background: offer.type === "buy" ? "rgba(255,20,147,0.2)" : offer.type === "loan" ? "rgba(0,150,255,0.2)" : offer.type === "swap" ? "rgba(68,170,255,0.2)" : offer.type === "freeAgent" ? "rgba(0,255,136,0.2)" : "rgba(255,170,0,0.2)", color: offer.type === "buy" ? "#FF1493" : offer.type === "loan" ? "#44aaff" : offer.type === "swap" ? "#44aaff" : offer.type === "freeAgent" ? "#00ff88" : "#ffaa44", padding: "5px 14px", borderRadius: "20px", fontSize: "0.9rem", fontWeight: 700, textTransform: "uppercase" }}>{offer.type === "freeAgent" ? "FREE AGENT" : offer.type}</span>
           <span style={{ background: `${statusColor}22`, color: statusColor, padding: "5px 14px", borderRadius: "20px", fontSize: "0.9rem", fontWeight: 700, textTransform: "uppercase" }}>{offer.status}</span>
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-        {[
+        {(offer.type === "swap" ? [
+          ["From", offer.fromClub || offer.fromManagerName],
+          ["To", offer.toClub || offer.playerClub || "—"],
+          ["Cash Add-On", offer.cashAddOn || "None"],
+          ["Date Sent", formatDate(offer.createdAt) || "—"],
+        ] : [
           ["From", offer.fromClub || offer.fromManagerName],
           ["To", offer.toClub || offer.playerClub || "—"],
           [offer.type === "auction" ? "Bid" : offer.type === "loan" ? "Loan Fee" : "Offer", offer.type !== "freeAgent" ? (offer.offerAmount || offer.loanAmount || offer.bidAmount || "—") : "—"],
           ["Date Sent", formatDate(offer.createdAt) || "—"],
-        ].map(([label, value]) => (
+        ]).map(([label, value]) => (
           <div key={label} style={{ background: "rgba(255,255,255,0.05)", borderRadius: "12px", padding: "12px 16px" }}>
             <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "4px" }}>{label}</div>
             <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.1rem" }}>{value || "—"}</div>
@@ -671,14 +656,14 @@ function NegotiationCard({ offer, isOwn, isAdmin, manager, onViewContract }) {
         📄 View Contract
       </button>
       {isOwn && <div style={{ marginTop: "10px", color: "#fff", fontSize: "0.9rem", fontWeight: 700 }}>YOUR OFFER</div>}
-      {isOwn && offer.status === "pending" && (
+      {isOwn && offer.status === "pending" && windowOpen && (
         <div style={{ marginTop: "14px" }}>
           <button onClick={handleCancel} disabled={processing} style={{ width: "100%", padding: "12px", background: "rgba(170,170,170,0.12)", border: "1px solid rgba(170,170,170,0.4)", borderRadius: "12px", color: "#aaa", fontWeight: 700, fontSize: "1rem", cursor: processing ? "not-allowed" : "pointer" }}>
             {processing ? "Cancelling..." : "🚫 Cancel Bid"}
           </button>
         </div>
       )}
-      {(isAdmin || (manager && (offer.toClub === manager.team || offer.playerClub === manager.team) && offer.fromClub !== manager.team)) && offer.status === "pending" && (
+      {(isAdmin || (manager && (offer.toClub === manager.team || offer.playerClub === manager.team) && offer.fromClub !== manager.team)) && offer.status === "pending" && windowOpen && (
         <div style={{ display: "flex", gap: "12px", marginTop: "16px" }}>
           <button onClick={handleAccept} disabled={processing} style={{ flex: 1, padding: "12px", background: processing ? "rgba(0,204,102,0.2)" : "#00cc66", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, fontSize: "1rem", cursor: processing ? "not-allowed" : "pointer" }}>
             {processing ? "Processing..." : "✅ Accept"}
@@ -883,7 +868,6 @@ export default function TransferMarketPage() {
   const [buySellMode, setBuySellMode]           = useState("buy");
   const [showNewAuction, setShowNewAuction]     = useState(false);
   const [showDeadlineModal, setShowDeadlineModal] = useState(false);
-  const [showWindowModal, setShowWindowModal]   = useState(false);
   const [selectedAuction, setSelectedAuction]   = useState(null);
   const [selectedAuctionId, setSelectedAuctionId] = useState(null);
   const [visibleCount, setVisibleCount]         = useState(12);
@@ -1069,9 +1053,6 @@ export default function TransferMarketPage() {
                 <button onClick={() => setShowDeadlineModal(true)} style={{ padding: "10px 18px", background: "rgba(255,170,0,0.15)", border: "1px solid rgba(255,170,0,0.4)", borderRadius: "10px", color: "#ffaa44", fontWeight: 700, cursor: "pointer", fontSize: "0.95rem" }}>
                   ⏰ Auction Deadline
                 </button>
-                <button onClick={() => setShowWindowModal(true)} style={{ padding: "10px 18px", background: windowOpen ? "rgba(0,255,136,0.12)" : "rgba(255,107,107,0.12)", border: `1px solid ${windowOpen ? "rgba(0,255,136,0.3)" : "rgba(255,107,107,0.3)"}`, borderRadius: "10px", color: windowOpen ? "#00ff88" : "#ff6b6b", fontWeight: 700, cursor: "pointer", fontSize: "0.95rem" }}>
-                  {windowOpen ? "🟢 Window Open" : "🔴 Window Closed"}
-                </button>
               </>
             )}
           </div>
@@ -1102,24 +1083,34 @@ export default function TransferMarketPage() {
       )}
 
       <div style={{ padding: "24px 20px 80px" }}>
-        {/* ── Buy / Loan buttons — managers only, and only while the window is open ── */}
+        {/* ── Buy / Loan / Swap buttons — managers only, and only while the window is open ── */}
         {!isAdmin && windowOpen && (
-          <div style={{ display: "flex", gap: "12px", marginBottom: "20px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
+            <div style={{ display: "flex", gap: "12px" }}>
+              <button
+                onClick={() => { setBuySellMode("buy"); setShowBuySellModal(true); }}
+                style={{ flex: 1, padding: "18px", background: "#00cc66", border: "none", borderRadius: "14px", color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "2px", cursor: "pointer", boxShadow: "0 4px 20px rgba(0,204,102,0.3)" }}
+                onMouseOver={e => e.currentTarget.style.background = "#00aa55"}
+                onMouseOut={e => e.currentTarget.style.background = "#00cc66"}
+              >
+                💰 BUY PLAYER
+              </button>
+              <button
+                onClick={() => { setBuySellMode("loan"); setShowBuySellModal(true); }}
+                style={{ flex: 1, padding: "18px", background: "#ffaa44", border: "none", borderRadius: "14px", color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "2px", cursor: "pointer", boxShadow: "0 4px 20px rgba(255,170,68,0.3)" }}
+                onMouseOver={e => e.currentTarget.style.background = "#e09030"}
+                onMouseOut={e => e.currentTarget.style.background = "#ffaa44"}
+              >
+                🔄 LOAN PLAYER
+              </button>
+            </div>
             <button
-              onClick={() => { setBuySellMode("buy"); setShowBuySellModal(true); }}
-              style={{ flex: 1, padding: "18px", background: "#00cc66", border: "none", borderRadius: "14px", color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "2px", cursor: "pointer", boxShadow: "0 4px 20px rgba(0,204,102,0.3)" }}
-              onMouseOver={e => e.currentTarget.style.background = "#00aa55"}
-              onMouseOut={e => e.currentTarget.style.background = "#00cc66"}
+              onClick={() => { setBuySellMode("swap"); setShowBuySellModal(true); }}
+              style={{ width: "100%", padding: "18px", background: "#44aaff", border: "none", borderRadius: "14px", color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "2px", cursor: "pointer", boxShadow: "0 4px 20px rgba(68,170,255,0.3)" }}
+              onMouseOver={e => e.currentTarget.style.background = "#2e8fe0"}
+              onMouseOut={e => e.currentTarget.style.background = "#44aaff"}
             >
-              💰 BUY PLAYER
-            </button>
-            <button
-              onClick={() => { setBuySellMode("loan"); setShowBuySellModal(true); }}
-              style={{ flex: 1, padding: "18px", background: "#ffaa44", border: "none", borderRadius: "14px", color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "2px", cursor: "pointer", boxShadow: "0 4px 20px rgba(255,170,68,0.3)" }}
-              onMouseOver={e => e.currentTarget.style.background = "#e09030"}
-              onMouseOut={e => e.currentTarget.style.background = "#ffaa44"}
-            >
-              🔄 LOAN PLAYER
+              🔃 SWAP PLAYER
             </button>
           </div>
         )}
@@ -1187,7 +1178,7 @@ export default function TransferMarketPage() {
                 )}
               </div>
             ) : filteredNegotiations.map(offer => (
-              <NegotiationCard key={offer.id} offer={offer} isOwn={offer.fromManagerUid === manager?.uid} isAdmin={isAdmin} manager={manager} onViewContract={setViewingContract} />
+              <NegotiationCard key={offer.id} offer={offer} isOwn={offer.fromManagerUid === manager?.uid} isAdmin={isAdmin} manager={manager} windowOpen={windowOpen} onViewContract={setViewingContract} />
             ))}
           </div>
 
@@ -1405,9 +1396,6 @@ export default function TransferMarketPage() {
           </Modal>
           <Modal active={showDeadlineModal} onClose={() => setShowDeadlineModal(false)} wide>
             <AuctionDeadlineModal onClose={() => setShowDeadlineModal(false)} />
-          </Modal>
-          <Modal active={showWindowModal} onClose={() => setShowWindowModal(false)} wide>
-            <TransferWindowModal onClose={() => setShowWindowModal(false)} />
           </Modal>
         </>
       )}
