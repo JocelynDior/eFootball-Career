@@ -59,15 +59,31 @@ export default function BuySellModal({ mode, manager, onClose }) {
   useEffect(() => {
     if (isManualTeam) { setSquadPlayers([]); setSelectedPlayerName(""); return; }
     if (!selectedTeam) { setSquadPlayers([]); setSelectedPlayerName(""); return; }
+    // Reset the selection once, here, when the team actually changes — NOT inside
+    // the listener below, which can re-fire later (reconnects, squad edits elsewhere)
+    // and would otherwise silently wipe a player the manager already picked.
+    setSelectedPlayerName("");
+    setIsManualPlayer(false);
+    setManualPlayerName("");
     const unsub = onValue(ref(db, `career_team_management/${selectedTeam}/squad`), (snap) => {
       const data = snap.val();
       setSquadPlayers(data ? Object.values(data).map((p) => p.name).filter(Boolean) : []);
-      setSelectedPlayerName("");
-      setIsManualPlayer(false);
-      setManualPlayerName("");
     });
     return () => unsub();
   }, [selectedTeam, isManualTeam]);
+
+  // Swap mode: the manager's own squad, to pick the player they're offering.
+  const [ownSquadPlayers, setOwnSquadPlayers] = useState([]);
+  const [ownPlayerName, setOwnPlayerName] = useState("");
+  const [cashAddOn, setCashAddOn] = useState("");
+  useEffect(() => {
+    if (mode !== "swap" || !manager?.team) { setOwnSquadPlayers([]); return; }
+    const unsub = onValue(ref(db, `career_team_management/${manager.team}/squad`), (snap) => {
+      const data = snap.val();
+      setOwnSquadPlayers(data ? Object.values(data).map((p) => p.name).filter(Boolean) : []);
+    });
+    return () => unsub();
+  }, [mode, manager?.team]);
 
   const handleTeamSelect = (e) => {
     const val = e.target.value;
@@ -98,6 +114,7 @@ export default function BuySellModal({ mode, manager, onClose }) {
       const amount = parseCommaValue(loanAmount);
       if (amount <= 0) { setError("Please enter a valid loan fee."); return; }
     }
+    if (mode === "swap" && !ownPlayerName) { setError("Please select the player you're offering from your own squad."); return; }
 
     setSending(true); setError("");
     try {
@@ -120,10 +137,16 @@ export default function BuySellModal({ mode, manager, onClose }) {
       } else if (mode === "buy") {
         offer.offerAmount = `€${formatWithCommas(bidAmount)}`;
         if (addOns.trim()) offer.addOns = addOns.trim();
-      } else {
+      } else if (mode === "loan") {
         offer.loanAmount = `€${formatWithCommas(loanAmount)}`;
         offer.loanTerm = "1 Season";
         if (buyOptionClause) offer.buyOptionClause = `€${formatWithCommas(buyOptionClause)}`;
+        if (addOns.trim()) offer.addOns = addOns.trim();
+      } else if (mode === "swap") {
+        offer.swapPlayerName = ownPlayerName;
+        offer.swapPlayerClub = manager.team;
+        const cash = parseCommaValue(cashAddOn);
+        if (cash > 0) offer.cashAddOn = `€${formatWithCommas(cashAddOn)}`;
         if (addOns.trim()) offer.addOns = addOns.trim();
       }
 
@@ -179,11 +202,11 @@ export default function BuySellModal({ mode, manager, onClose }) {
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif" }}>
-      <h3 style={{ color: mode === "buy" ? "#00cc66" : "#ffaa44", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "3px", marginBottom: "4px" }}>
-        {mode === "buy" ? "💰 BUY PLAYER" : "🔄 LOAN PLAYER"}
+      <h3 style={{ color: mode === "buy" ? "#00cc66" : mode === "loan" ? "#ffaa44" : "#44aaff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "3px", marginBottom: "4px" }}>
+        {mode === "buy" ? "💰 BUY PLAYER" : mode === "loan" ? "🔄 LOAN PLAYER" : "🔃 SWAP PLAYER"}
       </h3>
       <p style={{ color: "rgba(255,255,255,0.45)", marginBottom: "24px", fontSize: "1rem" }}>
-        Send an offer to the selling club.
+        {mode === "swap" ? "Offer one of your players in exchange for theirs." : "Send an offer to the selling club."}
       </p>
 
       {success ? (
@@ -239,9 +262,19 @@ export default function BuySellModal({ mode, manager, onClose }) {
             </div>
           )}
 
+          {mode === "swap" && (selectedTeam || isManualTeam) && (
+            <div style={{ marginBottom: "18px" }}>
+              <label style={labelStyle}>Your Player To Offer</label>
+              <select value={ownPlayerName} onChange={(e) => setOwnPlayerName(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
+                <option value="">— Choose a player from your squad —</option>
+                {ownSquadPlayers.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+          )}
+
           {(selectedTeam || isManualTeam) && (
             <div style={{ marginBottom: "18px" }}>
-              <label style={labelStyle}>Select Player</label>
+              <label style={labelStyle}>{mode === "swap" ? "Their Player You Want" : "Select Player"}</label>
               {isManualTeam ? (
                 // Manual team — no squad to load, always type manually
                 <input value={manualPlayerName} onChange={(e) => setManualPlayerName(e.target.value)} placeholder="Type player name…" style={inputStyle} />
@@ -262,8 +295,8 @@ export default function BuySellModal({ mode, manager, onClose }) {
             </div>
           )}
 
-          {/* Fee fields — hidden for free agent */}
-          {!isFreeAgent && (
+          {/* Fee fields — hidden for free agent and swap (swap has its own optional cash field below) */}
+          {!isFreeAgent && mode !== "swap" && (
             <div style={{ marginBottom: "18px" }}>
               <label style={labelStyle}>{mode === "buy" ? "Your Bid (€)" : "Loan Fee (€)"}</label>
               <input
@@ -272,6 +305,13 @@ export default function BuySellModal({ mode, manager, onClose }) {
                 placeholder="e.g. 10,000,000"
                 style={inputStyle}
               />
+            </div>
+          )}
+
+          {mode === "swap" && (
+            <div style={{ marginBottom: "18px" }}>
+              <label style={labelStyle}>Cash Add-On From You <span style={{ color: "rgba(255,255,255,0.3)" }}>(optional)</span></label>
+              <input value={cashAddOn} onChange={handleNumberInput(setCashAddOn)} placeholder="Leave blank for a straight player-for-player swap" style={inputStyle} />
             </div>
           )}
 
@@ -309,7 +349,7 @@ export default function BuySellModal({ mode, manager, onClose }) {
               disabled={sending}
               style={{
                 flex: 2, padding: "16px",
-                background: mode === "buy" ? "#00cc66" : "#ffaa44",
+                background: mode === "buy" ? "#00cc66" : mode === "loan" ? "#ffaa44" : "#44aaff",
                 border: "none", borderRadius: "14px", color: "#fff",
                 fontWeight: 700, fontSize: "1.1rem",
                 cursor: sending ? "not-allowed" : "pointer",
