@@ -748,11 +748,11 @@ const WRITE_TOOLS = {
   set_transfer_window: {
     schema: {
       name: "set_transfer_window",
-      description: "Open or close the transfer window (hides/shows Buy, Loan and Request Auction buttons for managers). Needs confirmation.",
+      description: "Open or close the transfer window (hides/shows Buy, Loan, Swap, Request Auction, and Accept/Decline for managers). Needs confirmation.",
       parameters: { type: "object", properties: { open: { type: "boolean" } }, required: ["open"] },
     },
     preview: async (args) => ({ ok: true, resolvedArgs: { open: !!args.open }, summary: `${args.open ? "Open" : "Close"} the transfer window.` }),
-    execute: async (r) => { await set(ref(db, `${PATHS.transfers}/transferWindowOpen`), r.open); return `Transfer window ${r.open ? "opened" : "closed"}.`; },
+    execute: async (r) => { await set(ref(db, `${PATHS.globalSettings}/transferWindowOpen`), r.open); return `Transfer window ${r.open ? "opened" : "closed"}.`; },
   },
 
   set_squad_fines_enabled: {
