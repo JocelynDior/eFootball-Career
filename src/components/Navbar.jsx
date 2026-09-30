@@ -45,6 +45,9 @@ export default function Navbar({ tokyoMenuItems, leagueMenuProps } = {}) {
   const [addCountdownOpen, setAddCountdownOpen] = useState(false);
   const [auctionDeadlineOpen, setAuctionDeadlineOpen] = useState(false);
   const [addSlideOpen, setAddSlideOpen] = useState(false);
+  const [windowStatusOpen, setWindowStatusOpen] = useState(false);
+  const [transferWindowOpen, setTransferWindowOpen] = useState(true);
+  const [windowSaving, setWindowSaving] = useState(false);
 
   // League page modals
   const [resultsHistoryOpen, setResultsHistoryOpen] = useState(false);
@@ -136,6 +139,15 @@ export default function Navbar({ tokyoMenuItems, leagueMenuProps } = {}) {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!isTransferPage) return;
+    const unsub = onValue(ref(db, `${PATHS.globalSettings}/transferWindowOpen`), snap => {
+      const val = snap.val();
+      setTransferWindowOpen(val === null || val === undefined ? true : !!val);
+    });
+    return () => unsub();
+  }, [isTransferPage]);
 
   useEffect(() => {
     if (!isAdmin || !isTransferPage) return;
@@ -262,6 +274,13 @@ export default function Navbar({ tokyoMenuItems, leagueMenuProps } = {}) {
     outline: "none", boxSizing: "border-box", marginBottom: "12px",
   };
 
+
+  async function handleToggleTransferWindow(open) {
+    setWindowSaving(true);
+    try { await set(ref(db, `${PATHS.globalSettings}/transferWindowOpen`), open); }
+    finally { setWindowSaving(false); }
+  }
+
   const dropdownItems = [
     { icon: "🖼️", label: "Add Transfer Slide", action: () => { setAddSlideOpen(true); setPlusOpen(false); } },
     { icon: "⏱️", label: "Add Countdown", action: () => { setAddCountdownOpen(true); setPlusOpen(false); } },
@@ -270,6 +289,7 @@ export default function Navbar({ tokyoMenuItems, leagueMenuProps } = {}) {
     { icon: "🏆", label: "Add Team Icon", action: () => { setAddIconOpen(true); setPlusOpen(false); } },
     { icon: "🗑️", label: "Delete Player", action: () => { setDeletePlayerOpen(true); setPlusOpen(false); } },
     { icon: "⏰", label: "Auction Deadline", action: () => { setAuctionDeadlineOpen(true); setPlusOpen(false); } },
+    { icon: transferWindowOpen ? "🟢" : "🔴", label: `Transfer Window (${transferWindowOpen ? "Open" : "Closed"})`, action: () => { setWindowStatusOpen(true); setPlusOpen(false); } },
   ];
 
   const sastDate = getSASTDateString();
@@ -518,6 +538,33 @@ export default function Navbar({ tokyoMenuItems, leagueMenuProps } = {}) {
           <button onClick={handleSaveDeadline} disabled={savingDeadline || !auctionDeadlineDate} style={{ flex: 1, padding: "14px", background: "#FF1493", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, cursor: "pointer", opacity: !auctionDeadlineDate ? 0.5 : 1 }}>{savingDeadline ? "Saving..." : "Set Deadline"}</button>
           <button onClick={() => setAuctionDeadlineOpen(false)} style={{ flex: 1, padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "12px", color: "#fff", cursor: "pointer" }}>Cancel</button>
         </div>
+      </Modal>
+
+      <Modal active={windowStatusOpen} onClose={() => setWindowStatusOpen(false)}>
+        <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: "16px", letterSpacing: "2px" }}>🪟 Transfer Window</h3>
+        <div style={{ marginBottom: "20px", textAlign: "center" }}>
+          <span style={{
+            display: "inline-block", padding: "10px 28px", borderRadius: "30px",
+            background: transferWindowOpen ? "rgba(0,255,136,0.12)" : "rgba(255,107,107,0.12)",
+            border: `1px solid ${transferWindowOpen ? "rgba(0,255,136,0.3)" : "rgba(255,107,107,0.3)"}`,
+            color: transferWindowOpen ? "#00ff88" : "#ff6b6b",
+            fontWeight: 700, fontSize: "1.1rem",
+          }}>
+            {transferWindowOpen ? "🟢 CURRENTLY OPEN" : "🔴 CURRENTLY CLOSED"}
+          </span>
+        </div>
+        <p style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.85rem", marginBottom: "18px", textAlign: "center" }}>
+          While closed, managers can't Buy, Loan, Swap, request an auction, or Accept/Decline offers.
+        </p>
+        <div style={{ display: "flex", gap: "12px" }}>
+          <button onClick={() => handleToggleTransferWindow(true)} disabled={windowSaving || transferWindowOpen} style={{ flex: 1, padding: "16px", background: transferWindowOpen ? "rgba(0,255,136,0.08)" : "#00cc66", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, cursor: windowSaving || transferWindowOpen ? "not-allowed" : "pointer", opacity: transferWindowOpen ? 0.5 : 1 }}>
+            🟢 Open Window
+          </button>
+          <button onClick={() => handleToggleTransferWindow(false)} disabled={windowSaving || !transferWindowOpen} style={{ flex: 1, padding: "16px", background: !transferWindowOpen ? "rgba(255,107,107,0.08)" : "rgba(255,68,68,0.8)", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, cursor: windowSaving || !transferWindowOpen ? "not-allowed" : "pointer", opacity: !transferWindowOpen ? 0.5 : 1 }}>
+            🔴 Close Window
+          </button>
+        </div>
+        <button onClick={() => setWindowStatusOpen(false)} style={{ width: "100%", marginTop: "12px", padding: "14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "12px", color: "#fff", cursor: "pointer" }}>Close</button>
       </Modal>
 
       <style>{`
