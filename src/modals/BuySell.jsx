@@ -100,7 +100,7 @@ export default function BuySellModal({ mode, manager, onClose }) {
   async function handleSubmit() {
     // Use manual team name as label only — never written to Firebase as a club
     const team = isManualTeam ? manualTeam.trim() : selectedTeam;
-    const player = isManualPlayer ? manualPlayerName.trim() : selectedPlayerName;
+    const player = (isManualPlayer || isManualTeam) ? manualPlayerName.trim() : selectedPlayerName;
     if (!team) { setError("Please select or enter a team."); return; }
     if (!player) { setError("Please select or enter a player name."); return; }
 
