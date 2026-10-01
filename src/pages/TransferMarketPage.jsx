@@ -194,7 +194,7 @@ function PlayerGridCard({ player, teamIcons, onClick }) {
           </div>
         )}
         {player.overall && (
-          <div style={{ position: "absolute", top: "10px", left: "10px", background: "rgba(255,20,147,0.9)", borderRadius: "8px", padding: "4px 10px", color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1rem", letterSpacing: "1px" }}>
+          <div style={{ position: "absolute", top: "10px", left: "10px", background: "rgba(255,20,147,0.9)", borderRadius: "8px", padding: "4px 10px", color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "1px" }}>
             OVR {player.overall}
           </div>
         )}
@@ -205,17 +205,17 @@ function PlayerGridCard({ player, teamIcons, onClick }) {
         )}
       </div>
       <div style={{ padding: "16px", flex: 1, display: "flex", flexDirection: "column", gap: "8px" }}>
-        <div style={{ color: "#fff", fontWeight: 800, fontSize: "1.1rem", lineHeight: 1.2 }}>{player.name}</div>
+        <div style={{ color: "#fff", fontWeight: 800, fontSize: "2.2rem", lineHeight: 1.2 }}>{player.name}</div>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           {clubLogo ? <img src={clubLogo} alt={player.club} style={{ width: "20px", height: "20px", objectFit: "contain" }} /> : <span>⚽</span>}
-          <span style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.9rem" }}>{player.club}</span>
+          <span style={{ color: "rgba(255,255,255,0.55)", fontSize: "1.8rem" }}>{player.club}</span>
         </div>
-        <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "1px" }}>
+        <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "1px" }}>
           {player.value || player.price || "—"}
         </div>
         <button
           onClick={e => { e.stopPropagation(); onClick(); }}
-          style={{ marginTop: "auto", padding: "12px", background: "rgba(255,20,147,0.12)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: "12px", color: "#fff", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer", transition: "all 0.2s" }}
+          style={{ marginTop: "auto", padding: "12px", background: "rgba(255,20,147,0.12)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: "12px", color: "#fff", fontWeight: 700, fontSize: "1.9rem", cursor: "pointer", transition: "all 0.2s" }}
           onMouseOver={e => { e.currentTarget.style.background = "#FF1493"; e.currentTarget.style.color = "#fff"; }}
           onMouseOut={e => { e.currentTarget.style.background = "rgba(255,20,147,0.12)"; e.currentTarget.style.color = "#fff"; }}
         >
@@ -466,23 +466,23 @@ function ContractDetailsModal({ offer, onClose }) {
       <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px", marginBottom: "4px" }}>
         📄 CONTRACT DETAILS
       </div>
-      <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.1rem", marginBottom: "22px" }}>{offer.playerName}</div>
+      <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "2.2rem", marginBottom: "22px" }}>{offer.playerName}</div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px" }}>
         {rows.map(([label, value]) => (
           <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(255,255,255,0.05)", borderRadius: "12px", padding: "12px 18px" }}>
-            <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.8px" }}>{label}</span>
-            <span style={{ color: "#fff", fontWeight: 700, fontSize: "1rem", textAlign: "right" }}>{value}</span>
+            <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.7rem", textTransform: "uppercase", letterSpacing: "0.8px" }}>{label}</span>
+            <span style={{ color: "#fff", fontWeight: 700, fontSize: "2rem", textAlign: "right" }}>{value}</span>
           </div>
         ))}
       </div>
 
       {includedPlayers.length > 0 && (
         <div style={{ marginBottom: "20px" }}>
-          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "8px" }}>Players Included In Deal</div>
+          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.7rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "8px" }}>Players Included In Deal</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
             {includedPlayers.map((p, i) => (
-              <span key={i} style={{ background: "rgba(255,20,147,0.12)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "20px", padding: "6px 14px", color: "#fff", fontSize: "0.9rem" }}>{p.name || p}</span>
+              <span key={i} style={{ background: "rgba(255,20,147,0.12)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "20px", padding: "6px 14px", color: "#fff", fontSize: "1.8rem" }}>{p.name || p}</span>
             ))}
           </div>
         </div>
@@ -490,12 +490,12 @@ function ContractDetailsModal({ offer, onClose }) {
 
       {clauses.length > 0 && (
         <div style={{ marginBottom: "20px" }}>
-          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "8px" }}>Add-Ons & Clauses</div>
+          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.7rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "8px" }}>Add-Ons & Clauses</div>
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             {clauses.map((c, i) => (
               <div key={i} style={{ background: "rgba(255,255,255,0.05)", borderRadius: "10px", padding: "10px 16px" }}>
-                <div style={{ color: "#FF1493", fontWeight: 700, fontSize: "0.9rem" }}>{c.type}</div>
-                {c.detail && <div style={{ color: "rgba(255,255,255,0.7)", fontSize: "0.9rem", marginTop: "2px" }}>{c.detail}</div>}
+                <div style={{ color: "#FF1493", fontWeight: 700, fontSize: "1.8rem" }}>{c.type}</div>
+                {c.detail && <div style={{ color: "rgba(255,255,255,0.7)", fontSize: "1.8rem", marginTop: "2px" }}>{c.detail}</div>}
               </div>
             ))}
           </div>
@@ -507,6 +507,52 @@ function ContractDetailsModal({ offer, onClose }) {
       </button>
     </div>
   );
+}
+
+
+// ── Admin permanent delete: undo an accepted deal's money AND player move(s),
+//    then remove the record. Pending/rejected/cancelled offers just get removed
+//    (nothing was ever charged or moved for those). ──
+async function moveSquadPlayer(fromClub, toClub, playerName) {
+  if (!fromClub || !toClub || !playerName) return;
+  const snap = await get(ref(db, `career_team_management/${fromClub}/squad`));
+  const data = snap.val();
+  if (!data) return;
+  for (const [key, p] of Object.entries(data)) {
+    if (p.name === playerName) {
+      await remove(ref(db, `career_team_management/${fromClub}/squad/${key}`));
+      const { loanStatus, loanClub, loanFrom, ...cleanPlayer } = p;
+      await push(ref(db, `career_team_management/${toClub}/squad`), cleanPlayer);
+      return;
+    }
+  }
+}
+
+async function reverseAndDeleteOffer(offer) {
+  if (offer.status === "accepted") {
+    const buyingClub = offer.fromClub;
+    const sellingClub = offer.toClub || offer.playerClub;
+
+    // Reverse the money: remove every transaction tagged with this deal, on both sides.
+    for (const club of new Set([buyingClub, sellingClub, offer.swapPlayerClub].filter(Boolean))) {
+      const snap = await get(ref(db, `career_team_management/${club}/finance/transactions`));
+      const txs = snap.val() || {};
+      for (const [key, t] of Object.entries(txs)) {
+        if (t.negotiationId === offer.id) {
+          await remove(ref(db, `career_team_management/${club}/finance/transactions/${key}`));
+        }
+      }
+    }
+
+    // Reverse the player move(s), sending each player back to where they came from.
+    if (offer.type === "swap") {
+      await moveSquadPlayer(sellingClub, offer.swapPlayerClub, offer.swapPlayerName);
+      await moveSquadPlayer(buyingClub, sellingClub, offer.playerName);
+    } else if (offer.type === "buy" || offer.type === "loan") {
+      await moveSquadPlayer(buyingClub, sellingClub, offer.playerName);
+    }
+  }
+  await remove(ref(db, `${PATHS.transfers}/negotiations/${offer.id}`));
 }
 
 function NegotiationCard({ offer, isOwn, isAdmin, manager, windowOpen, onViewContract }) {
@@ -548,10 +594,10 @@ function NegotiationCard({ offer, isOwn, isAdmin, manager, windowOpen, onViewCon
         const cash = Number((offer.cashAddOn || "0").replace(/[^0-9.]/g, ""));
         if (cash > 0) {
           await push(ref(db, `career_team_management/${buyingClub}/finance/transactions`), {
-            type: "expense", category: "Player Swap Cash", source: `${offer.swapPlayerName} ⇄ ${offer.playerName}`, amount: cash, month: monthName, monthIndex, year, createdAt: Date.now(),
+            type: "expense", category: "Player Swap Cash", source: `${offer.swapPlayerName} ⇄ ${offer.playerName}`, amount: cash, month: monthName, monthIndex, year, createdAt: Date.now(), negotiationId: offer.id,
           });
           await push(ref(db, `career_team_management/${sellingClub}/finance/transactions`), {
-            type: "income", category: "Player Swap Cash", source: `${offer.swapPlayerName} ⇄ ${offer.playerName}`, amount: cash, month: monthName, monthIndex, year, createdAt: Date.now(),
+            type: "income", category: "Player Swap Cash", source: `${offer.swapPlayerName} ⇄ ${offer.playerName}`, amount: cash, month: monthName, monthIndex, year, createdAt: Date.now(), negotiationId: offer.id,
           });
         }
         await update(ref(db, `${PATHS.transfers}/negotiations/${offer.id}`), { status: "accepted", acceptedAt: Date.now() });
@@ -561,12 +607,12 @@ function NegotiationCard({ offer, isOwn, isAdmin, manager, windowOpen, onViewCon
 
       if (buyingClub && amt > 0) {
         await push(ref(db, `career_team_management/${buyingClub}/finance/transactions`), {
-          type: "expense", category: "Player Purchase", source: offer.playerName, amount: amt, month: monthName, monthIndex, year, createdAt: Date.now(),
+          type: "expense", category: "Player Purchase", source: offer.playerName, amount: amt, month: monthName, monthIndex, year, createdAt: Date.now(), negotiationId: offer.id,
         });
       }
       if (sellingClub && amt > 0) {
         await push(ref(db, `career_team_management/${sellingClub}/finance/transactions`), {
-          type: "income", category: "Player Sales", source: offer.playerName, amount: amt, month: monthName, monthIndex, year, createdAt: Date.now(),
+          type: "income", category: "Player Sales", source: offer.playerName, amount: amt, month: monthName, monthIndex, year, createdAt: Date.now(), negotiationId: offer.id,
         });
       }
 
@@ -618,6 +664,16 @@ function NegotiationCard({ offer, isOwn, isAdmin, manager, windowOpen, onViewCon
     try { await update(ref(db, `${PATHS.transfers}/negotiations/${offer.id}`), { status: "cancelled" }); }
     catch (e) { setActionError("Failed: " + e.message); }
     setProcessing(false);
+  }
+
+  async function handlePermanentDelete() {
+    const warn = offer.status === "accepted"
+      ? "Permanently delete this signing? This will reverse the money back to the sender, move the player(s) back, and remove this card. This cannot be undone."
+      : "Permanently delete this offer? This cannot be undone.";
+    if (!window.confirm(warn)) return;
+    setProcessing(true); setActionError("");
+    try { await reverseAndDeleteOffer(offer); }
+    catch (e) { setActionError("Failed to delete: " + e.message); setProcessing(false); }
   }
 
   return (
@@ -673,13 +729,28 @@ function NegotiationCard({ offer, isOwn, isAdmin, manager, windowOpen, onViewCon
           </button>
         </div>
       )}
+      {isAdmin && (
+        <button onClick={handlePermanentDelete} disabled={processing} style={{ width: "100%", marginTop: "10px", padding: "10px", background: "rgba(255,50,50,0.08)", border: "1px solid rgba(255,50,50,0.3)", borderRadius: "12px", color: "#ff6b6b", fontWeight: 700, fontSize: "0.85rem", cursor: processing ? "not-allowed" : "pointer" }}>
+          {processing ? "Working..." : "🗑️ Delete Permanently"}
+        </button>
+      )}
       {actionError && <div style={{ color: "#ff6b6b", fontSize: "0.9rem", marginTop: "10px", padding: "10px", background: "rgba(255,0,0,0.1)", borderRadius: "10px" }}>{actionError}</div>}
     </div>
   );
 }
 
 // ── Signing card ─────────────────────────────────────────────────────────────
-function SigningCard({ offer, onViewContract }) {
+function SigningCard({ offer, isAdmin, onViewContract }) {
+  const [processing, setProcessing] = useState(false);
+  const [actionError, setActionError] = useState("");
+
+  async function handlePermanentDelete() {
+    if (!window.confirm("Permanently delete this signing? This will reverse the money back to the sender, move the player(s) back, and remove this card. This cannot be undone.")) return;
+    setProcessing(true); setActionError("");
+    try { await reverseAndDeleteOffer(offer); }
+    catch (e) { setActionError("Failed to delete: " + e.message); setProcessing(false); }
+  }
+
   const typeColor = offer.type === "buy" ? "#FF1493" : offer.type === "loan" ? "#44aaff" : "#ffaa44";
   const typeBg   = offer.type === "buy" ? "rgba(255,20,147,0.2)" : offer.type === "loan" ? "rgba(0,150,255,0.2)" : "rgba(255,170,0,0.2)";
 
@@ -717,6 +788,12 @@ function SigningCard({ offer, onViewContract }) {
       >
         📄 View Contract
       </button>
+      {isAdmin && (
+        <button onClick={handlePermanentDelete} disabled={processing} style={{ width: "100%", marginTop: "10px", padding: "10px", background: "rgba(255,50,50,0.08)", border: "1px solid rgba(255,50,50,0.3)", borderRadius: "12px", color: "#ff6b6b", fontWeight: 700, fontSize: "0.85rem", cursor: processing ? "not-allowed" : "pointer" }}>
+          {processing ? "Working..." : "🗑️ Delete Permanently"}
+        </button>
+      )}
+      {actionError && <div style={{ color: "#ff6b6b", fontSize: "0.9rem", marginTop: "10px", padding: "10px", background: "rgba(255,0,0,0.1)", borderRadius: "10px" }}>{actionError}</div>}
     </div>
   );
 }
@@ -857,6 +934,7 @@ export default function TransferMarketPage() {
   const [windowOpen, setWindowOpen]     = useState(true);
 
   const [filterName, setFilterName]   = useState("");
+  const [topTargetsSearch, setTopTargetsSearch] = useState("");
   const [filterClub, setFilterClub]   = useState("");
   const [filterTypes, setFilterTypes] = useState([]);
   const [sortBy, setSortBy]           = useState("latest");
@@ -1009,6 +1087,16 @@ export default function TransferMarketPage() {
   const signingsClubOptions = extractClubs(allAcceptedSignings);
   const filteredSignings    = applySort(applyFilters(allAcceptedSignings), sortBy);
 
+  // Top Targets search → most recent signing that matches the typed name, so the
+  // manager can see which club currently has that player before sending an offer.
+  const topTargetsQuery = topTargetsSearch.trim().toLowerCase();
+  const topTargetsMatches = topTargetsQuery
+    ? allAcceptedSignings
+        .filter(n => (n.playerName || "").toLowerCase().includes(topTargetsQuery))
+        .sort((a, b) => (b.acceptedAt || 0) - (a.acceptedAt || 0))
+    : [];
+  const topTargetsLatestMatch = topTargetsMatches[0] || null;
+
   const negsClubOptions       = extractClubs(negotiations);
   const filteredNegotiations  = applySort(applyFilters(negotiations), sortBy);
 
@@ -1151,7 +1239,7 @@ export default function TransferMarketPage() {
                   {filteredSignings.length} SIGNING{filteredSignings.length !== 1 ? "S" : ""} COMPLETED
                 </div>
                 {filteredSignings.map(offer => (
-                  <SigningCard key={offer.id} offer={offer} onViewContract={setViewingContract} />
+                  <SigningCard key={offer.id} offer={offer} isAdmin={isAdmin} onViewContract={setViewingContract} />
                 ))}
               </>
             )}
@@ -1340,6 +1428,50 @@ export default function TransferMarketPage() {
           </div>
 
         ) : (
+          <>
+            {tab === "topTargets" && (
+              <div style={{ marginBottom: "24px" }}>
+                <input
+                  value={topTargetsSearch}
+                  onChange={e => setTopTargetsSearch(e.target.value)}
+                  placeholder="🔍 Search a player — e.g. Mbappé — to see which club currently has them…"
+                  style={{ width: "100%", padding: "18px 22px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.35)", borderRadius: "16px", color: "#fff", fontFamily: "inherit", fontSize: "1.6rem", outline: "none", boxSizing: "border-box" }}
+                />
+              </div>
+            )}
+
+            {tab === "topTargets" && topTargetsQuery ? (
+              topTargetsLatestMatch ? (
+                <div style={{ padding: "28px 32px", background: "rgba(68,170,255,0.07)", border: "1px solid rgba(68,170,255,0.3)", borderRadius: "20px" }}>
+                  <div style={{ color: "#fff", fontWeight: 800, fontSize: "2.4rem", marginBottom: "10px" }}>{topTargetsLatestMatch.playerName}</div>
+                  <div style={{ color: "#44aaff", fontSize: "1.9rem", fontWeight: 700, marginBottom: "6px" }}>
+                    Currently at: {topTargetsLatestMatch.fromClub || topTargetsLatestMatch.fromManagerName || "—"}
+                  </div>
+                  <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1.6rem", marginBottom: "22px" }}>
+                    Last signed {formatDate(topTargetsLatestMatch.acceptedAt) || "—"}
+                    {topTargetsLatestMatch.toClub || topTargetsLatestMatch.playerClub ? ` from ${topTargetsLatestMatch.toClub || topTargetsLatestMatch.playerClub}` : ""}
+                  </div>
+                  {!isAdmin && windowOpen && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                      <div style={{ display: "flex", gap: "12px" }}>
+                        <button onClick={() => { setBuySellMode("buy"); setShowBuySellModal(true); }} style={{ flex: 1, padding: "16px", background: "#00cc66", border: "none", borderRadius: "14px", color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.3rem", letterSpacing: "1px", cursor: "pointer" }}>💰 Send Buy Offer</button>
+                        <button onClick={() => { setBuySellMode("loan"); setShowBuySellModal(true); }} style={{ flex: 1, padding: "16px", background: "#ffaa44", border: "none", borderRadius: "14px", color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.3rem", letterSpacing: "1px", cursor: "pointer" }}>🔄 Send Loan Offer</button>
+                      </div>
+                      <button onClick={() => { setBuySellMode("swap"); setShowBuySellModal(true); }} style={{ width: "100%", padding: "16px", background: "#44aaff", border: "none", borderRadius: "14px", color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.3rem", letterSpacing: "1px", cursor: "pointer" }}>🔃 Send Swap Offer</button>
+                    </div>
+                  )}
+                  <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "1.3rem", marginTop: "18px" }}>
+                    You'll still enter the club and player yourself in the offer form — nothing is filled in automatically.
+                  </div>
+                </div>
+              ) : (
+                <div style={{ textAlign: "center", padding: "60px 20px", color: "rgba(255,255,255,0.3)" }}>
+                  <div style={{ fontSize: "4rem", marginBottom: "16px" }}>🔍</div>
+                  <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px" }}>No Signing Record For "{topTargetsSearch}"</div>
+                  <div style={{ fontSize: "1.4rem", marginTop: "10px" }}>No club has signed a matching player yet in this save.</div>
+                </div>
+              )
+            ) : (
           currentTabPlayers.length === 0 ? (
             <div style={{ textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.3)" }}>
               <div style={{ fontSize: "4rem", marginBottom: "16px" }}>⚽</div>
@@ -1369,6 +1501,8 @@ export default function TransferMarketPage() {
               )}
             </>
           )
+            )}
+          </>
         )}
       </div>
 
