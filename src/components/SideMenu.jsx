@@ -9,6 +9,7 @@ const menuItems = [
   { label: "📅 Calendar", path: "/calendar" },
   { label: "📊 Manager Rankings", path: "/manager-rankings" },
   { label: "📋 Rules & Tutorials", path: "/rules-tutorials" },
+  { label: "🏆 eAwards", path: "/eawards" },
   { label: "📄 Terms of Service", path: "/terms" },
   { label: "🔒 Privacy Policy", path: "/privacy" },
 ];
