@@ -24,6 +24,8 @@ export const PATHS = {
   rankings: "career_rankings",
   transfers: "career_transfers",
   clubLoans: "career_club_loans",
+  awards: "career_awards",
+  awardsHero: "career_awards_hero",
   accounts: "career_accounts",
   globalSettings: "career_global_settings",
   leagueSettings: (league) => `career_${league}_settings`,
