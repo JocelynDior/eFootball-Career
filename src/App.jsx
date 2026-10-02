@@ -44,6 +44,7 @@ import RivalsSquadPage from "./pages/RivalsSquadPage";
 import SquadPage from "./pages/SquadPage";
 import SettingsPage from "./pages/SettingsPage";
 import RulesAndTutorialsPage from "./pages/RulesAndTutorialsPage";
+import EAwardsPage from "./pages/EAwardsPage";
 
 // Newly created files
 import { groq } from "./utils/groq";
@@ -162,6 +163,7 @@ function AppInner() {
         <Route path="/squad"             element={<SquadPage />} />
         <Route path="/settings"          element={<SettingsPage />} />
         <Route path="/rules-tutorials"   element={<RulesAndTutorialsPage />} />
+        <Route path="/eawards"           element={<EAwardsPage />} />
         <Route path="/admin/ai-agent"    element={<AIAgentPage />} />
       </Routes>
       <BottomNavBar />
