@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { db, PATHS } from "../firebase";
-import { ref, onValue, set, remove, get } from "firebase/database";
+import { ref, onValue, set, remove, get, update } from "firebase/database";
 import Navbar from "../components/Navbar";
 import BackgroundVideo from "../components/BackgroundVideo";
 import Modal from "../components/Modal";
@@ -409,6 +409,52 @@ export default function AdminCalendarPage() {
     showToast("Month removed", "success");
   }
 
+  // Permanently delete a month: removes it from the calendar AND erases every
+  // event / tournament / fixture stored on its dates. Results are never touched.
+  async function deleteMonth(year, month) {
+    const label = `${MONTH_NAMES[month]} ${year}`;
+    try {
+      const prefix = `${year}-${String(month + 1).padStart(2, "0")}-`;
+      const [eventsSnap, monthsSnap] = await Promise.all([
+        get(ref(db, "career_calendarEvents")),
+        get(ref(db, "career_calendar/settings/activeMonths")),
+      ]);
+      const all = eventsSnap.val() || {};
+      const dates = Object.keys(all).filter(k => k.startsWith(prefix) && all[k]);
+
+      let fixtureCount = 0;
+      for (const d of dates) {
+        for (const t of Object.values(all[d]?.tournaments || {})) {
+          fixtureCount += Object.values(t?.fixtures || {}).length;
+        }
+      }
+
+      const summary = dates.length
+        ? `${dates.length} day${dates.length === 1 ? "" : "s"} with events and ${fixtureCount} fixture${fixtureCount === 1 ? "" : "s"} will be erased.`
+        : "This month has no events or fixtures.";
+      const typed = prompt(
+        `Delete ${label} permanently?\n\n${summary}\nThis cannot be undone. Results are not affected.\n\nType ${label.toUpperCase()} to confirm:`
+      );
+      if (typed === null) return;
+      if (typed.trim().toUpperCase() !== label.toUpperCase()) {
+        showToast("Name did not match — nothing was deleted", "error");
+        return;
+      }
+
+      // One atomic write: erase every date in the month + drop it from the active months list
+      const updates = {};
+      for (const d of dates) updates[`career_calendarEvents/${d}`] = null;
+      const remaining = Object.values(monthsSnap.val() || {})
+        .filter(m => m && !(m.year === year && m.month === month));
+      updates["career_calendar/settings/activeMonths"] = remaining.length ? remaining : null;
+
+      await update(ref(db), updates);
+      showToast(`${label} deleted permanently ✓`, "success");
+    } catch (e) {
+      showToast("Failed to delete month", "error");
+    }
+  }
+
   // Day modal
   function openDayModal(ds) {
     const ev = calData[ds];
@@ -577,7 +623,10 @@ export default function AdminCalendarPage() {
                 <div style={{ padding: "1rem 1.6rem", background: "rgba(0,0,0,0.98)", borderBottom: "2px solid rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
                   <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: "4px", background: "linear-gradient(180deg, #fff, rgba(255,255,255,0.1))" }} />
                   <h2 className="cal-month-title" style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.5rem", letterSpacing: "0.04em", color: "#fff", margin: 0, textAlign: "center" }}>{MONTH_NAMES[month].toUpperCase()} {year}</h2>
-                  <button onClick={() => removeMonth(year, month)} style={{ position: "absolute", right: "1rem", background: "rgba(255,0,0,0.15)", border: "1px solid rgba(255,0,0,0.3)", color: "#ff6b6b", padding: "4px 12px", borderRadius: "20px", cursor: "pointer", fontSize: "0.75rem", fontWeight: 700 }}>Remove</button>
+                  <div style={{ position: "absolute", right: "1rem", display: "flex", gap: "8px" }}>
+                    <button onClick={() => removeMonth(year, month)} style={{ background: "rgba(255,0,0,0.15)", border: "1px solid rgba(255,0,0,0.3)", color: "#ff6b6b", padding: "4px 12px", borderRadius: "20px", cursor: "pointer", fontSize: "0.75rem", fontWeight: 700 }}>Remove</button>
+                    <button onClick={() => deleteMonth(year, month)} style={{ background: "rgba(239,68,68,0.85)", border: "1px solid rgba(239,68,68,1)", color: "#fff", padding: "4px 12px", borderRadius: "20px", cursor: "pointer", fontSize: "0.75rem", fontWeight: 700 }}>🗑 Delete</button>
+                  </div>
                 </div>
                 {/* Weekday headers — 2x bigger */}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", background: "rgba(255,255,255,0.05)", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
