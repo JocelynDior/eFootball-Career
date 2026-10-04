@@ -26,6 +26,7 @@ import LeagueTableHeader from "../components/LeagueTableHeader";
 import MatchdayCountdowns from "../components/MatchdayCountdowns";
 import { applyResultToTable } from "../utils/tableLogic";
 import { renameSeason, setActiveSeason, deleteSeason } from "../utils/seasonActions";
+import useSeasonState from "../utils/useSeasonState";
 
 const LEAGUE = "laliga";
 const LEAGUE_NAME = "La Liga";
@@ -141,9 +142,8 @@ function Countdown({ title, startMs, durationMs, accent = "#FF1493", matchday })
 
 export default function LaLigaPage() {
   const { isAdmin } = useAdmin();
-  const [season, setSeason] = useState("1");
+  const { season, setSeason, seasons, setSeasons, activeSeason, seasonReady } = useSeasonState(LEAGUE);
 
-  const [seasons, setSeasons] = useState(["1"]);
   const [tab, setTab] = useState("main");
   const [teams, setTeams] = useState([]);
   const [results, setResults] = useState([]);
@@ -169,13 +169,13 @@ export default function LaLigaPage() {
   useEffect(() => {
     const unsub = onValue(ref(db, `career_${LEAGUE}_settings`), snap => {
       const d = snap.val() || {};
-      if (d.seasons) setSeasons(d.seasons.map(String));
       setTabMode(d.tabMode || "table");
     });
     return () => unsub();
   }, []);
 
   useEffect(() => {
+    if (!seasonReady) return;
     setLoading(true);
     const unsubs = [
       onValue(ref(db, PATHS.table(LEAGUE, season)), snap => {
@@ -188,7 +188,7 @@ export default function LaLigaPage() {
         setPending(snap.val() ? Object.entries(snap.val()).map(([k, v]) => ({ key: k, ...v })) : [])),
     ];
     return () => unsubs.forEach(u => u());
-  }, [season]);
+  }, [season, seasonReady]);
 
   function handleTabChange(t) {
     setTabLoading(true);
@@ -267,7 +267,7 @@ export default function LaLigaPage() {
           onPrev={() => { const i = seasons.indexOf(season); if (i > 0) setSeason(seasons[i - 1]); }}
           onNext={() => { const i = seasons.indexOf(season); if (i < seasons.length - 1) setSeason(seasons[i + 1]); }}
           onAdd={handleAddSeason}
-          onRename={() => renameSeason(LEAGUE, season, seasons, setSeasons, setSeason)}
+          onRename={() => renameSeason(LEAGUE, season, seasons, setSeasons, setSeason, TOURNAMENT_NAME_KEY)}
           onSetActive={() => setActiveSeason(LEAGUE, season)}
           onDelete={() => deleteSeason(LEAGUE, TOURNAMENT_NAME_KEY, season, seasons, setSeasons, setSeason)}
           onMenuOpen={isAdmin ? () => setAdminOpen(true) : undefined}
@@ -332,6 +332,7 @@ export default function LaLigaPage() {
             {tab === "fixtures" && <FixturesList tournamentName="La Liga" />}
             {tab === "results" && (
               <>
+                {(isAdmin || season === activeSeason) && (
                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
                   <button
                     onClick={() => isAdmin ? setEditResult(null) : setSubmitOpen(true)}
@@ -340,6 +341,7 @@ export default function LaLigaPage() {
                     + ADD RESULT
                   </button>
                 </div>
+                )}
                 <ResultsList league={LEAGUE} season={season}
                   onEdit={isAdmin ? r => setEditResult(r) : undefined}
                   onDelete={isAdmin ? handleDeleteResult : undefined}
