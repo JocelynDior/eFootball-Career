@@ -597,6 +597,18 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
     return () => unsub();
   }, [league]);
 
+  // Managers may only submit into the ACTIVE season of this competition
+  const [activeSeasonNow, setActiveSeasonNow] = useState(null);
+  useEffect(() => {
+    const unsub = onValue(ref(db, `career_${league}_settings`), snap => {
+      const d = snap.val() || {};
+      const list = Array.isArray(d.seasons) && d.seasons.length ? d.seasons.map(String) : ["1"];
+      setActiveSeasonNow(d.activeSeason != null ? String(d.activeSeason) : list[0]);
+    });
+    return () => unsub();
+  }, [league]);
+  const seasonLocked = !isAdmin && activeSeasonNow !== null && String(season) !== activeSeasonNow;
+
   const [adminView, setAdminView] = useState(null);
   const [matchType, setMatchType] = useState(null);
 
@@ -811,6 +823,7 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
   }
 
   function handleSubmitClick() {
+    if (seasonLocked) { setStatus(`Results can only be submitted to the active season (Season ${activeSeasonNow}).`); return; }
     if (!opponent)  { setStatus("Please select an opponent."); return; }
     if (!matchday)  { setStatus(isCup ? "Please select a stage." : "Please select a matchday."); return; }
     if (!matchImage) { setStatus("A match image is required."); return; }
@@ -820,6 +833,20 @@ export default function SubmitResultModal({ league, season, teams, onClose, prev
   async function handleConfirmSubmit() {
     setSaving(true);
     try {
+      if (!isAdmin) {
+        const [aSnap, lSnap] = await Promise.all([
+          get(ref(db, `career_${league}_settings/activeSeason`)),
+          get(ref(db, `career_${league}_settings/seasons`)),
+        ]);
+        const l = Array.isArray(lSnap.val()) && lSnap.val().length ? lSnap.val().map(String) : ["1"];
+        const act = aSnap.val() != null ? String(aSnap.val()) : l[0];
+        if (String(season) !== act) {
+          setStatus(`Results can only be submitted to the active season (Season ${act}).`);
+          setSaving(false);
+          setConfirming(false);
+          return;
+        }
+      }
       // Fresh Firebase check at submit time — prevents race-condition duplicates
       const existingNow = await findExistingResult(league, season, myTeam, opponent, matchday, isCup);
       const isSecondNow = !!existingNow;
