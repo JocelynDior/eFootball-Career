@@ -518,7 +518,11 @@ function StadiumTab({ team, isAdmin, onEditStadium }) {
 
           // Take the last season key (e.g. "season_1", "season_2")
           const seasonKeys = Object.keys(seasonsData).sort();
-          const activeSeasonKey = seasonKeys[seasonKeys.length - 1];
+          let activeSeasonKey = seasonKeys[seasonKeys.length - 1];
+          try {
+            const actSnap = await get(ref(db, `career_${league}_settings/activeSeason`));
+            if (actSnap.val() != null && seasonsData[`season_${actSnap.val()}`]) activeSeasonKey = `season_${actSnap.val()}`;
+          } catch {}
 
           const resultsSnap = await get(ref(db, `career_${league}/seasons/${activeSeasonKey}/results`));
           const resultsData = resultsSnap.val();
