@@ -10,6 +10,7 @@ import LeagueTableHeader from "./LeagueTableHeader";
 import LoadingSpinner from "./LoadingSpinner";
 import { uploadToImgBB } from "../utils/imgUpload";
 import { renameSeason, setActiveSeason } from "../utils/seasonActions";
+import useSeasonState from "../utils/useSeasonState";
 
 async function deleteSuperCupSeason(league, season, seasons, setSeasons, setSeason, showToast) {
   if (seasons.length <= 1) { showToast("Can't delete the only season.", "error"); return; }
@@ -205,21 +206,9 @@ function PhotoSlideshow({ league, season, isAdmin }) {
 export default function SuperCupTemplate({ league, name, emoji, left, right }) {
   const { isAdmin } = useAdmin();
   const { showToast } = useToast();
-  const [seasons, setSeasons] = useState([]);
-  const [season, setSeason] = useState("1");
-  const [loading, setLoading] = useState(true);
+  const { season, setSeason, seasons, setSeasons, seasonReady } = useSeasonState(league);
+  const loading = !seasonReady;
   const [headlineManagerOpen, setHeadlineManagerOpen] = useState(false);
-
-  useEffect(() => {
-    const unsub = onValue(ref(db, `career_${league}_settings/seasons`), snap => {
-      const d = snap.val();
-      const list = Array.isArray(d) && d.length ? d : (d ? Object.values(d) : ["1"]);
-      setSeasons(list);
-      setSeason(prev => (list.includes(prev) ? prev : list[0]));
-      setLoading(false);
-    });
-    return () => unsub();
-  }, [league]);
 
   async function handleAddSeason() {
     const n = prompt("New season number:");
