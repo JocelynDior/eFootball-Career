@@ -1,6 +1,8 @@
-import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useNavigate, useLocation } from "react-router-dom";
 import { useEffect } from "react";
 import { AdminProvider } from "./context/AdminContext";
+import { MaintenanceProvider, useMaintenance } from "./context/MaintenanceContext";
+import MaintenanceScreen from "./components/MaintenanceScreen";
 import { MusicProvider } from "./context/MusicContext";
 import { AIAgentPanelProvider } from "./context/AIAgentPanelContext";
 import { ToastProvider } from "./context/ToastContext";
@@ -111,6 +113,26 @@ function SquadFineSweeper() {
 }
 
 function AppInner() {
+  const { lockActive, ready } = useMaintenance();
+  const location = useLocation();
+
+  // Wait for the maintenance flag before showing anything (prevents the full site flashing)
+  if (!ready) {
+    return <div style={{ minHeight: "100vh", background: "#000020" }} />;
+  }
+
+  // ── Maintenance lock: visitors only get the maintenance screen or the manager calendar ──
+  // No Routes, no BottomNavBar, no Navbar/SideMenu, so there is no way to navigate elsewhere.
+  if (lockActive) {
+    return (
+      <>
+        <InactivityWatcher />
+        <AutoRefresher />
+        {location.pathname === "/calendar" ? <CalendarPage /> : <MaintenanceScreen />}
+      </>
+    );
+  }
+
   return (
     <>
       <BackgroundMusic />
@@ -176,13 +198,15 @@ export default function App() {
     <ErrorBoundary>
       <ToastProvider>
         <AdminProvider>
-          <AIAgentPanelProvider>
-            <MusicProvider>
-              <BrowserRouter>
-                <AppInner />
-              </BrowserRouter>
-            </MusicProvider>
-          </AIAgentPanelProvider>
+          <MaintenanceProvider>
+            <AIAgentPanelProvider>
+              <MusicProvider>
+                <BrowserRouter>
+                  <AppInner />
+                </BrowserRouter>
+              </MusicProvider>
+            </AIAgentPanelProvider>
+          </MaintenanceProvider>
         </AdminProvider>
       </ToastProvider>
     </ErrorBoundary>
