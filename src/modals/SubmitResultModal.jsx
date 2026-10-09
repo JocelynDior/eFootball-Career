@@ -6,14 +6,8 @@ import { getSASTToday } from "../utils/sastTime";
 import { useAdmin } from "../context/AdminContext";
 import { uploadToImgBB } from "../utils/imgUpload";
 import { CUP_LEAGUES, CUP_STAGES, DOMESTIC_LEAGUE_KEYS } from "../utils/cupConfig";
+import { LEAGUE_TOURNAMENT_NAMES as LEAGUE_TOURNAMENT } from "../utils/leagueTournamentNames";
 
-// ── League → tournament name mapping ──────────────────────────────────────────
-// Keys match the LEAGUE constants used in each page
-const LEAGUE_TOURNAMENT = {
-  premier: "premier league",
-  seriea:  "serie a",
-  laliga:  "la liga",
-};
 
 const inputStyle = {
   width: "100%", padding: "10px 14px",
