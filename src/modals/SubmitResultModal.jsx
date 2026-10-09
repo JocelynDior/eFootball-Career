@@ -181,11 +181,21 @@ function PlayerPickerSheet({ title, players, myTeam, onSelectExisting, onAddNew,
 // ── Count picker ──────────────────────────────────────────────────────────────
 function CountPicker({ label, value, onChange }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 6 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 6 }}>
+      {/* The modal forces padding + font-size on every <button> with !important, which pushed
+          the symbol out of the circle. This scoped rule wins and centres the symbol inside. */}
+      <style>{`
+        .modal-inner button.cp-btn {
+          width: 52px !important; height: 52px !important; min-width: 52px !important;
+          padding: 0 !important; font-size: 2.4rem !important; line-height: 1 !important;
+          display: inline-flex !important; align-items: center !important; justify-content: center !important;
+          border-radius: 50% !important; flex-shrink: 0;
+        }
+      `}</style>
       <span style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.85rem" }}>{label}</span>
-      <button onClick={() => onChange(Math.max(1, value - 1))} style={{ width: 34, height: 34, borderRadius: "50%", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", fontSize: "1.2rem", cursor: "pointer" }}>−</button>
-      <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", color: "#FF1493", minWidth: 30, textAlign: "center" }}>{value}</span>
-      <button onClick={() => onChange(value + 1)} style={{ width: 34, height: 34, borderRadius: "50%", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", fontSize: "1.2rem", cursor: "pointer" }}>+</button>
+      <button className="cp-btn" onClick={() => onChange(Math.max(1, value - 1))} style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", cursor: "pointer" }}>−</button>
+      <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", color: "#FF1493", minWidth: 40, textAlign: "center" }}>{value}</span>
+      <button className="cp-btn" onClick={() => onChange(value + 1)} style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", cursor: "pointer" }}>+</button>
     </div>
   );
 }
@@ -276,7 +286,9 @@ function OpponentAndRoundPicker({
           No scheduled fixtures found for your team in the current or previous matchday.
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 18, marginBottom: 14 }}>
+          {/* The modal forces padding on every <button> with !important, so the card padding is set here */}
+          <style>{`.modal-inner button.fix-card { padding: 30px 36px !important; }`}</style>
           {myFixtures.map((fix, i) => {
             const isSelected = opponent === fix.opponent && date === fix.date;
             const mdNum = fix.slot === "current" ? currMatchday : prevMatchday;
@@ -284,22 +296,23 @@ function OpponentAndRoundPicker({
             return (
               <button
                 key={i}
+                className="fix-card"
                 onClick={() => handleFixtureSelect(fix)}
                 style={{
-                  width: "100%", padding: "14px 18px", borderRadius: 14, cursor: "pointer",
+                  width: "100%", borderRadius: 22, cursor: "pointer",
                   border: `2px solid ${isSelected ? "#FF1493" : "rgba(255,20,147,0.25)"}`,
                   background: isSelected ? "rgba(255,20,147,0.15)" : "rgba(255,255,255,0.04)",
                   textAlign: "left", color: "#fff", fontFamily: "inherit",
                   transition: "all 0.15s",
                 }}
               >
-                <div style={{ color: isSelected ? "#FF1493" : "rgba(255,255,255,0.45)", fontSize: "0.72rem", fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>
+                <div style={{ color: isSelected ? "#FF1493" : "rgba(255,255,255,0.45)", fontSize: "2.16rem", fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", marginBottom: 12 }}>
                   {slotLabel}{mdNum != null ? ` — MD ${mdNum}` : ""}
                 </div>
-                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.2rem", letterSpacing: 1 }}>
+                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.6rem", letterSpacing: 2, lineHeight: 1.05, wordBreak: "break-word" }}>
                   {fix.home} <span style={{ color: "#FF1493" }}>vs</span> {fix.away}
                 </div>
-                <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "0.75rem", marginTop: 4 }}>{fix.date}</div>
+                <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "2.25rem", marginTop: 10 }}>{fix.date}</div>
               </button>
             );
           })}
