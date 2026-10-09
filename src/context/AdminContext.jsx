@@ -7,7 +7,9 @@ import { LOCAL_TEAM_ICONS } from "../utils/teamIcons";
 const AdminContext = createContext();
 
 export function AdminProvider({ children }) {
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(() => {
+    try { return localStorage.getItem("careerAdminMode") === "true"; } catch { return false; }
+  });
   const [manager, setManager] = useState(null);
   const [managerLoading, setManagerLoading] = useState(true);
   const [remoteTeamIcons, setRemoteTeamIcons] = useState({});
