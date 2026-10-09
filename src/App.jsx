@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { AdminProvider } from "./context/AdminContext";
 import { MaintenanceProvider, useMaintenance } from "./context/MaintenanceContext";
 import MaintenanceScreen from "./components/MaintenanceScreen";
+import ManagerViewBadge from "./components/ManagerViewBadge";
 import { MusicProvider } from "./context/MusicContext";
 import { AIAgentPanelProvider } from "./context/AIAgentPanelContext";
 import { ToastProvider } from "./context/ToastContext";
@@ -140,6 +141,7 @@ function AppInner() {
       <InactivityWatcher />
       <AutoRefresher />
       <SquadFineSweeper />
+      <ManagerViewBadge />
       <Routes>
         <Route path="/" element={<FeedPage />} />
 
