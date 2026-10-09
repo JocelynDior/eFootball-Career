@@ -297,7 +297,9 @@ export default function ManagerRankingsPage() {
 
   /* ── restore admin session ── */
   useEffect(() => {
-    if (localStorage.getItem("careerAdminMode") === "true" || ctxAdmin) setIsAdmin(true);
+    const unlocked = localStorage.getItem("careerAdminMode") === "true";
+    const mgrView  = localStorage.getItem("careerManagerView") === "true";
+    setIsAdmin((unlocked && !mgrView) || !!ctxAdmin);
   }, [ctxAdmin]);
 
   /* ── load accounts ── */
