@@ -19,7 +19,7 @@ const menuItems = [
 
 export default function SideMenu({ open, onClose }) {
   const navigate = useNavigate();
-  const { isAdmin, loginAdmin, logoutAdmin, manager, logoutManager } = useAdmin();
+  const { isAdmin, adminUnlocked, setManagerView, loginAdmin, logoutAdmin, manager, logoutManager } = useAdmin();
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [keyInput, setKeyInput] = useState("");
   const [keyError, setKeyError] = useState("");
@@ -50,8 +50,17 @@ export default function SideMenu({ open, onClose }) {
   }
 
   function handleAdminToggle() {
-    if (isAdmin) { logoutAdmin(); onClose(); return; }
+    if (adminUnlocked) { logoutAdmin(); onClose(); return; }
     setShowKeyInput(true);
+  }
+
+  // Admin ⇄ Manager view. Switching to manager view uses the manager account that is
+  // logged in on this browser; if there isn't one, keep the menu open so they can sign in.
+  function handleViewToggle() {
+    const toManager = isAdmin;
+    setManagerView(toManager);
+    if (toManager && window.location.pathname.includes("/admin")) navigate("/"); // admin-only pages
+    if (!(toManager && !manager)) onClose();
   }
 
   function submitKey() {
@@ -211,6 +220,22 @@ export default function SideMenu({ open, onClose }) {
             >{item.label}</div>
           ))}
 
+          {/* ── View as Manager / View as Admin (key verified) ── */}
+          {adminUnlocked && (
+            <div
+              onClick={handleViewToggle}
+              style={{
+                padding: "32px 36px", margin: "12px 0",
+                background: "rgba(0,191,255,0.08)",
+                border: "1px solid rgba(0,191,255,0.4)", borderRadius: "20px",
+                cursor: "pointer", color: "#4fc3f7", fontWeight: 700, fontSize: "2.8rem",
+                transition: "all 0.2s",
+              }}
+              onMouseOver={e => { e.currentTarget.style.transform = "translateX(6px)"; e.currentTarget.style.filter = "brightness(1.25)"; }}
+              onMouseOut={e => { e.currentTarget.style.transform = "translateX(0)"; e.currentTarget.style.filter = "none"; }}
+            >{isAdmin ? "👤 View as Manager" : "🛡️ View as Admin"}</div>
+          )}
+
           {/* ── Admin AI Assistant (admin only) ── */}
           {isAdmin && (
             <div
@@ -291,7 +316,7 @@ export default function SideMenu({ open, onClose }) {
               e.currentTarget.style.background = isAdmin ? "rgba(255,20,147,0.2)" : "rgba(255,20,147,0.06)";
               e.currentTarget.style.transform = "translateX(0)";
             }}
-          >🔐 {isAdmin ? "Exit Admin Mode" : "Admin Mode"}</div>
+          >🔐 {adminUnlocked ? "Exit Admin Mode" : "Admin Mode"}</div>
 
           {showKeyInput && (
             <div style={{
