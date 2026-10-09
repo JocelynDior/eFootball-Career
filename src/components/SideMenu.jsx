@@ -1,6 +1,9 @@
 import { useNavigate } from "react-router-dom";
 import { useAdmin } from "../context/AdminContext";
 import { useState } from "react";
+import { createPortal } from "react-dom";
+import { useMaintenance } from "../context/MaintenanceContext";
+import ShutDownModal from "../modals/ShutDownModal";
 
 const menuItems = [
   { label: "💸 Transfer Market", path: "/transfer-market" },
@@ -20,6 +23,21 @@ export default function SideMenu({ open, onClose }) {
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [keyInput, setKeyInput] = useState("");
   const [keyError, setKeyError] = useState("");
+  const { maintenance, setMaintenance } = useMaintenance();
+  const [shutModalOpen, setShutModalOpen] = useState(false);
+  const [shutBusy, setShutBusy] = useState(false);
+
+  async function confirmShutDown() {
+    setShutBusy(true);
+    try {
+      await setMaintenance(!maintenance);
+      setShutModalOpen(false);
+      onClose();
+    } catch (e) {
+      alert("Couldn't update maintenance mode. Check your connection and try again.");
+    }
+    setShutBusy(false);
+  }
 
   const adminProfile = (() => {
     try { return JSON.parse(localStorage.getItem("careerAdminProfile") || "{}"); } catch { return {}; }
@@ -217,6 +235,23 @@ export default function SideMenu({ open, onClose }) {
             >🤖 Admin AI Assistant</div>
           )}
 
+          {/* ── Shut Down / Bring Online (admin only) ── */}
+          {isAdmin && (
+            <div
+              onClick={() => setShutModalOpen(true)}
+              style={{
+                padding: "32px 36px", margin: "12px 0",
+                background: maintenance ? "rgba(34,197,94,0.08)" : "rgba(226,75,74,0.08)",
+                border: `1px solid ${maintenance ? "rgba(34,197,94,0.4)" : "rgba(226,75,74,0.4)"}`,
+                borderRadius: "20px", cursor: "pointer",
+                color: maintenance ? "#4ade80" : "#ff6b6b",
+                fontWeight: 700, fontSize: "2.8rem", transition: "all 0.2s",
+              }}
+              onMouseOver={e => { e.currentTarget.style.transform = "translateX(6px)"; e.currentTarget.style.filter = "brightness(1.25)"; }}
+              onMouseOut={e => { e.currentTarget.style.transform = "translateX(0)"; e.currentTarget.style.filter = "none"; }}
+            >{maintenance ? "🟢 Bring Website Online" : "🔴 Shut Down"}</div>
+          )}
+
           {/* ── Manager sign-out ── */}
           {manager && !isAdmin && (
             <div
@@ -291,6 +326,16 @@ export default function SideMenu({ open, onClose }) {
           )}
         </div>
       </div>
+      {createPortal(
+        <ShutDownModal
+          active={shutModalOpen}
+          mode={maintenance ? "up" : "down"}
+          busy={shutBusy}
+          onConfirm={confirmShutDown}
+          onClose={() => setShutModalOpen(false)}
+        />,
+        document.body
+      )}
     </>
   );
 }
