@@ -16,7 +16,7 @@ const MaintenanceContext = createContext({
 });
 
 export function MaintenanceProvider({ children }) {
-  const { isAdmin } = useAdmin();
+  const { adminUnlocked } = useAdmin(); // stays true in manager view too
 
   const [maintenance, setMaintenanceState] = useState(() => {
     try { return localStorage.getItem(CACHE_KEY) === "true"; } catch { return false; }
@@ -47,7 +47,7 @@ export function MaintenanceProvider({ children }) {
 
   // Visitors are locked out only while maintenance is on AND they haven't
   // bypassed it with the admin key.
-  const lockActive = maintenance && !isAdmin;
+  const lockActive = maintenance && !adminUnlocked;
 
   return (
     <MaintenanceContext.Provider value={{ maintenance, lockActive, ready, setMaintenance }}>
