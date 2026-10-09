@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { db, PATHS } from "../firebase";
 import { ref, onValue } from "firebase/database";
+import { useNavigate } from "react-router-dom";
 import Navbar from "../components/Navbar";
+import { useMaintenance } from "../context/MaintenanceContext";
 import BackgroundVideo from "../components/BackgroundVideo";
 import Modal from "../components/Modal";
 
@@ -142,6 +144,9 @@ function Spinner() {
 }
 
 export default function CalendarPage() {
+  const navigate = useNavigate();
+  // During maintenance visitors get the calendar only: no navbar / side menu / bottom nav
+  const { lockActive } = useMaintenance();
   const [calData, setCalData] = useState(null); // null = loading, {} = loaded
   const [activeMonths, setActiveMonths] = useState(null);
   const [teamIconRegistry, setTeamIconRegistry] = useState({});
@@ -250,7 +255,16 @@ export default function CalendarPage() {
   return (
     <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif" }}>
       <BackgroundVideo />
-      <Navbar />
+      {lockActive ? (
+        <div style={{ padding: "20px 20px 0", position: "relative", zIndex: 5 }}>
+          <button
+            onClick={() => navigate("/")}
+            style={{ background: "rgba(255,20,147,0.12)", border: "1.5px solid #FF1493", color: "#FF1493", padding: "10px 22px", borderRadius: "30px", cursor: "pointer", fontWeight: 700, fontSize: "1rem", fontFamily: "inherit" }}
+          >← Back</button>
+        </div>
+      ) : (
+        <Navbar />
+      )}
       {toast.show && (
         <div style={{ position: "fixed", bottom: "2rem", right: "2rem", background: "rgba(0,0,30,0.97)", backdropFilter: "blur(12px)", border: `1px solid ${toast.type === "success" ? "#22c55e" : "#ef4444"}`, borderRadius: "1.1rem", padding: "0.9rem 1.3rem", color: "#fff", zIndex: 9998, maxWidth: "300px", fontSize: "0.84rem", fontWeight: 600, boxShadow: "0 10px 35px rgba(0,0,0,0.55)" }}>
           {toast.msg}
