@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { db, PATHS } from "../firebase";
 import { ref, onValue, remove, push, set } from "firebase/database";
 import { applyResultToTable } from "../utils/tableLogic";
+import { getTournamentKey } from "../utils/leagueTournamentNames";
 
 // SAST helpers
 function getSASTDateStr(offsetDays = 0) {
@@ -28,12 +29,6 @@ function deadlineMsForDate(dateStr) {
   return Date.UTC(y, m - 1, d, 0, 0, 0) - 2 * 3600000 + 48 * 3600000;
 }
 
-// Map LEAGUE constant → tournament name substring in calendar
-const LEAGUE_NAME_MAP = {
-  laliga:  "la liga",
-  seriea:  "serie a",
-  premier: "premier league",
-};
 
 // ── Live countdown hook ───────────────────────────────────────────────────────
 function useCountdown(deadlineMs) {
@@ -249,7 +244,7 @@ export default function PendingFixturesModal({ league, season, onClose }) {
     return () => unsubs.forEach(u => u());
   }, [league, season]);
 
-  const tournamentKey = LEAGUE_NAME_MAP[league] || league.replace(/_/g, " ");
+  const tournamentKey = getTournamentKey(league);
 
   // Get calendar fixtures for a specific date string
   function getCalendarFixturesForDate(dateStr) {
