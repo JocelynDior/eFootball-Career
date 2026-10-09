@@ -6,6 +6,7 @@ import ManagerKeysModal from "./ManagerKeysModal";
 import ManagerHistoryModal from "./ManagerHistoryModal";
 import RequestsHistoryModal from "./RequestsHistoryModal";
 import { uploadToImgBB } from "../utils/imgUpload";
+import { getTournamentKey } from "../utils/leagueTournamentNames";
 
 const inputStyle = {
   width: "100%", padding: "10px 14px",
@@ -215,12 +216,7 @@ function TeamLinker({ league, teams, onBack }) {
 
   // Load all fixture team names for this league from calendar
   useEffect(() => {
-    const leagueNameMap = {
-      premier_league: "premier league",
-      serie_a: "serie a",
-      la_liga: "la liga",
-    };
-    const targetName = leagueNameMap[league] || league.replace(/_/g, " ");
+    const targetName = getTournamentKey(league);
 
     const unsub = onValue(ref(db, "career_calendarEvents"), snap => {
       const data = snap.val() || {};
