@@ -7,16 +7,25 @@ import { LOCAL_TEAM_ICONS } from "../utils/teamIcons";
 const AdminContext = createContext();
 
 export function AdminProvider({ children }) {
-  const [isAdmin, setIsAdmin] = useState(() => {
+  // adminUnlocked = the admin key has been verified on this browser.
+  // managerView   = admin chose to "View as Manager" (uses their manager account).
+  // isAdmin       = what the rest of the site checks: true only while in admin view,
+  //                 so every manager feature behaves exactly as a manager would see it.
+  const [adminUnlocked, setAdminUnlocked] = useState(() => {
     try { return localStorage.getItem("careerAdminMode") === "true"; } catch { return false; }
   });
+  const [managerViewOn, setManagerViewOn] = useState(() => {
+    try { return localStorage.getItem("careerManagerView") === "true"; } catch { return false; }
+  });
+  const managerView = adminUnlocked && managerViewOn;
+  const isAdmin = adminUnlocked && !managerViewOn;
   const [manager, setManager] = useState(null);
   const [managerLoading, setManagerLoading] = useState(true);
   const [remoteTeamIcons, setRemoteTeamIcons] = useState({});
 
   useEffect(() => {
     const saved = localStorage.getItem("careerAdminMode");
-    if (saved === "true") setIsAdmin(true);
+    if (saved === "true") setAdminUnlocked(true);
 
     const savedManager = localStorage.getItem("careerManagerSession");
     if (savedManager) {
@@ -72,16 +81,28 @@ export function AdminProvider({ children }) {
 
   function loginAdmin(key) {
     if (verifyAdminKey(key)) {
-      setIsAdmin(true);
+      setAdminUnlocked(true);
+      setManagerViewOn(false);
       localStorage.setItem("careerAdminMode", "true");
+      localStorage.removeItem("careerManagerView");
       return true;
     }
     return false;
   }
 
   function logoutAdmin() {
-    setIsAdmin(false);
+    setAdminUnlocked(false);
+    setManagerViewOn(false);
     localStorage.removeItem("careerAdminMode");
+    localStorage.removeItem("careerManagerView");
+  }
+
+  // Admin-only: true → view the site as a manager, false → back to admin view
+  function setManagerView(on) {
+    if (!adminUnlocked) return;
+    setManagerViewOn(!!on);
+    if (on) localStorage.setItem("careerManagerView", "true");
+    else localStorage.removeItem("careerManagerView");
   }
 
   async function registerManager({ email, password, username }) {
@@ -143,7 +164,8 @@ export function AdminProvider({ children }) {
 
   return (
     <AdminContext.Provider value={{
-      isAdmin, loginAdmin, logoutAdmin,
+      isAdmin, adminUnlocked, managerView, setManagerView,
+      loginAdmin, logoutAdmin,
       teamIconsCache,
       updateTeamIcon,
       manager, managerLoading,
