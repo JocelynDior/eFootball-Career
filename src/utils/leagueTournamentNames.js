@@ -9,6 +9,7 @@ export const LEAGUE_TOURNAMENT_NAMES = {
   ligue1:         "ligue 1",
   champions:      "champions league",
   europa:         "europa league",
+  conference:     "conference league",
   clubworldcup:   "club world cup",
   facup:          "fa cup",
   copadelrey:     "copa del rey",
