@@ -3,7 +3,7 @@
 // a scheduled-fixture pick + matchday number.
 export const CUP_LEAGUES = new Set([
   "facup", "copadelrey", "coppaitalia", "dfbpokal", "coupesdefrance",
-  "clubworldcup", "champions", "europa",
+  "clubworldcup", "champions", "europa", "conference",
 ]);
 
 // The 5 domestic leagues whose rosters make up the opponent pool for cups.
