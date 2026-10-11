@@ -17,7 +17,7 @@ const MONTH_NAMES = [
 
 const TOURNAMENT_OPTIONS = [
   "Premier League","La Liga","Serie A","Bundesliga","Ligue 1",
-  "Champions League","Europa League","Club World Cup","Super Cup","Tokyo Pre Season",
+  "Champions League","Europa League","Conference League","Club World Cup","Super Cup","Tokyo Pre Season",
   "FA Cup","Copa Del Rey","Coppa Italia","DFB Pokal","Coupe de France",
 ];
 
@@ -254,7 +254,7 @@ export default function AdminCalendarPage() {
     });
 
     // Also pull all teams from every league table so TeamPicker is complete
-    const LEAGUE_KEYS = ["premier", "laliga", "seriea", "bundesliga", "ligue1", "championsleague", "europa", "clubworldcup", "supercup", "tokyo", "facup", "copadelrey", "coppaitalia", "dfbpokal", "coupesdefrance"];
+    const LEAGUE_KEYS = ["premier", "laliga", "seriea", "bundesliga", "ligue1", "championsleague", "europa", "conferenceleague", "clubworldcup", "supercup", "tokyo", "facup", "copadelrey", "coppaitalia", "dfbpokal", "coupesdefrance"];
     const leagueUnsubs = LEAGUE_KEYS.map(league =>
       onValue(ref(db, `career_${league}/seasons`), snap => {
         const seasons = snap.val();
