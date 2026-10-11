@@ -4,6 +4,9 @@ import { ref, get, set } from 'firebase/database';
 // ── Debounce map: one pending recalc per league+season ────────────────────────
 const pendingRecalc = {};
 
+// Team names are compared ignoring capitals and extra spaces
+const norm = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
+
 // ── Recalculate the entire table from scratch from all results ────────────────
 // Rules:
 //  - normal match:   gs, gc, gd, w/d/l, pts all count normally
@@ -23,7 +26,7 @@ export async function recalculateTable(league, season) {
   const teamMap = {};
   for (const [key, val] of Object.entries(tableVal)) {
     if (!val?.name) continue;
-    teamMap[val.name] = {
+    teamMap[norm(val.name)] = {
       key,
       name:  val.name,
       icon:  val.icon  || '',
@@ -39,8 +42,8 @@ export async function recalculateTable(league, season) {
     if (!result?.homeTeam || !result?.awayTeam) continue;
     if (result.status && result.status !== 'approved') continue;
 
-    const home = teamMap[result.homeTeam];
-    const away = teamMap[result.awayTeam];
+    const home = teamMap[norm(result.homeTeam)];
+    const away = teamMap[norm(result.awayTeam)];
     if (!home || !away) continue;
 
     const ft = result.forfeitType || 'none';
