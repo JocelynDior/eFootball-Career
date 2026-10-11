@@ -45,9 +45,9 @@ const SLOTS = [
     superCup: null,
   },
   {
-    front: { id: "sc",         name: "UEFA Super Cup",   path: "/super-cup",         img: "/images/leagues/2c4467ee-57b6-4438-86cd-372a9928ab63.jpg" },
-    back: null,
-    superCup: null,
+    front: { id: "uecl",       name: "Conference League", path: "/conference-league", img: "/images/leagues/9a9723ad-00fb-4df8-8e57-ee0f9f008f83.png" },
+    back:  { id: "sc",         name: "UEFA Super Cup",   path: "/super-cup",         img: "/images/leagues/2c4467ee-57b6-4438-86cd-372a9928ab63.jpg" },
+    superCup: { id: "sc",      name: "UEFA Super Cup",   path: "/super-cup",         img: "/images/leagues/2c4467ee-57b6-4438-86cd-372a9928ab63.jpg" },
   },
 ];
 
