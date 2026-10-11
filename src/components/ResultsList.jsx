@@ -4,6 +4,7 @@ import { ref, onValue } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
 import Modal from "./Modal";
 import MatchDetailsModal from "../modals/MatchDetailsModal";
+import { getTeamIcon } from "../utils/teamIcons";
 
 const GLASS = {
   background: "rgba(255,255,255,0.06)",
@@ -129,6 +130,7 @@ export default function ResultsList({ league, season, onEdit, onDelete }) {
   const [fullyLoaded, setFullyLoaded] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [badges, setBadges] = useState({});
+  const [teamLinks, setTeamLinks] = useState({});
   const [selectedResult, setSelectedResult] = useState(null);
   const [showFilter, setShowFilter] = useState(false);
   const [filterTeam, setFilterTeam] = useState("");
@@ -161,12 +163,33 @@ export default function ResultsList({ league, season, onEdit, onDelete }) {
     return () => unsub();
   }, []);
 
+  useEffect(() => {
+    if (!league) return;
+    const unsub = onValue(ref(db, `career_${league}_settings/teamLinks`), snap => {
+      setTeamLinks(snap.val() || {});
+    });
+    return () => unsub();
+  }, [league]);
+
   const combined = { ...teamIconsCache, ...badges };
   // Case/space-insensitive logo lookup (exact name first, then normalized)
   const normName = (s) => String(s || "").trim().replace(/\s+/g, " ").toLowerCase();
   const lowerIcons = {};
   Object.entries(combined).forEach(([k, v]) => { if (v) lowerIcons[normName(k)] = v; });
-  const iconFor = (name) => combined[name] || lowerIcons[normName(name)];
+  const directIcon = (name) => combined[name] || lowerIcons[normName(name)] || getTeamIcon(name);
+  const iconFor = (name) => {
+    if (!name) return undefined;
+    const direct = directIcon(name);
+    if (direct) return direct;
+    const n = normName(name);
+    // Forward link: this name is linked to another team name
+    const fwd = Object.entries(teamLinks).find(([k]) => normName(k) === n);
+    if (fwd) { const i = directIcon(fwd[1]); if (i) return i; }
+    // Reverse link: another team name is linked to this one
+    const rev = Object.entries(teamLinks).find(([, v]) => normName(v) === n);
+    if (rev) { const i = directIcon(rev[0]); if (i) return i; }
+    return undefined;
+  };
 
   // Get all unique team names for filter dropdown
   const allTeams = [...new Set(allResults.flatMap(r => [r.homeTeam, r.awayTeam].filter(Boolean)))].sort();
