@@ -21,6 +21,7 @@ import BundesligaPage from "./pages/BundesligaPage";
 import Ligue1Page from "./pages/Ligue1Page";
 import ChampionsLeaguePage from "./pages/ChampionsLeaguePage";
 import EuropaLeaguePage from "./pages/EuropaLeaguePage";
+import ConferenceLeaguePage from "./pages/ConferenceLeaguePage";
 import ClubWorldCupPage from "./pages/ClubWorldCupPage";
 import SuperCupPage from "./pages/SuperCupPage";
 import CommunityShieldPage from "./pages/CommunityShieldPage";
@@ -169,6 +170,7 @@ function AppInner() {
         {/* ── European / Global ── */}
         <Route path="/champions-league" element={<ChampionsLeaguePage />} />
         <Route path="/europa-league"    element={<EuropaLeaguePage />} />
+        <Route path="/conference-league" element={<ConferenceLeaguePage />} />
         <Route path="/club-world-cup"   element={<ClubWorldCupPage />} />
         <Route path="/super-cup"        element={<SuperCupPage />} />
 
