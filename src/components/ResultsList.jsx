@@ -162,6 +162,11 @@ export default function ResultsList({ league, season, onEdit, onDelete }) {
   }, []);
 
   const combined = { ...teamIconsCache, ...badges };
+  // Case/space-insensitive logo lookup (exact name first, then normalized)
+  const normName = (s) => String(s || "").trim().replace(/\s+/g, " ").toLowerCase();
+  const lowerIcons = {};
+  Object.entries(combined).forEach(([k, v]) => { if (v) lowerIcons[normName(k)] = v; });
+  const iconFor = (name) => combined[name] || lowerIcons[normName(name)];
 
   // Get all unique team names for filter dropdown
   const allTeams = [...new Set(allResults.flatMap(r => [r.homeTeam, r.awayTeam].filter(Boolean)))].sort();
@@ -266,7 +271,7 @@ export default function ResultsList({ league, season, onEdit, onDelete }) {
               <div style={{ padding: "36px 40px" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 24 }}>
                   <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 14, textAlign: "center" }}>
-                    <TeamBadge teamName={r.homeTeam} iconUrl={combined[r.homeTeam]} size={100} />
+                    <TeamBadge teamName={r.homeTeam} iconUrl={iconFor(r.homeTeam)} size={100} />
                     <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", color: "#fff", letterSpacing: 1, lineHeight: 1.1 }}>{r.homeTeam}</span>
                     {!isNoContest && homeScorers.length > 0 && (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
@@ -285,7 +290,7 @@ export default function ResultsList({ league, season, onEdit, onDelete }) {
                   </div>
 
                   <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 14, textAlign: "center" }}>
-                    <TeamBadge teamName={r.awayTeam} iconUrl={combined[r.awayTeam]} size={100} />
+                    <TeamBadge teamName={r.awayTeam} iconUrl={iconFor(r.awayTeam)} size={100} />
                     <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", color: "#fff", letterSpacing: 1, lineHeight: 1.1 }}>{r.awayTeam}</span>
                     {!isNoContest && awayScorers.length > 0 && (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
