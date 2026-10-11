@@ -315,7 +315,7 @@ export default function CoupesDeFrancePage() {
         <TabBar tabs={TABS} activeTab={tab} onTabChange={handleTabChange} />
       </div>
 
-      <div style={{ padding: "0 20px 40px" }}>
+      <div style={{ padding: "0 20px 160px" }}>
         {loading || tabLoading ? <LoadingSpinner /> : (
           <>
             {tab === "fixtures" && <FixturesList tournamentName="Coupe de France" />}
