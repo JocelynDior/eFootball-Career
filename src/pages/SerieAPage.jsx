@@ -315,7 +315,7 @@ export default function SerieAPage() {
         <TabBar tabs={TABS} activeTab={tab} onTabChange={handleTabChange} />
       </div>
 
-      <div style={{ padding: "0 20px 40px" }}>
+      <div style={{ padding: "0 20px 160px" }}>
         {loading || tabLoading ? <LoadingSpinner /> : (
           <>
             {tab === "main" && tabMode === "table" && (
