@@ -11,6 +11,7 @@ const TOURNAMENT_LEAGUE_MAP = {
   "Ligue 1": "ligue1",
   "Champions League": "championsleague",
   "Europa League": "europa",
+  "Conference League": "conferenceleague",
   "Club World Cup": "clubworldcup",
   "Super Cup": "supercup",
   "Tokyo Pre Season": "tokyo",
