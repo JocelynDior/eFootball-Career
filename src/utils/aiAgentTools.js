@@ -18,6 +18,7 @@ export const LEAGUE_MAP = {
   "Ligue 1": "ligue1",
   "Champions League": "champions",
   "Europa League": "europa",
+  "Conference League": "conference",
   "Club World Cup": "clubworldcup",
   "Super Cup": "sc",
   "World Cup": "wc",
