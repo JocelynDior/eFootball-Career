@@ -22,7 +22,6 @@ export default function BuySellModal({ mode, manager, onClose }) {
   const [selectedPlayerName, setSelectedPlayerName] = useState("");
   const [manualPlayerName, setManualPlayerName] = useState("");
   const [isManualPlayer, setIsManualPlayer] = useState(false);
-  const [buyType, setBuyType] = useState("transfer"); // "transfer" | "freeAgent"
   const [bidAmount, setBidAmount] = useState("");
   const [loanAmount, setLoanAmount] = useState("");
   const [buyOptionClause, setBuyOptionClause] = useState("");
@@ -99,14 +98,14 @@ export default function BuySellModal({ mode, manager, onClose }) {
 
   async function handleSubmit() {
     // Use manual team name as label only — never written to Firebase as a club
-    const team = isManualTeam ? manualTeam.trim() : selectedTeam;
-    const player = (isManualPlayer || isManualTeam) ? manualPlayerName.trim() : selectedPlayerName;
+    const isFreeAgent = mode === "freeAgent";
+    // Free agents have no club — the label is just for display on the card
+    const team = isFreeAgent ? "Free Agents" : (isManualTeam ? manualTeam.trim() : selectedTeam);
+    const player = isFreeAgent ? manualPlayerName.trim() : ((isManualPlayer || isManualTeam) ? manualPlayerName.trim() : selectedPlayerName);
     if (!team) { setError("Please select or enter a team."); return; }
-    if (!player) { setError("Please select or enter a player name."); return; }
+    if (!player) { setError(isFreeAgent ? "Please enter the free agent's name." : "Please select or enter a player name."); return; }
 
-    const isFreeAgent = mode === "buy" && buyType === "freeAgent";
-
-    if (mode === "buy" && !isFreeAgent) {
+    if (mode === "buy") {
       const amount = parseCommaValue(bidAmount);
       if (amount <= 0) { setError("Please enter a valid bid amount."); return; }
     }
@@ -177,7 +176,7 @@ export default function BuySellModal({ mode, manager, onClose }) {
     if (raw === "" || /^\d+$/.test(raw)) setter(formatWithCommas(raw));
   };
 
-  const isFreeAgent = mode === "buy" && buyType === "freeAgent";
+  const isFreeAgent = mode === "freeAgent";
 
   if (windowLoading) return (
     <div style={{ textAlign: "center", padding: "60px 20px", color: "rgba(255,255,255,0.4)", fontSize: "1.2rem" }}>
@@ -185,7 +184,8 @@ export default function BuySellModal({ mode, manager, onClose }) {
     </div>
   );
 
-  if (!windowOpen) return (
+  // Free agent requests are allowed whether or not the transfer window is open
+  if (!windowOpen && !isFreeAgent) return (
     <div style={{ fontFamily: "'Inter', sans-serif", textAlign: "center", padding: "48px 24px" }}>
       <div style={{ fontSize: "4rem", marginBottom: "20px" }}>🔒</div>
       <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "3rem", letterSpacing: "3px", marginBottom: "12px" }}>
@@ -202,50 +202,27 @@ export default function BuySellModal({ mode, manager, onClose }) {
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif" }}>
-      <h3 style={{ color: mode === "buy" ? "#00cc66" : mode === "loan" ? "#ffaa44" : "#44aaff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "3px", marginBottom: "4px" }}>
-        {mode === "buy" ? "💰 BUY PLAYER" : mode === "loan" ? "🔄 LOAN PLAYER" : "🔃 SWAP PLAYER"}
+      <h3 style={{ color: mode === "buy" ? "#00cc66" : mode === "loan" ? "#ffaa44" : isFreeAgent ? "#FF1493" : "#44aaff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "3px", marginBottom: "4px" }}>
+        {mode === "buy" ? "💰 BUY PLAYER" : mode === "loan" ? "🔄 LOAN PLAYER" : isFreeAgent ? "🆓 FREE AGENT" : "🔃 SWAP PLAYER"}
       </h3>
       <p style={{ color: "rgba(255,255,255,0.45)", marginBottom: "24px", fontSize: "1rem" }}>
-        {mode === "swap" ? "Offer one of your players in exchange for theirs." : "Send an offer to the selling club."}
+        {mode === "swap" ? "Offer one of your players in exchange for theirs." : isFreeAgent ? "Request to sign a free agent. The admin must approve it before the player joins your squad." : "Send an offer to the selling club."}
       </p>
 
       {success ? (
         <div style={{ textAlign: "center", padding: "40px 20px", color: "#00ff88", fontWeight: 700, fontSize: "1.4rem", background: "rgba(0,255,136,0.08)", borderRadius: "16px" }}>
-          ✅ Offer sent!
+          {isFreeAgent ? "✅ Request sent! Waiting for admin approval." : "✅ Offer sent!"}
         </div>
       ) : (
         <>
-          {/* Buy type toggle — only shown in buy mode */}
-          {mode === "buy" && (
-            <div style={{ marginBottom: "20px" }}>
-              <label style={labelStyle}>Transfer Type</label>
-              <div style={{ display: "flex", gap: "10px" }}>
-                <button
-                  onClick={() => setBuyType("transfer")}
-                  style={{
-                    flex: 1, padding: "12px",
-                    background: buyType === "transfer" ? "#00cc66" : "rgba(255,255,255,0.06)",
-                    border: buyType === "transfer" ? "none" : "1px solid rgba(255,255,255,0.15)",
-                    borderRadius: "12px", color: "#fff", fontWeight: 700, fontSize: "1rem", cursor: "pointer",
-                  }}
-                >
-                  💸 Transfer
-                </button>
-                <button
-                  onClick={() => setBuyType("freeAgent")}
-                  style={{
-                    flex: 1, padding: "12px",
-                    background: buyType === "freeAgent" ? "rgba(0,200,255,0.3)" : "rgba(255,255,255,0.06)",
-                    border: buyType === "freeAgent" ? "1px solid rgba(0,200,255,0.6)" : "1px solid rgba(255,255,255,0.15)",
-                    borderRadius: "12px", color: "#fff", fontWeight: 700, fontSize: "1rem", cursor: "pointer",
-                  }}
-                >
-                  🆓 Free Agent
-                </button>
-              </div>
+          {isFreeAgent && (
+            <div style={{ marginBottom: "18px" }}>
+              <label style={labelStyle}>Free Agent Name</label>
+              <input value={manualPlayerName} onChange={(e) => setManualPlayerName(e.target.value)} placeholder="Type player name…" style={inputStyle} />
             </div>
           )}
 
+          {!isFreeAgent && (
           <div style={{ marginBottom: "18px" }}>
             <label style={labelStyle}>Select Team</label>
             <select value={isManualTeam ? "__manual_team__" : selectedTeam} onChange={handleTeamSelect} style={{ ...inputStyle, cursor: "pointer" }}>
@@ -254,8 +231,9 @@ export default function BuySellModal({ mode, manager, onClose }) {
               <option value="__manual_team__">✏️ Enter different team…</option>
             </select>
           </div>
+          )}
 
-          {isManualTeam && (
+          {!isFreeAgent && isManualTeam && (
             <div style={{ marginBottom: "18px" }}>
               <label style={labelStyle}>Team Name</label>
               <input value={manualTeam} onChange={(e) => setManualTeam(e.target.value)} placeholder="Type team name…" style={inputStyle} />
@@ -272,7 +250,7 @@ export default function BuySellModal({ mode, manager, onClose }) {
             </div>
           )}
 
-          {(selectedTeam || isManualTeam) && (
+          {!isFreeAgent && (selectedTeam || isManualTeam) && (
             <div style={{ marginBottom: "18px" }}>
               <label style={labelStyle}>{mode === "swap" ? "Their Player You Want" : "Select Player"}</label>
               {isManualTeam ? (
@@ -288,7 +266,7 @@ export default function BuySellModal({ mode, manager, onClose }) {
             </div>
           )}
 
-          {!isManualTeam && isManualPlayer && (
+          {!isFreeAgent && !isManualTeam && isManualPlayer && (
             <div style={{ marginBottom: "18px" }}>
               <label style={labelStyle}>Player Name</label>
               <input value={manualPlayerName} onChange={(e) => setManualPlayerName(e.target.value)} placeholder="Type player name…" style={inputStyle} />
@@ -316,8 +294,8 @@ export default function BuySellModal({ mode, manager, onClose }) {
           )}
 
           {isFreeAgent && (
-            <div style={{ marginBottom: "18px", padding: "12px 16px", background: "rgba(0,200,255,0.06)", border: "1px solid rgba(0,200,255,0.2)", borderRadius: "12px" }}>
-              <div style={{ color: "rgba(0,200,255,0.8)", fontSize: "0.95rem", fontWeight: 700 }}>🆓 Free Agent — No transfer fee required</div>
+            <div style={{ marginBottom: "18px", padding: "12px 16px", background: "rgba(255,20,147,0.08)", border: "1px solid rgba(255,20,147,0.35)", borderRadius: "12px" }}>
+              <div style={{ color: "#FF1493", fontSize: "0.95rem", fontWeight: 700 }}>🆓 Free Agent — No transfer fee. Needs admin approval.</div>
             </div>
           )}
 
@@ -349,14 +327,14 @@ export default function BuySellModal({ mode, manager, onClose }) {
               disabled={sending}
               style={{
                 flex: 2, padding: "16px",
-                background: mode === "buy" ? "#00cc66" : mode === "loan" ? "#ffaa44" : "#44aaff",
-                border: "none", borderRadius: "14px", color: "#fff",
+                background: mode === "buy" ? "#00cc66" : mode === "loan" ? "#ffaa44" : isFreeAgent ? "#FF1493" : "#44aaff",
+                border: "none", borderRadius: "14px", color: isFreeAgent ? "#000" : "#fff",
                 fontWeight: 700, fontSize: "1.1rem",
                 cursor: sending ? "not-allowed" : "pointer",
                 opacity: sending ? 0.7 : 1,
               }}
             >
-              {sending ? "Sending..." : "🚀 Send Offer"}
+              {sending ? "Sending..." : isFreeAgent ? "🚀 Send Request" : "🚀 Send Offer"}
             </button>
             <button onClick={onClose} style={{ flex: 1, padding: "16px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: "14px", color: "#fff", cursor: "pointer", fontSize: "1.1rem" }}>
               Cancel
