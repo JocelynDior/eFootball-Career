@@ -115,7 +115,7 @@ function SquadFineSweeper() {
 }
 
 function AppInner() {
-  const { lockActive, ready } = useMaintenance();
+  const { lockActive, ready, isPageShutDown } = useMaintenance();
   const location = useLocation();
 
   // Wait for the maintenance flag before showing anything (prevents the full site flashing)
@@ -143,6 +143,9 @@ function AppInner() {
       <AutoRefresher />
       <SquadFineSweeper />
       <ManagerViewBadge />
+      {/* A single shut-down page shows the maintenance screen; every other route works normally.
+          Admins bypass this (see MaintenanceContext) so they can switch pages back on. */}
+      {isPageShutDown(location.pathname) ? <MaintenanceScreen variant="page" /> : (
       <Routes>
         <Route path="/" element={<FeedPage />} />
 
@@ -192,6 +195,7 @@ function AppInner() {
         <Route path="/eawards"           element={<EAwardsPage />} />
         <Route path="/admin/ai-agent"    element={<AIAgentPage />} />
       </Routes>
+      )}
       <BottomNavBar />
     </>
   );
