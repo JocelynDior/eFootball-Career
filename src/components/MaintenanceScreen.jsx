@@ -11,7 +11,9 @@ import HeadlineSlideshow from "./HeadlineSlideshow";
 const IS_MOBILE = typeof window !== "undefined" && window.screen.width < 900;
 const S = IS_MOBILE ? 2 : 1;
 
-export default function MaintenanceScreen() {
+// variant="page" is shown when only this one page is shut down (the rest of the site works).
+export default function MaintenanceScreen({ variant = "site" }) {
+  const isPage = variant === "page";
   const navigate = useNavigate();
   const { loginAdmin } = useAdmin();
 
@@ -63,29 +65,48 @@ export default function MaintenanceScreen() {
 
         {/* Maintenance message */}
         <div style={{ textAlign: "center", padding: `${3 * S}rem 1.5rem ${2 * S}rem` }}>
-          <h1 style={{
-            fontFamily: "'Bebas Neue', sans-serif", fontWeight: 400, margin: 0,
-            fontSize: IS_MOBILE ? "9vw" : "clamp(3.5rem, 7vw, 7rem)",
-            lineHeight: 1, letterSpacing: "3px", color: "#fff",
-            textShadow: "0 4px 24px rgba(0,0,0,0.7)",
-          }}>
-            WEBSITE DOWN FOR <span style={{ color: "#FF1493" }}>MAINTENANCE</span>
-          </h1>
-          <p style={{
-            color: "rgba(255,255,255,0.6)", fontSize: `${1.1 * S}rem`,
-            margin: `${1 * S}rem 0 ${2.2 * S}rem`,
-          }}>
-            We'll be back shortly. You can still check the calendar below.
-          </p>
+          {isPage ? (
+            <>
+              <h1 style={{
+                fontFamily: "'Bebas Neue', sans-serif", fontWeight: 400, margin: "0 auto",
+                maxWidth: "1100px",
+                fontSize: IS_MOBILE ? "8vw" : "clamp(3rem, 5.5vw, 5.5rem)",
+                lineHeight: 1.05, letterSpacing: "3px", color: "#fff",
+                textShadow: "0 4px 24px rgba(0,0,0,0.7)",
+              }}>
+                This Page Is Still Under Production Or Maintenance, Check Back Later
+              </h1>
+              <div style={{ display: "flex", gap: `${1 * S}rem`, justifyContent: "center", flexWrap: "wrap", marginTop: `${2.2 * S}rem` }}>
+                <button style={btn} {...hover} onClick={() => navigate("/")}>🏠 Home</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <h1 style={{
+                fontFamily: "'Bebas Neue', sans-serif", fontWeight: 400, margin: 0,
+                fontSize: IS_MOBILE ? "9vw" : "clamp(3.5rem, 7vw, 7rem)",
+                lineHeight: 1, letterSpacing: "3px", color: "#fff",
+                textShadow: "0 4px 24px rgba(0,0,0,0.7)",
+              }}>
+                WEBSITE DOWN FOR <span style={{ color: "#FF1493" }}>MAINTENANCE</span>
+              </h1>
+              <p style={{
+                color: "rgba(255,255,255,0.6)", fontSize: `${1.1 * S}rem`,
+                margin: `${1 * S}rem 0 ${2.2 * S}rem`,
+              }}>
+                We'll be back shortly. You can still check the calendar below.
+              </p>
 
-          {/* Calendar + Admin side by side */}
-          <div style={{ display: "flex", gap: `${1 * S}rem`, justifyContent: "center", flexWrap: "wrap" }}>
-            <button style={btn} {...hover} onClick={() => navigate("/calendar")}>📅 Calendar</button>
-            <button style={btn} {...hover} onClick={() => { setShowKey(v => !v); setKeyError(""); }}>🔐 Admin</button>
-          </div>
+              {/* Calendar + Admin side by side */}
+              <div style={{ display: "flex", gap: `${1 * S}rem`, justifyContent: "center", flexWrap: "wrap" }}>
+                <button style={btn} {...hover} onClick={() => navigate("/calendar")}>📅 Calendar</button>
+                <button style={btn} {...hover} onClick={() => { setShowKey(v => !v); setKeyError(""); }}>🔐 Admin</button>
+              </div>
+            </>
+          )}
 
           {/* Admin key entry */}
-          {showKey && (
+          {!isPage && showKey && (
             <div style={{
               maxWidth: `${22 * S}rem`, margin: `${1.6 * S}rem auto 0`, padding: `${1.2 * S}rem`,
               background: "rgba(0,0,20,0.85)", border: "1px solid rgba(255,20,147,0.4)",
