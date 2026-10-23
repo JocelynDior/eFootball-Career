@@ -23,7 +23,8 @@ export default function SideMenu({ open, onClose }) {
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [keyInput, setKeyInput] = useState("");
   const [keyError, setKeyError] = useState("");
-  const { maintenance, setMaintenance } = useMaintenance();
+  const { maintenance, setMaintenance, pageShutdowns, setPageShutdown, clearAllPageShutdowns } = useMaintenance();
+  const pagesDown = Object.keys(pageShutdowns || {}).length;
   const [shutModalOpen, setShutModalOpen] = useState(false);
   const [shutBusy, setShutBusy] = useState(false);
 
@@ -36,6 +37,20 @@ export default function SideMenu({ open, onClose }) {
     } catch (e) {
       alert("Couldn't update maintenance mode. Check your connection and try again.");
     }
+    setShutBusy(false);
+  }
+
+  async function togglePage(pageKey, down) {
+    setShutBusy(true);
+    try { await setPageShutdown(pageKey, down); }
+    catch (e) { alert("Couldn't update that page. Check your connection and try again."); }
+    setShutBusy(false);
+  }
+
+  async function clearPages() {
+    setShutBusy(true);
+    try { await clearAllPageShutdowns(); }
+    catch (e) { alert("Couldn't update the pages. Check your connection and try again."); }
     setShutBusy(false);
   }
 
@@ -274,7 +289,7 @@ export default function SideMenu({ open, onClose }) {
               }}
               onMouseOver={e => { e.currentTarget.style.transform = "translateX(6px)"; e.currentTarget.style.filter = "brightness(1.25)"; }}
               onMouseOut={e => { e.currentTarget.style.transform = "translateX(0)"; e.currentTarget.style.filter = "none"; }}
-            >{maintenance ? "🟢 Bring Website Online" : "🔴 Shut Down"}</div>
+            >{maintenance ? "🟢 Bring Website Online" : pagesDown > 0 ? `🔴 Shut Down (${pagesDown} page${pagesDown === 1 ? "" : "s"} down)` : "🔴 Shut Down"}</div>
           )}
 
           {/* ── Manager sign-out ── */}
@@ -354,9 +369,12 @@ export default function SideMenu({ open, onClose }) {
       {createPortal(
         <ShutDownModal
           active={shutModalOpen}
-          mode={maintenance ? "up" : "down"}
+          maintenance={maintenance}
           busy={shutBusy}
-          onConfirm={confirmShutDown}
+          pageShutdowns={pageShutdowns}
+          onToggleFull={confirmShutDown}
+          onTogglePage={togglePage}
+          onClearPages={clearPages}
           onClose={() => setShutModalOpen(false)}
         />,
         document.body
