@@ -550,6 +550,12 @@ async function reverseAndDeleteOffer(offer) {
       await moveSquadPlayer(buyingClub, sellingClub, offer.playerName);
     } else if (offer.type === "buy" || offer.type === "loan") {
       await moveSquadPlayer(buyingClub, sellingClub, offer.playerName);
+    } else if (offer.type === "freeAgent" && buyingClub) {
+      // Free agent signing: the player came from nowhere, so just take them out of the squad again
+      const sq = (await get(ref(db, `career_team_management/${buyingClub}/squad`))).val() || {};
+      for (const [key, pl] of Object.entries(sq)) {
+        if (pl.name === offer.playerName) { await remove(ref(db, `career_team_management/${buyingClub}/squad/${key}`)); break; }
+      }
     }
   }
   await remove(ref(db, `${PATHS.transfers}/negotiations/${offer.id}`));
@@ -571,6 +577,20 @@ function NegotiationCard({ offer, isOwn, isAdmin, manager, windowOpen, onViewCon
       const year = now.getFullYear();
       const buyingClub = offer.fromClub;
       const sellingClub = offer.toClub || offer.playerClub;
+
+      // Free agent: admin approval adds the player straight to the manager's squad. No money moves.
+      if (offer.type === "freeAgent") {
+        if (!isAdmin) { setActionError("Only the admin can approve free agent signings."); setProcessing(false); return; }
+        const squadSnap = await get(ref(db, `career_team_management/${buyingClub}/squad`));
+        const squad = squadSnap.val() || {};
+        const already = Object.values(squad).some(p => (p.name || "").toLowerCase() === (offer.playerName || "").toLowerCase());
+        if (!already) {
+          await push(ref(db, `career_team_management/${buyingClub}/squad`), { name: offer.playerName, role: "reserve", signedAs: "freeAgent" });
+        }
+        await update(ref(db, `${PATHS.transfers}/negotiations/${offer.id}`), { status: "accepted", acceptedAt: Date.now() });
+        setProcessing(false);
+        return;
+      }
 
       if (offer.type === "swap") {
         // Move the requesting club's player to the target club, and vice versa —
@@ -712,14 +732,20 @@ function NegotiationCard({ offer, isOwn, isAdmin, manager, windowOpen, onViewCon
         📄 View Contract
       </button>
       {isOwn && <div style={{ marginTop: "10px", color: "#fff", fontSize: "0.9rem", fontWeight: 700 }}>YOUR OFFER</div>}
-      {isOwn && offer.status === "pending" && windowOpen && (
+      {isOwn && offer.status === "pending" && (windowOpen || offer.type === "freeAgent") && (
         <div style={{ marginTop: "14px" }}>
           <button onClick={handleCancel} disabled={processing} style={{ width: "100%", padding: "12px", background: "rgba(170,170,170,0.12)", border: "1px solid rgba(170,170,170,0.4)", borderRadius: "12px", color: "#aaa", fontWeight: 700, fontSize: "1rem", cursor: processing ? "not-allowed" : "pointer" }}>
             {processing ? "Cancelling..." : "🚫 Cancel Bid"}
           </button>
         </div>
       )}
-      {(isAdmin || (manager && (offer.toClub === manager.team || offer.playerClub === manager.team) && offer.fromClub !== manager.team)) && offer.status === "pending" && windowOpen && (
+      {offer.type === "freeAgent" && offer.status === "pending" && !isAdmin && (
+        <div style={{ marginTop: "12px", color: "#FF1493", fontSize: "0.95rem", fontWeight: 700 }}>⏳ Awaiting admin approval</div>
+      )}
+      {(offer.type === "freeAgent"
+        ? isAdmin
+        : (isAdmin || (manager && (offer.toClub === manager.team || offer.playerClub === manager.team) && offer.fromClub !== manager.team))
+      ) && offer.status === "pending" && (windowOpen || offer.type === "freeAgent") && (
         <div style={{ display: "flex", gap: "12px", marginTop: "16px" }}>
           <button onClick={handleAccept} disabled={processing} style={{ flex: 1, padding: "12px", background: processing ? "rgba(0,204,102,0.2)" : "#00cc66", border: "none", borderRadius: "12px", color: "#fff", fontWeight: 700, fontSize: "1rem", cursor: processing ? "not-allowed" : "pointer" }}>
             {processing ? "Processing..." : "✅ Accept"}
@@ -751,8 +777,8 @@ function SigningCard({ offer, isAdmin, onViewContract }) {
     catch (e) { setActionError("Failed to delete: " + e.message); setProcessing(false); }
   }
 
-  const typeColor = offer.type === "buy" ? "#FF1493" : offer.type === "loan" ? "#44aaff" : "#ffaa44";
-  const typeBg   = offer.type === "buy" ? "rgba(255,20,147,0.2)" : offer.type === "loan" ? "rgba(0,150,255,0.2)" : "rgba(255,170,0,0.2)";
+  const typeColor = offer.type === "buy" ? "#FF1493" : offer.type === "loan" ? "#44aaff" : offer.type === "freeAgent" ? "#00ff88" : "#ffaa44";
+  const typeBg   = offer.type === "buy" ? "rgba(255,20,147,0.2)" : offer.type === "loan" ? "rgba(0,150,255,0.2)" : offer.type === "freeAgent" ? "rgba(0,255,136,0.2)" : "rgba(255,170,0,0.2)";
 
   const details = [
     ["From", offer.fromClub || offer.fromManagerName],
@@ -1151,7 +1177,7 @@ export default function TransferMarketPage() {
       {!windowOpen && (
         <div style={{ background: "rgba(255,68,68,0.12)", borderBottom: "1px solid rgba(255,68,68,0.3)", padding: "14px 20px", display: "flex", alignItems: "center", justifyContent: "center", gap: "12px" }}>
           <span style={{ fontSize: "1.4rem" }}>🔒</span>
-          <span style={{ color: "#ff6b6b", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "2px" }}>TRANSFER WINDOW CLOSED — No new bids or offers can be submitted</span>
+          <span style={{ color: "#ff6b6b", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "2px" }}>TRANSFER WINDOW CLOSED — No new bids or offers can be submitted (Free Agent requests are still open)</span>
         </div>
       )}
 
@@ -1171,34 +1197,47 @@ export default function TransferMarketPage() {
       )}
 
       <div style={{ padding: "24px 20px 80px" }}>
-        {/* ── Buy / Loan / Swap buttons — managers only, and only while the window is open ── */}
-        {!isAdmin && windowOpen && (
+        {/* ── Buy / Loan / Swap / Free Agent buttons — managers only.
+            Buy / Loan / Swap need an open window; Free Agent is always available (admin approves). ── */}
+        {!isAdmin && (
           <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
-            <div style={{ display: "flex", gap: "12px" }}>
-              <button
-                onClick={() => { setBuySellMode("buy"); setShowBuySellModal(true); }}
-                style={{ flex: 1, padding: "18px", background: "#00cc66", border: "none", borderRadius: "14px", color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "2px", cursor: "pointer", boxShadow: "0 4px 20px rgba(0,204,102,0.3)" }}
-                onMouseOver={e => e.currentTarget.style.background = "#00aa55"}
-                onMouseOut={e => e.currentTarget.style.background = "#00cc66"}
-              >
-                💰 BUY PLAYER
-              </button>
-              <button
-                onClick={() => { setBuySellMode("loan"); setShowBuySellModal(true); }}
-                style={{ flex: 1, padding: "18px", background: "#ffaa44", border: "none", borderRadius: "14px", color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "2px", cursor: "pointer", boxShadow: "0 4px 20px rgba(255,170,68,0.3)" }}
-                onMouseOver={e => e.currentTarget.style.background = "#e09030"}
-                onMouseOut={e => e.currentTarget.style.background = "#ffaa44"}
-              >
-                🔄 LOAN PLAYER
-              </button>
-            </div>
+            {windowOpen && (
+              <>
+                <div style={{ display: "flex", gap: "12px" }}>
+                  <button
+                    onClick={() => { setBuySellMode("buy"); setShowBuySellModal(true); }}
+                    style={{ flex: 1, padding: "18px", background: "#00cc66", border: "none", borderRadius: "14px", color: "#000", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "2px", cursor: "pointer", boxShadow: "0 4px 20px rgba(0,204,102,0.3)" }}
+                    onMouseOver={e => e.currentTarget.style.background = "#00aa55"}
+                    onMouseOut={e => e.currentTarget.style.background = "#00cc66"}
+                  >
+                    💰 BUY PLAYER
+                  </button>
+                  <button
+                    onClick={() => { setBuySellMode("loan"); setShowBuySellModal(true); }}
+                    style={{ flex: 1, padding: "18px", background: "#ffaa44", border: "none", borderRadius: "14px", color: "#000", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "2px", cursor: "pointer", boxShadow: "0 4px 20px rgba(255,170,68,0.3)" }}
+                    onMouseOver={e => e.currentTarget.style.background = "#e09030"}
+                    onMouseOut={e => e.currentTarget.style.background = "#ffaa44"}
+                  >
+                    🔄 LOAN PLAYER
+                  </button>
+                </div>
+                <button
+                  onClick={() => { setBuySellMode("swap"); setShowBuySellModal(true); }}
+                  style={{ width: "100%", padding: "18px", background: "#44aaff", border: "none", borderRadius: "14px", color: "#000", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "2px", cursor: "pointer", boxShadow: "0 4px 20px rgba(68,170,255,0.3)" }}
+                  onMouseOver={e => e.currentTarget.style.background = "#2e8fe0"}
+                  onMouseOut={e => e.currentTarget.style.background = "#44aaff"}
+                >
+                  🔃 SWAP PLAYER
+                </button>
+              </>
+            )}
             <button
-              onClick={() => { setBuySellMode("swap"); setShowBuySellModal(true); }}
-              style={{ width: "100%", padding: "18px", background: "#44aaff", border: "none", borderRadius: "14px", color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "2px", cursor: "pointer", boxShadow: "0 4px 20px rgba(68,170,255,0.3)" }}
-              onMouseOver={e => e.currentTarget.style.background = "#2e8fe0"}
-              onMouseOut={e => e.currentTarget.style.background = "#44aaff"}
+              onClick={() => { setBuySellMode("freeAgent"); setShowBuySellModal(true); }}
+              style={{ width: "100%", padding: "18px", background: "#FF1493", border: "none", borderRadius: "14px", color: "#000", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "2px", cursor: "pointer", boxShadow: "0 4px 20px rgba(255,20,147,0.4)" }}
+              onMouseOver={e => e.currentTarget.style.background = "#e0117f"}
+              onMouseOut={e => e.currentTarget.style.background = "#FF1493"}
             >
-              🔃 SWAP PLAYER
+              🆓 FREE AGENT
             </button>
           </div>
         )}
@@ -1451,13 +1490,18 @@ export default function TransferMarketPage() {
                     Last signed {formatDate(topTargetsLatestMatch.acceptedAt) || "—"}
                     {topTargetsLatestMatch.toClub || topTargetsLatestMatch.playerClub ? ` from ${topTargetsLatestMatch.toClub || topTargetsLatestMatch.playerClub}` : ""}
                   </div>
-                  {!isAdmin && windowOpen && (
+                  {!isAdmin && (
                     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                      <div style={{ display: "flex", gap: "12px" }}>
-                        <button onClick={() => { setBuySellMode("buy"); setShowBuySellModal(true); }} style={{ flex: 1, padding: "16px", background: "#00cc66", border: "none", borderRadius: "14px", color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.3rem", letterSpacing: "1px", cursor: "pointer" }}>💰 Send Buy Offer</button>
-                        <button onClick={() => { setBuySellMode("loan"); setShowBuySellModal(true); }} style={{ flex: 1, padding: "16px", background: "#ffaa44", border: "none", borderRadius: "14px", color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.3rem", letterSpacing: "1px", cursor: "pointer" }}>🔄 Send Loan Offer</button>
-                      </div>
-                      <button onClick={() => { setBuySellMode("swap"); setShowBuySellModal(true); }} style={{ width: "100%", padding: "16px", background: "#44aaff", border: "none", borderRadius: "14px", color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.3rem", letterSpacing: "1px", cursor: "pointer" }}>🔃 Send Swap Offer</button>
+                      {windowOpen && (
+                        <>
+                          <div style={{ display: "flex", gap: "12px" }}>
+                            <button onClick={() => { setBuySellMode("buy"); setShowBuySellModal(true); }} style={{ flex: 1, padding: "16px", background: "#00cc66", border: "none", borderRadius: "14px", color: "#000", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.3rem", letterSpacing: "1px", cursor: "pointer" }}>💰 Send Buy Offer</button>
+                            <button onClick={() => { setBuySellMode("loan"); setShowBuySellModal(true); }} style={{ flex: 1, padding: "16px", background: "#ffaa44", border: "none", borderRadius: "14px", color: "#000", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.3rem", letterSpacing: "1px", cursor: "pointer" }}>🔄 Send Loan Offer</button>
+                          </div>
+                          <button onClick={() => { setBuySellMode("swap"); setShowBuySellModal(true); }} style={{ width: "100%", padding: "16px", background: "#44aaff", border: "none", borderRadius: "14px", color: "#000", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.3rem", letterSpacing: "1px", cursor: "pointer" }}>🔃 Send Swap Offer</button>
+                        </>
+                      )}
+                      <button onClick={() => { setBuySellMode("freeAgent"); setShowBuySellModal(true); }} style={{ width: "100%", padding: "16px", background: "#FF1493", border: "none", borderRadius: "14px", color: "#000", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.3rem", letterSpacing: "1px", cursor: "pointer" }}>🆓 Sign Free Agent</button>
                     </div>
                   )}
                   <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "1.3rem", marginTop: "18px" }}>
