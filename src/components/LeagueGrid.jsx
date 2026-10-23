@@ -45,7 +45,7 @@ const SLOTS = [
     superCup: null,
   },
   {
-    front: { id: "uecl",       name: "Conference League", path: "/conference-league", img: "/images/leagues/9a9723ad-00fb-4df8-8e57-ee0f9f008f83.png" },
+    front: { id: "uecl",       name: "Conference League", path: "/conference-league", img: "/images/leagues/conference-league.png" },
     back:  { id: "sc",         name: "UEFA Super Cup",   path: "/super-cup",         img: "/images/leagues/2c4467ee-57b6-4438-86cd-372a9928ab63.jpg" },
     superCup: { id: "sc",      name: "UEFA Super Cup",   path: "/super-cup",         img: "/images/leagues/2c4467ee-57b6-4438-86cd-372a9928ab63.jpg" },
   },
@@ -67,6 +67,15 @@ function getCirclePosition(index, total, radiusPx) {
     x: Math.cos(angle) * radiusPx,
     y: Math.sin(angle) * radiusPx,
   };
+}
+
+function onImgError(e) {
+  // Retry once with a cache-busting query, then give up quietly (alt text stays visible)
+  const img = e.currentTarget;
+  if (!img.dataset.retried) {
+    img.dataset.retried = "1";
+    img.src = img.src.split("?")[0] + "?v=" + Date.now();
+  }
 }
 
 // ── Single flip card ──────────────────────────────────────────────────────────
@@ -116,7 +125,7 @@ function FlipCard({ slot, mode, isHovered, onHoverEnter, onHoverLeave, onClick, 
           transition: "border 0.25s, box-shadow 0.25s",
           display: "flex", alignItems: "center", justifyContent: "center",
         }}>
-          <img src={frontContent.img} alt={frontContent.name} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} key={frontContent.id} />
+          <img src={frontContent.img} alt={frontContent.name} onError={onImgError} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} key={frontContent.id} />
           {isHovered && !physicallyFlipped && (
             <div style={{
               position: "absolute", bottom: 10, left: "50%", transform: "translateX(-50%)",
@@ -157,7 +166,7 @@ function FlipCard({ slot, mode, isHovered, onHoverEnter, onHoverLeave, onClick, 
             transition: "border 0.25s, box-shadow 0.25s",
             display: "flex", alignItems: "center", justifyContent: "center",
           }}>
-            <img src={slot.back.img} alt={slot.back.name} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
+            <img src={slot.back.img} alt={slot.back.name} onError={onImgError} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
             {isHovered && physicallyFlipped && (
               <div style={{
                 position: "absolute", bottom: 10, left: "50%", transform: "translateX(-50%)",
