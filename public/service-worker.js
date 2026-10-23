@@ -1,4 +1,4 @@
-const CACHE_NAME = 'efootball-v3';
+const CACHE_NAME = 'efootball-v4';
 
 const STATIC_ASSETS = [
   '/manifest.json',
@@ -137,8 +137,11 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.match(/\.(png|jpg|jpeg|gif|svg|webp|ico)$/)) {
     event.respondWith(
       caches.match(event.request).then((cached) =>
-        cached || fetch(event.request).then((response) => {
-          if (response?.status === 200) {
+        (cached && (cached.headers.get('content-type') || '').startsWith('image/') ? cached : null) || fetch(event.request).then((response) => {
+          // Only cache real images. The host rewrites unknown URLs to index.html
+          // with a 200, which used to get cached as a "broken image" forever.
+          const type = response?.headers?.get('content-type') || '';
+          if (response?.status === 200 && type.startsWith('image/')) {
             const clone = response.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
           }
