@@ -99,7 +99,7 @@ function CalendarFixtureCard({ fixture, deadlineMs, onNoContest, declaring }) {
 }
 
 // ── Expired fixture card (deadline long passed, no result) ────────────────────
-function ExpiredFixtureCard({ fixture, onNoContest, onDelete, declaring }) {
+function ExpiredFixtureCard({ fixture, onNoContest, onDelete, onForfeitWin, declaring }) {
   return (
     <div style={{
       background: "rgba(255,68,68,0.05)",
@@ -143,6 +143,37 @@ function ExpiredFixtureCard({ fixture, onNoContest, onDelete, declaring }) {
           }}
         >
           🗑️ Delete
+        </button>
+      </div>
+      {/* Forfeit win for one side: the named team gets the win, the other team the loss */}
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <button
+          onClick={() => onForfeitWin(fixture, "home")}
+          disabled={declaring === fixture.key}
+          style={{
+            flex: 1, padding: "9px 0",
+            background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.35)",
+            borderRadius: 10, color: "#4ade80", fontWeight: 700,
+            cursor: declaring === fixture.key ? "not-allowed" : "pointer",
+            fontSize: "0.85rem", opacity: declaring === fixture.key ? 0.6 : 1,
+            fontFamily: "inherit",
+          }}
+        >
+          🏠 Home Win
+        </button>
+        <button
+          onClick={() => onForfeitWin(fixture, "away")}
+          disabled={declaring === fixture.key}
+          style={{
+            flex: 1, padding: "9px 0",
+            background: "rgba(68,170,255,0.12)", border: "1px solid rgba(68,170,255,0.35)",
+            borderRadius: 10, color: "#7cc4ff", fontWeight: 700,
+            cursor: declaring === fixture.key ? "not-allowed" : "pointer",
+            fontSize: "0.85rem", opacity: declaring === fixture.key ? 0.6 : 1,
+            fontFamily: "inherit",
+          }}
+        >
+          ✈️ Away Win
         </button>
       </div>
     </div>
@@ -352,6 +383,30 @@ export default function PendingFixturesModal({ league, season, onClose }) {
     setDeclaring(null);
   }
 
+  // Forfeit win for the home or away team of a fixture nobody uploaded a result for.
+  // Recorded as a forfeit win (3-0 / 0-3): the table gives the winner the win + 3 pts and the
+  // loser the loss, and goals scored/conceded are NOT counted.
+  async function handleForfeitWinCalendar(fixture, side) {
+    const winner = side === "home" ? fixture.home : fixture.away;
+    const loser  = side === "home" ? fixture.away : fixture.home;
+    if (!window.confirm(`Award ${winner} a forfeit win over ${loser}?\n\n${fixture.home} vs ${fixture.away}\n${winner} gets the win and 3 points, ${loser} gets the loss. This cannot be undone.`)) return;
+    setDeclaring(fixture.key);
+    const homeScore = side === "home" ? 3 : 0;
+    const awayScore = side === "home" ? 0 : 3;
+    try {
+      await push(ref(db, PATHS.results(league, season)), {
+        homeTeam: fixture.home, awayTeam: fixture.away,
+        homeScore, awayScore,
+        forfeitType: "forfeit_win", matchType: "forfeit",
+        md: fixture.md || 0, date: fixture.date,
+        goalScorers: { home: [], away: [] }, assists: { home: [], away: [] },
+        submittedAt: Date.now(), status: "approved", approvedAt: Date.now(),
+      });
+      await applyResultToTable(league, season, fixture.home, fixture.away, homeScore, awayScore, "forfeit_win");
+    } catch (e) { alert("Error: " + e.message); }
+    setDeclaring(null);
+  }
+
   async function handleApproveSubmission(item) {
     if (!window.confirm(`Approve: ${item.homeTeam} ${item.homeScore} - ${item.awayScore} ${item.awayTeam}?`)) return;
     try {
@@ -501,6 +556,7 @@ export default function PendingFixturesModal({ league, season, onClose }) {
               fixture={f}
               onNoContest={handleNoContestCalendar}
               onDelete={handleDeleteExpired}
+              onForfeitWin={handleForfeitWinCalendar}
               declaring={declaring}
             />
           ))}
