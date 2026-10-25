@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { db, PATHS } from "../firebase";
-import { ref, onValue, push, update, get, remove, set } from "firebase/database";
+import { ref, onValue, push, update, get, remove, set, runTransaction } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
 import Navbar from "../components/Navbar";
 import BackgroundVideo from "../components/BackgroundVideo";
@@ -62,31 +62,50 @@ function parseRaw(str) {
   return Number(String(str).replace(/[^0-9.]/g, "")) || 0;
 }
 
+// An auction is open until it has been settled. A reopened (admin-reset) auction is open again.
+const isAuctionOpen = (a) => !a.settled || !!a.adminReset;
+
+// Newest first; open auctions before closed (SOLD) ones. Push keys are chronological, so they
+// stand in for createdAt on any auction that predates that field.
+function auctionOrder(a, b) {
+  const aOpen = isAuctionOpen(a), bOpen = isAuctionOpen(b);
+  if (aOpen !== bOpen) return aOpen ? -1 : 1;
+  const at = a.createdAt || 0, bt = b.createdAt || 0;
+  if (at !== bt) return bt - at;
+  return String(b.id).localeCompare(String(a.id));
+}
+
 // ── Settle a single auction (called by admin Close All button) ───────────────
+// Returns { status: "closed" | "skipped" | "error", paymentSkipped?: boolean }.
+// Safe to call twice / from two admins at once: the auction is "claimed" with a Firebase
+// transaction on its settled flag, so only one caller can ever settle it, and every payment is
+// stamped with the auction id and checked before it is written so nobody is charged twice.
 async function settleAuction(player, playerId) {
   try {
-    const cardSnap = await get(ref(db, `${PATHS.transfers}/auction/${playerId}`));
-    const card = cardSnap.val();
-    if (card?.settled) return;
+    const cardRef = ref(db, `${PATHS.transfers}/auction/${playerId}`);
+    const before = (await get(cardRef)).val();
+    if (!before) return { status: "skipped" };
+    const wasReopened = before.adminReset === true;
+
+    // Claim: flips settled false → true exactly once. Already settled → aborted, nothing charged.
+    const claim = await runTransaction(ref(db, `${PATHS.transfers}/auction/${playerId}/settled`), (v) => (v === true ? undefined : true));
+    if (!claim.committed) return { status: "skipped" };
 
     const bidsSnap = await get(ref(db, `${PATHS.transfers}/auction/${playerId}/bids`));
     const bidsData = bidsSnap.val();
     if (!bidsData) {
-      // No bids — just mark as settled with no winner
-      await update(ref(db, `${PATHS.transfers}/auction/${playerId}`), {
-        settled: true,
-        adminReset: false,
-      });
-      return;
+      // No bids — just closed with no winner
+      await update(cardRef, { adminReset: false, settledAt: Date.now() });
+      return { status: "closed" };
     }
 
     const bids = Object.values(bidsData).sort((a, b) => (b.bidAmountRaw || 0) - (a.bidAmountRaw || 0));
     const winner = bids[0];
-    if (!winner) return;
+    if (!winner) { await update(cardRef, { adminReset: false, settledAt: Date.now() }); return { status: "closed" }; }
 
-    await update(ref(db, `${PATHS.transfers}/auction/${playerId}`), {
-      settled: true,
+    await update(cardRef, {
       adminReset: false,
+      settledAt: Date.now(),
       winnerId: winner.fromManagerUid,
       winnerClub: winner.fromClub,
       winnerName: winner.fromManagerName,
@@ -101,20 +120,37 @@ async function settleAuction(player, playerId) {
     const buyingClub = winner.fromClub;
     const sellingClub = player.club;
     const playerName = player.name;
+    let paymentSkipped = false;
+
+    // Has this auction already been paid? (stamped with auctionId; a reopened auction that was paid
+    // before stamping existed is matched on category + player + amount)
+    async function alreadyPaid(club, txType, category) {
+      const snap = await get(ref(db, `career_team_management/${club}/finance/transactions`));
+      return Object.values(snap.val() || {}).some(t =>
+        t.auctionId === playerId ||
+        (wasReopened && t.type === txType && t.category === category && t.source === playerName && Number(t.amount) === amt)
+      );
+    }
 
     if (buyingClub && amt > 0) {
-      await push(ref(db, `career_team_management/${buyingClub}/finance/transactions`), {
-        type: "expense", category: "Player Purchase",
-        source: playerName, amount: amt,
-        month: monthName, monthIndex, year, createdAt: Date.now(),
-      });
+      if (await alreadyPaid(buyingClub, "expense", "Player Purchase")) {
+        paymentSkipped = true;
+      } else {
+        await push(ref(db, `career_team_management/${buyingClub}/finance/transactions`), {
+          type: "expense", category: "Player Purchase",
+          source: playerName, amount: amt, auctionId: playerId,
+          month: monthName, monthIndex, year, createdAt: Date.now(),
+        });
+      }
     }
     if (sellingClub && amt > 0) {
-      await push(ref(db, `career_team_management/${sellingClub}/finance/transactions`), {
-        type: "income", category: "Player Sales",
-        source: playerName, amount: amt,
-        month: monthName, monthIndex, year, createdAt: Date.now(),
-      });
+      if (!(await alreadyPaid(sellingClub, "income", "Player Sales"))) {
+        await push(ref(db, `career_team_management/${sellingClub}/finance/transactions`), {
+          type: "income", category: "Player Sales",
+          source: playerName, amount: amt, auctionId: playerId,
+          month: monthName, monthIndex, year, createdAt: Date.now(),
+        });
+      }
     }
 
     const sellingSnap = await get(ref(db, `career_team_management/${sellingClub}/squad`));
@@ -129,8 +165,23 @@ async function settleAuction(player, playerId) {
         }
       }
     }
+
+    // The bids were also copied into the Negotiations tab. Close those cards so nobody can accept
+    // one later and charge the buyer a second time.
+    try {
+      const negSnap = await get(ref(db, `${PATHS.transfers}/negotiations`));
+      const negs = negSnap.val() || {};
+      for (const [nid, n] of Object.entries(negs)) {
+        if (n.type !== "auction" || n.playerId !== playerId || n.status !== "pending") continue;
+        const won = n.fromManagerUid === winner.fromManagerUid;
+        await update(ref(db, `${PATHS.transfers}/negotiations/${nid}`), won ? { status: "accepted", acceptedAt: Date.now() } : { status: "rejected" });
+      }
+    } catch (e) { console.error("Auction negotiation cleanup error:", e); }
+
+    return { status: "closed", paymentSkipped };
   } catch (e) {
     console.error("Auction settle error:", e);
+    return { status: "error" };
   }
 }
 
@@ -1040,20 +1091,30 @@ export default function TransferMarketPage() {
 
   // ── Admin: Close All Auctions ────────────────────────────────────────────
   async function handleCloseAllAuctions() {
-    if (!window.confirm("Close ALL active auctions now? The highest bidder on each will be declared the winner.")) return;
+    if (!window.confirm("Close all OPEN auctions now? The highest bidder on each open auction will be declared the winner. Auctions already marked SOLD are never charged again.")) return;
     setClosingAllAuctions(true);
     setCloseAllMsg("");
     try {
-      const auctionPlayers = players.auction || [];
-      const active = auctionPlayers.filter(p => !p.settled || p.adminReset);
-      if (active.length === 0) {
-        setCloseAllMsg("⚠️ No active auctions to close.");
+      const open = (players.auction || []).filter(isAuctionOpen);
+      if (open.length === 0) {
+        setCloseAllMsg("⚠️ No open auctions to close.");
         setClosingAllAuctions(false);
         return;
       }
-      await Promise.all(active.map(p => settleAuction(p, p.id)));
-      setCloseAllMsg(`✅ ${active.length} auction${active.length !== 1 ? "s" : ""} closed successfully.`);
-      setTimeout(() => setCloseAllMsg(""), 4000);
+      let closed = 0, skipped = 0, failed = 0;
+      // One at a time (not in parallel) so payments are written in a predictable order
+      for (const p of open) {
+        const r = await settleAuction(p, p.id);
+        if (r.status === "closed") closed++;
+        else if (r.status === "error") failed++;
+        else skipped++;
+      }
+      setCloseAllMsg(
+        `✅ ${closed} auction${closed !== 1 ? "s" : ""} closed.` +
+        (skipped ? ` ${skipped} already closed — skipped, not charged again.` : "") +
+        (failed ? ` ⚠️ ${failed} failed — check and retry.` : "")
+      );
+      setTimeout(() => setCloseAllMsg(""), 6000);
     } catch (e) {
       setCloseAllMsg("❌ Failed: " + e.message);
     }
@@ -1317,7 +1378,7 @@ export default function TransferMarketPage() {
               <div style={{ marginBottom: "24px", padding: "20px 24px", background: "rgba(0,255,136,0.06)", border: "1px solid rgba(0,255,136,0.2)", borderRadius: "16px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px" }}>
                 <div>
                   <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", letterSpacing: "2px" }}>🏆 CLOSE ALL AUCTIONS</div>
-                  <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.1rem", marginTop: "4px" }}>Declares the highest bidder as winner on every active auction.</div>
+                  <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "1.1rem", marginTop: "4px" }}>Declares the highest bidder as winner on every open auction. SOLD auctions are never charged again.</div>
                   {closeAllMsg && (
                     <div style={{ marginTop: "8px", fontSize: "1.2rem", color: closeAllMsg.startsWith("✅") ? "#00ff88" : closeAllMsg.startsWith("⚠️") ? "#ffaa44" : "#ff6b6b" }}>
                       {closeAllMsg}
@@ -1437,7 +1498,8 @@ export default function TransferMarketPage() {
                 <NewAuctionCard onClick={() => setShowNewAuction(true)} />
               )}
 
-              {currentTabPlayers
+              {[...currentTabPlayers]
+                .sort(auctionOrder)
                 .filter(p => !auctionSearch || (p.name || "").toLowerCase().includes(auctionSearch.toLowerCase()))
                 .map(player => (
                   <div key={player.id} style={{ position: "relative" }}>
