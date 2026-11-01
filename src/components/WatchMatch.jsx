@@ -1,12 +1,14 @@
 import { useState, useEffect } from "react";
 import { db } from "../firebase";
 import { ref, onValue, push, remove } from "firebase/database";
+import InlineSpinner from "./InlineSpinner";
 import { useAdmin } from "../context/AdminContext";
 import { extractYoutubeId } from "../utils/imgUpload";
 import Modal from "./Modal";
 
 export default function WatchMatch({ league }) {
   const [videos, setVideos] = useState([]);
+  const [loaded, setLoaded] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
@@ -21,7 +23,8 @@ export default function WatchMatch({ league }) {
       const data = snap.val();
       if (data) setVideos(Object.entries(data).map(([id, v]) => ({ id, ...v })));
       else setVideos([]);
-    });
+      setLoaded(true);
+    }, () => setLoaded(true));
     return () => unsub();
   }, [league]);
 
@@ -47,7 +50,8 @@ export default function WatchMatch({ league }) {
 
   return (
     <div>
-      {!videos.length && <div style={{ textAlign: "center", padding: "60px 20px", color: "rgba(255,255,255,0.4)" }}>No match videos yet.</div>}
+      {!loaded && <InlineSpinner label="LOADING VIDEOS..." padding="60px 20px" />}
+      {loaded && !videos.length && <div style={{ textAlign: "center", padding: "60px 20px", color: "rgba(255,255,255,0.4)" }}>No match videos yet.</div>}
       {videos.map(v => (
         <div key={v.id} style={{ marginBottom: "32px" }}>
           {renderEmbed(v.url)}
