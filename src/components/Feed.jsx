@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { db, PATHS } from "../firebase";
 import { ref, onValue, remove, update } from "firebase/database";
+import InlineSpinner from "./InlineSpinner";
 import { useAdmin } from "../context/AdminContext";
 import FeedPost from "./FeedPost";
 import Modal from "./Modal";
@@ -92,7 +93,7 @@ export default function Feed({ onInitialLoaded }) {
 
   const visiblePosts = allPosts.slice(0, visibleCount);
 
-  if (loading) return null;
+  if (loading) return <InlineSpinner label="LOADING POSTS..." padding="80px 20px" />;
 
   return (
     // wider: maxWidth 680px → 1240px (almost 2x), matching headline width
