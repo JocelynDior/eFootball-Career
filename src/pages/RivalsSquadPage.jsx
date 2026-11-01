@@ -5,6 +5,7 @@ import { ref, onValue, get } from "firebase/database";
 import Navbar from "../components/Navbar";
 import BackgroundVideo from "../components/BackgroundVideo";
 import TabBar from "../components/TabBar";
+import InlineSpinner from "../components/InlineSpinner";
 
 const GLASS = {
   background: "rgba(255,255,255,0.04)",
@@ -44,13 +45,15 @@ function formatDateTime(ts) {
 // ── READ-ONLY STADIUM TAB ─────────────────────────────────────────────────────
 function ReadOnlyStadiumTab({ team }) {
   const [data, setData] = useState(null);
+  const [stadiumLoaded, setStadiumLoaded] = useState(false);
   const [slideIdx, setSlideIdx] = useState(0);
   const [homeGamesCount, setHomeGamesCount] = useState(0);
   const timerRef = useRef(null);
 
   useEffect(() => {
     if (!team) return;
-    const unsub = onValue(ref(db, `career_team_management/${team}/stadium`), snap => setData(snap.val()));
+    setStadiumLoaded(false);
+    const unsub = onValue(ref(db, `career_team_management/${team}/stadium`), snap => { setData(snap.val()); setStadiumLoaded(true); }, () => setStadiumLoaded(true));
     return () => unsub();
   }, [team]);
 
@@ -81,6 +84,8 @@ function ReadOnlyStadiumTab({ team }) {
     timerRef.current = setInterval(() => setSlideIdx(i => (i + 1) % data.images.length), 4000);
     return () => clearInterval(timerRef.current);
   }, [data?.images?.length]);
+
+  if (!stadiumLoaded) return <InlineSpinner label="LOADING STADIUM..." padding="80px 20px" />;
 
   if (!data) return (
     <div style={{ textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.3)" }}>
@@ -160,13 +165,16 @@ function ReadOnlyStadiumTab({ team }) {
 // ── READ-ONLY SQUAD TAB ───────────────────────────────────────────────────────
 function ReadOnlySquadTab({ team, teamIcon, manager }) {
   const [players, setPlayers] = useState([]);
+  const [squadLoaded, setSquadLoaded] = useState(false);
 
   useEffect(() => {
     if (!team) return;
+    setSquadLoaded(false);
     const unsub = onValue(ref(db, `career_team_management/${team}/squad`), snap => {
       const data = snap.val();
       setPlayers(data ? Object.values(data) : []);
-    });
+      setSquadLoaded(true);
+    }, () => setSquadLoaded(true));
     return () => unsub();
   }, [team]);
 
@@ -192,7 +200,9 @@ function ReadOnlySquadTab({ team, teamIcon, manager }) {
         </div>
       )}
 
-      {players.length === 0 ? (
+      {!squadLoaded ? (
+        <InlineSpinner label="LOADING SQUAD..." padding="80px 20px" />
+      ) : players.length === 0 ? (
         <div style={{ textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.2)" }}>
           <div style={{ fontSize: "3.5rem", marginBottom: "16px" }}>👥</div>
           <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.5rem", letterSpacing: "3px" }}>No Team Set Up Yet</div>
@@ -257,14 +267,17 @@ function ReadOnlySquadTab({ team, teamIcon, manager }) {
 // ── READ-ONLY TRANSFERS TAB ───────────────────────────────────────────────────
 function ReadOnlyTransfersTab({ team, teamIcons }) {
   const [negotiations, setNegotiations] = useState([]);
+  const [negsLoaded, setNegsLoaded] = useState(false);
   const [selectedOffer, setSelectedOffer] = useState(null);
 
   useEffect(() => {
     if (!team) return;
+    setNegsLoaded(false);
     const unsub = onValue(ref(db, `${PATHS.transfers}/negotiations`), snap => {
       const data = snap.val();
       setNegotiations(data ? Object.entries(data).map(([id, n]) => ({ id, ...n })) : []);
-    });
+      setNegsLoaded(true);
+    }, () => setNegsLoaded(true));
     return () => unsub();
   }, [team]);
 
@@ -302,12 +315,12 @@ function ReadOnlyTransfersTab({ team, teamIcons }) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "28px" }}>
         <div style={{ ...GLASS, borderRadius: "20px", padding: "28px" }}>
           <div style={{ color: "#00ff88", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.6rem", letterSpacing: "2px", marginBottom: "20px" }}>📥 OFFERS RECEIVED <span style={{ background: "rgba(0,255,136,0.15)", border: "1px solid #00ff88", borderRadius: "20px", padding: "2px 20px", fontSize: "1.8rem" }}>{offersReceived.length}</span></div>
-          {offersReceived.length === 0 ? <div style={{ textAlign: "center", padding: "40px", color: "rgba(255,255,255,0.2)", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem" }}>No Offers Received</div>
+          {!negsLoaded ? <InlineSpinner label="LOADING OFFERS..." padding="40px 20px" /> : offersReceived.length === 0 ? <div style={{ textAlign: "center", padding: "40px", color: "rgba(255,255,255,0.2)", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem" }}>No Offers Received</div>
             : <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>{offersReceived.map(o => <OfferCard key={o.id} offer={o} />)}</div>}
         </div>
         <div style={{ ...GLASS, borderRadius: "20px", padding: "28px" }}>
           <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.6rem", letterSpacing: "2px", marginBottom: "20px" }}>📤 OFFERS SENT <span style={{ background: "rgba(255,255,255,0.1)", border: "1px solid #fff", borderRadius: "20px", padding: "2px 20px", fontSize: "1.8rem" }}>{offersSent.length}</span></div>
-          {offersSent.length === 0 ? <div style={{ textAlign: "center", padding: "40px", color: "rgba(255,255,255,0.2)", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem" }}>No Offers Sent</div>
+          {!negsLoaded ? <InlineSpinner label="LOADING OFFERS..." padding="40px 20px" /> : offersSent.length === 0 ? <div style={{ textAlign: "center", padding: "40px", color: "rgba(255,255,255,0.2)", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem" }}>No Offers Sent</div>
             : <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>{offersSent.map(o => <OfferCard key={o.id} offer={o} />)}</div>}
         </div>
       </div>
@@ -346,15 +359,19 @@ function ReadOnlyTransfersTab({ team, teamIcons }) {
 // ── READ-ONLY FINANCE TAB ─────────────────────────────────────────────────────
 function ReadOnlyFinanceTab({ team }) {
   const [transactions, setTransactions] = useState([]);
+  const [txLoaded, setTxLoaded] = useState(false);
+  const [visibleTx, setVisibleTx] = useState(25);
   const scrollRef = useRef(null);
   const currentMonthIndex = getSASTMonthIndex();
 
   useEffect(() => {
     if (!team) return;
+    setTxLoaded(false);
     const unsub = onValue(ref(db, `career_team_management/${team}/finance/transactions`), snap => {
       const data = snap.val();
-      setTransactions(data ? Object.entries(data).map(([id, t]) => ({ id, ...t })).sort((a, b) => b.createdAt - a.createdAt) : []);
-    });
+      setTransactions(data ? Object.entries(data).map(([id, t]) => ({ id, ...t })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)) : []);
+      setTxLoaded(true);
+    }, () => setTxLoaded(true));
     return () => unsub();
   }, [team]);
 
@@ -384,7 +401,9 @@ function ReadOnlyFinanceTab({ team }) {
   useEffect(() => {
     if (!scrollRef.current) return;
     scrollRef.current.scrollLeft = Math.max(0, (currentMonthIndex - 4) * 128 - 100);
-  }, [currentMonthIndex]);
+  }, [currentMonthIndex, txLoaded]);
+
+  if (!txLoaded) return <InlineSpinner label="LOADING FINANCES..." padding="80px 20px" />;
 
   return (
     <div>
@@ -451,6 +470,47 @@ function ReadOnlyFinanceTab({ team }) {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* ── Transaction history (read-only) ── */}
+      <div style={{ ...GLASS, borderRadius: "20px", padding: "36px", marginTop: "28px" }}>
+        <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.4rem", letterSpacing: "2px", marginBottom: "20px" }}>📋 TRANSACTION HISTORY</div>
+        {transactions.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "40px 20px", color: "rgba(255,255,255,0.25)" }}>
+            <div style={{ fontSize: "2.6rem", marginBottom: "10px" }}>💳</div>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", letterSpacing: "2px" }}>No Transactions Yet</div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            {transactions.slice(0, visibleTx).map(tx => {
+              const isIncome = tx.type === "income";
+              return (
+                <div key={tx.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "16px", padding: "18px 22px", background: isIncome ? "rgba(0,255,136,0.05)" : "rgba(255,100,100,0.05)", border: `1px solid ${isIncome ? "rgba(0,255,136,0.15)" : "rgba(255,100,100,0.15)"}`, borderRadius: "14px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "16px", minWidth: 0 }}>
+                    <div style={{ width: "52px", height: "52px", flexShrink: 0, background: isIncome ? "rgba(0,255,136,0.15)" : "rgba(255,100,100,0.15)", borderRadius: "14px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.7rem" }}>
+                      {tx.kitSalesId ? "👕" : tx.recurringId ? "🔁" : isIncome ? "💰" : "📤"}
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ color: "#fff", fontWeight: 700, fontSize: "1.2rem" }}>{tx.category || "Transaction"}</div>
+                      {tx.source && <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "1rem", marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tx.source}</div>}
+                      <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "0.9rem", marginTop: "2px" }}>
+                        {tx.createdAt ? formatDateTime(tx.createdAt) : `${tx.month || ""} ${tx.year || ""}`}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ color: isIncome ? "#00ff88" : "#ff6b6b", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", letterSpacing: "1px", whiteSpace: "nowrap" }}>
+                    {isIncome ? "+" : "−"}{formatAmount(Number(tx.amount) || 0)}
+                  </div>
+                </div>
+              );
+            })}
+            {transactions.length > visibleTx && (
+              <button onClick={() => setVisibleTx(v => v + 25)} style={{ marginTop: "6px", padding: "14px", background: "rgba(255,20,147,0.1)", border: "1px solid rgba(255,20,147,0.35)", borderRadius: "12px", color: "#FF1493", fontWeight: 700, fontSize: "1.1rem", cursor: "pointer", fontFamily: "inherit" }}>
+                Show more ({transactions.length - visibleTx} left)
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
