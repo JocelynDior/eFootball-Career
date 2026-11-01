@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import InlineSpinner from "../components/InlineSpinner";
 import { db, PATHS } from "../firebase";
 import { ref, onValue, push } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
@@ -22,6 +23,7 @@ const labelStyle = {
 export default function ListPlayerModal({ onClose }) {
   const { manager } = useAdmin();
   const [squad, setSquad] = useState([]);
+  const [squadLoaded, setSquadLoaded] = useState(false);
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [listingType, setListingType] = useState("sale"); // "sale" | "loan"
   const [price, setPrice] = useState("");
@@ -40,7 +42,8 @@ export default function ListPlayerModal({ onClose }) {
         const players = Object.entries(data).map(([id, p]) => ({ id, ...p }));
         setSquad(players);
       }
-    });
+      setSquadLoaded(true);
+    }, () => setSquadLoaded(true));
     return () => unsub();
   }, [manager?.team]);
 
@@ -85,7 +88,9 @@ export default function ListPlayerModal({ onClose }) {
         Listing as: <span style={{ color: "#FF1493", fontWeight: 700 }}>{manager?.username}</span> — {manager?.team}
       </div>
 
-      {squad.length === 0 ? (
+      {!squadLoaded ? (
+        <InlineSpinner label="LOADING SQUAD..." padding="40px 20px" />
+      ) : squad.length === 0 ? (
         <div style={{ textAlign: "center", padding: "40px 20px", color: "rgba(255,255,255,0.4)" }}>
           <div style={{ fontSize: "3rem", marginBottom: "12px" }}>👥</div>
           <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", letterSpacing: "2px" }}>No Squad Found</div>
