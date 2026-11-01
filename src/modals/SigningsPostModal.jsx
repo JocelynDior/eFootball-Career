@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import InlineSpinner from "../components/InlineSpinner";
 import { db, PATHS } from "../firebase";
 import { ref, push, onValue, remove, set, get } from "firebase/database";
 import { uploadToImgBB } from "../utils/imgUpload";
@@ -158,6 +159,7 @@ export function CreateSigningsPostModal({ onClose, onSuccess }) {
 // ─── SIGNINGS FEED ────────────────────────────────────────────────────────
 export function SigningsFeed({ isAdmin }) {
   const [posts, setPosts] = useState([]);
+  const [postsLoaded, setPostsLoaded] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
 
   useEffect(() => {
@@ -166,7 +168,8 @@ export function SigningsFeed({ isAdmin }) {
       const list = data ? Object.entries(data).map(([k, v]) => ({ id: k, ...v })) : [];
       list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
       setPosts(list);
-    });
+      setPostsLoaded(true);
+    }, () => setPostsLoaded(true));
     return () => unsub();
   }, []);
 
@@ -183,7 +186,9 @@ export function SigningsFeed({ isAdmin }) {
       </button>
 
       {/* Feed */}
-      {posts.length === 0 ? (
+      {!postsLoaded ? (
+        <InlineSpinner label="LOADING POSTS..." padding="80px 20px" />
+      ) : posts.length === 0 ? (
         <div style={{ textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.3)" }}>
           <div style={{ fontSize: "4rem", marginBottom: "16px" }}>📸</div>
           <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px" }}>No Posts Yet</div>
