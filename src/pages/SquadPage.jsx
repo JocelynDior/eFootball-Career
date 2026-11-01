@@ -9,6 +9,7 @@ import { checkSquadCompleteness, describeMissing, getSquadFinesSettings, FINE_AM
 import Navbar from "../components/Navbar";
 import BackgroundVideo from "../components/BackgroundVideo";
 import TabBar from "../components/TabBar";
+import InlineSpinner from "../components/InlineSpinner";
 
 const POSITIONS = ["GK","LB","CB","RB","LWB","RWB","CDM","CM","CAM","LM","RM","LW","RW","CF","ST"];
 const STARTING_SLOTS = ["GK","RB","CB","CB","LB","CDM","CM","CM","RW","ST","LW"];
@@ -441,12 +442,15 @@ function TransferBlock({ title, colorRgb, icon, entries }) {
 // ── Transfers Tab ─────────────────────────────────────────────────────────────
 function TransfersTab({ team }) {
   const [transactions, setTransactions] = useState([]);
+  const [txLoaded, setTxLoaded] = useState(false);
 
   useEffect(() => {
+    setTxLoaded(false);
     const unsub = onValue(ref(db, `career_team_management/${team}/finance/transactions`), snap => {
       const data = snap.val();
       setTransactions(data ? Object.values(data) : []);
-    });
+      setTxLoaded(true);
+    }, () => setTxLoaded(true));
     return () => unsub();
   }, [team]);
 
@@ -454,6 +458,8 @@ function TransfersTab({ team }) {
   const sold = transactions.filter(t => t.category === "Player Sales");
   const loanedIn = transactions.filter(t => t.category === "Player Loan In");
   const loanedOut = transactions.filter(t => t.category === "Player Loaned Out");
+
+  if (!txLoaded) return <InlineSpinner label="LOADING TRANSFERS..." padding="80px 20px" />;
 
   return (
     <div>
@@ -470,6 +476,7 @@ export default function SquadPage() {
   const navigate = useNavigate();
   const { isAdmin, manager, managerLoading, teamIconsCache } = useAdmin();
   const [players, setPlayers] = useState([]);
+  const [playersLoaded, setPlayersLoaded] = useState(false);
   const [adminTeam, setAdminTeam] = useState(null);
   const [teams, setTeams] = useState([]);
   const [teamIcon, setTeamIcon] = useState(null);
@@ -493,10 +500,12 @@ export default function SquadPage() {
 
   useEffect(() => {
     if (!teamPath) return;
+    setPlayersLoaded(false);
     const unsub = onValue(ref(db, teamPath), snap => {
       const data = snap.val();
       setPlayers(data ? Object.values(data) : []);
-    });
+      setPlayersLoaded(true);
+    }, () => setPlayersLoaded(true));
     return () => unsub();
   }, [teamPath]);
 
@@ -805,7 +814,9 @@ export default function SquadPage() {
                 </button>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                {reservePlayers.length === 0 ? (
+                {teamPath && !playersLoaded ? (
+                  <InlineSpinner label="LOADING RESERVES..." padding="40px 20px" />
+                ) : reservePlayers.length === 0 ? (
                   <div style={{ textAlign: "center", padding: "40px", color: "rgba(255,255,255,0.2)", fontSize: "1.8rem" }}>
                     No reserves added yet. Click "Add Player" to start.
                   </div>
