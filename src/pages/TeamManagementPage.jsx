@@ -7,6 +7,7 @@ import { useAdmin } from "../context/AdminContext";
 import Navbar from "../components/Navbar";
 import BackgroundVideo from "../components/BackgroundVideo";
 import TabBar from "../components/TabBar";
+import InlineSpinner from "../components/InlineSpinner";
 import Modal from "../components/Modal";
 import StadiumModal from "../modals/StadiumModal";
 import TeamModal from "../modals/TeamModal";
@@ -470,6 +471,7 @@ const ALL_LEAGUES = ["premier", "laliga", "seriea", "bundesliga", "ligue1", "ucl
 // ─── STADIUM TAB ──────────────────────────────────────────────────────────
 function StadiumTab({ team, isAdmin, onEditStadium }) {
   const [data, setData] = useState(null);
+  const [stadiumLoaded, setStadiumLoaded] = useState(false);
   const [slideIdx, setSlideIdx] = useState(0);
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [underConstruction, setUnderConstruction] = useState(false);
@@ -479,11 +481,13 @@ function StadiumTab({ team, isAdmin, onEditStadium }) {
 
   useEffect(() => {
     if (!team) return;
+    setStadiumLoaded(false);
     const unsub = onValue(ref(db, `career_team_management/${team}/stadium`), snap => {
       const d = snap.val();
       setData(d);
       setUnderConstruction(d?.underConstruction || false);
-    });
+      setStadiumLoaded(true);
+    }, () => setStadiumLoaded(true));
     return () => unsub();
   }, [team]);
 
@@ -626,6 +630,8 @@ function StadiumTab({ team, isAdmin, onEditStadium }) {
   const ticketPrice = data?.ticketPrice ? Number(data.ticketPrice) : 0;
   const ticketsSold = homeGamesCount * capacity;
   const stadiumIncome = ticketsSold * ticketPrice;
+
+  if (!stadiumLoaded) return <InlineSpinner label="LOADING STADIUM..." padding="80px 20px" />;
 
   if (!data) return (
     <div style={{ textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.3)" }}>
@@ -777,18 +783,21 @@ function SquadTabWrapper({ team, isAdmin, onEditSquad }) {
 // with each row expanding inline to show the full offer details.
 function TransfersTab({ team, teamIcons, isAdmin }) {
   const [negotiations, setNegotiations] = useState([]);
+  const [negsLoaded, setNegsLoaded] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [search, setSearch] = useState("");
 
   useEffect(() => {
     if (!team) return;
+    setNegsLoaded(false);
     const unsub = onValue(ref(db, `${PATHS.transfers}/negotiations`), snap => {
       const data = snap.val();
-      if (!data) { setNegotiations([]); return; }
+      if (!data) { setNegotiations([]); setNegsLoaded(true); return; }
       const all = Object.entries(data).map(([id, n]) => ({ id, ...n }));
       setNegotiations(all);
-    });
+      setNegsLoaded(true);
+    }, () => setNegsLoaded(true));
     return () => unsub();
   }, [team]);
 
@@ -837,7 +846,9 @@ function TransfersTab({ team, teamIcons, isAdmin }) {
         />
       </div>
 
-      {rows.length === 0 ? (
+      {!negsLoaded ? (
+        <InlineSpinner label="LOADING OFFERS..." padding="60px 20px" />
+      ) : rows.length === 0 ? (
         <div style={{ textAlign: "center", padding: "48px 20px", color: "rgba(255,255,255,0.2)" }}>
           <div style={{ fontSize: "6rem", marginBottom: "12px" }}>📋</div>
           <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.2rem", letterSpacing: "2px" }}>No Transfer Offers</div>
@@ -973,6 +984,7 @@ function ShirtSVGSmall({ clubName, playerName, squadNumber }) {
 function ClubLoansSection({ team, isAdmin }) {
   const { manager } = useAdmin();
   const [allLoans, setAllLoans] = useState([]);
+  const [loansLoaded, setLoansLoaded] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
   const [showRequest, setShowRequest] = useState(false);
   const [viewAll, setViewAll] = useState(true); // admin: all clubs vs. just this club
@@ -989,7 +1001,8 @@ function ClubLoansSection({ team, isAdmin }) {
         .map(([id, l]) => ({ id, ...l }))
         .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
       setAllLoans(list);
-    });
+      setLoansLoaded(true);
+    }, () => setLoansLoaded(true));
     return () => unsub();
   }, [team]);
 
@@ -1149,7 +1162,9 @@ function ClubLoansSection({ team, isAdmin }) {
         )}
       </div>
 
-      {loans.length === 0 && (
+      {!loansLoaded && <InlineSpinner label="LOADING LOANS..." padding="32px 20px" />}
+
+      {loansLoaded && loans.length === 0 && (
         <div style={{ textAlign: "center", padding: "32px 20px", color: "rgba(255,255,255,0.25)", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px" }}>
           No Club Loans Yet
         </div>
@@ -1336,6 +1351,7 @@ function ClubLoansSection({ team, isAdmin }) {
 // ─── FINANCE TAB ──────────────────────────────────────────────────────────
 function FinanceTab({ team, isAdmin }) {
   const [transactions, setTransactions] = useState([]);
+  const [txLoaded, setTxLoaded] = useState(false);
   const [recurringList, setRecurringList] = useState([]);
   const [selectedTx, setSelectedTx] = useState(null);
   const [showFilterModal, setShowFilterModal] = useState(false);
@@ -1345,6 +1361,7 @@ function FinanceTab({ team, isAdmin }) {
 
   useEffect(() => {
     if (!team) return;
+    setTxLoaded(false);
     const unsub = onValue(ref(db, `career_team_management/${team}/finance/transactions`), snap => {
       const data = snap.val();
       if (data) {
@@ -1352,7 +1369,8 @@ function FinanceTab({ team, isAdmin }) {
       } else {
         setTransactions([]);
       }
-    });
+      setTxLoaded(true);
+    }, () => setTxLoaded(true));
     return () => unsub();
   }, [team]);
 
@@ -1618,7 +1636,9 @@ function FinanceTab({ team, isAdmin }) {
       {/* ── Transaction History ── */}
       <div style={{ ...GLASS, borderRadius: "20px", padding: "48px" }}>
         <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.8rem", letterSpacing: "3px", marginBottom: "28px" }}>📋 TRANSACTION HISTORY</div>
-        {transactions.length === 0 ? (
+        {!txLoaded ? (
+          <InlineSpinner label="LOADING TRANSACTIONS..." padding="48px 20px" />
+        ) : transactions.length === 0 ? (
           <div style={{ textAlign: "center", padding: "48px 20px", color: "rgba(255,255,255,0.2)" }}>
             <div style={{ fontSize: "3rem", marginBottom: "12px" }}>💳</div>
             <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", letterSpacing: "2px" }}>No Transactions Yet</div>
