@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import TabBar from "../components/TabBar";
+import InlineSpinner from "../components/InlineSpinner";
 import { useAdmin } from "../context/AdminContext";
 import { db, PATHS } from "../firebase";
 import { ref, onValue } from "firebase/database";
@@ -160,7 +161,9 @@ export default function AdminProfilePage() {
 
   const [tab, setTab] = useState("managers");
   const [managers, setManagers] = useState([]);
+  const [managersLoaded, setManagersLoaded] = useState(false);
   const [clubs, setClubs] = useState([]);
+  const [clubsLoaded, setClubsLoaded] = useState(false);
   const [selectedMgr, setSelectedMgr] = useState(null);
   const [selectedClub, setSelectedClub] = useState(null);
   const [mgrSearch, setMgrSearch] = useState("");
@@ -179,7 +182,8 @@ export default function AdminProfilePage() {
         .map(([uid, v]) => ({ uid, ...v }))
         .sort((a, b) => a.username?.localeCompare(b.username));
       setManagers(list);
-    });
+      setManagersLoaded(true);
+    }, () => setManagersLoaded(true));
     return () => unsub();
   }, []);
 
@@ -224,7 +228,8 @@ export default function AdminProfilePage() {
           : [],
       }));
       setClubs(list.sort((a, b) => a.name.localeCompare(b.name)));
-    });
+      setClubsLoaded(true);
+    }, () => setClubsLoaded(true));
     return () => unsub();
   }, []);
 
@@ -379,7 +384,9 @@ export default function AdminProfilePage() {
               onBlur={e => e.target.style.borderColor = "rgba(255,20,147,0.3)"}
             />
 
-            {!filteredManagers.length ? (
+            {!managersLoaded ? (
+              <InlineSpinner label="LOADING MANAGERS..." padding="32px 20px" size={40} />
+            ) : !filteredManagers.length ? (
               <div style={{ textAlign: "center", padding: "32px", color: "rgba(255,255,255,0.3)", fontSize: "0.9rem" }}>
                 {mgrSearch ? "No managers match your search." : "No managers registered yet."}
               </div>
@@ -422,7 +429,9 @@ export default function AdminProfilePage() {
               onBlur={e => e.target.style.borderColor = "rgba(255,20,147,0.3)"}
             />
 
-            {!filteredClubs.length ? (
+            {!clubsLoaded ? (
+              <InlineSpinner label="LOADING CLUBS..." padding="32px 20px" size={40} />
+            ) : !filteredClubs.length ? (
               <div style={{ textAlign: "center", padding: "32px", color: "rgba(255,255,255,0.3)", fontSize: "0.9rem" }}>
                 {clubSearch ? "No clubs match your search." : "No clubs in the system yet."}
               </div>
