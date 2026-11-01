@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import InlineSpinner from "../components/InlineSpinner";
 import { db, PATHS } from "../firebase";
 import { ref, onValue, remove, get } from "firebase/database";
 import { reverseResultFromTable } from "../utils/tableLogic";
@@ -13,6 +14,7 @@ const GLASS = {
 
 export default function ResultsHistoryModal({ league, season, onClose }) {
   const [results, setResults] = useState([]);
+  const [resultsLoaded, setResultsLoaded] = useState(false);
   const [search, setSearch] = useState("");
   const [reviewing, setReviewing] = useState(null); // result being reviewed
   const [revoking, setRevoking] = useState(null);
@@ -24,7 +26,8 @@ export default function ResultsHistoryModal({ league, season, onClose }) {
       // Sort latest to oldest
       list.sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0) || (b.date || "").localeCompare(a.date || ""));
       setResults(list);
-    });
+      setResultsLoaded(true);
+    }, () => setResultsLoaded(true));
     return () => unsub();
   }, [league, season]);
 
@@ -140,7 +143,8 @@ export default function ResultsHistoryModal({ league, season, onClose }) {
         style={{ width: "100%", boxSizing: "border-box", marginBottom: 16, padding: "10px 14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: 10, color: "#fff", fontFamily: "inherit", fontSize: "0.9rem", outline: "none" }}
       />
 
-      {!filtered.length && (
+      {!resultsLoaded && <InlineSpinner label="LOADING RESULTS..." padding="40px 20px" />}
+      {resultsLoaded && !filtered.length && (
         <div style={{ color: "rgba(255,255,255,0.4)", textAlign: "center", padding: "40px" }}>No results found.</div>
       )}
 
