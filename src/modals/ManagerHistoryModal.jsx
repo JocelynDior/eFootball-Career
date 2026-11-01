@@ -2,22 +2,26 @@ import { useState, useEffect } from "react";
 import { db, PATHS } from "../firebase";
 import { ref, onValue } from "firebase/database";
 import { formatDate } from "../utils/formatters";
+import InlineSpinner from "../components/InlineSpinner";
 
 export default function ManagerHistoryModal({ league, season, onClose }) {
   const [history, setHistory] = useState([]);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     const unsub = onValue(ref(db, PATHS.managerHistory(league, season)), snap => {
       const d = snap.val();
       setHistory(d ? Object.entries(d).map(([k, v]) => ({ id: k, ...v })).sort((a, b) => b.timestamp - a.timestamp) : []);
-    });
+      setLoaded(true);
+    }, () => setLoaded(true));
     return () => unsub();
   }, [league, season]);
 
   return (
     <div>
       <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: "20px" }}>📋 Manager History</h3>
-      {!history.length && <div style={{ color: "rgba(255,255,255,0.4)", textAlign: "center", padding: "40px" }}>No history yet.</div>}
+      {!loaded && <InlineSpinner label="LOADING HISTORY..." padding="40px 20px" />}
+      {loaded && !history.length && <div style={{ color: "rgba(255,255,255,0.4)", textAlign: "center", padding: "40px" }}>No history yet.</div>}
       {history.map(h => (
         <div key={h.id} style={{ background: "rgba(255,20,147,0.06)", border: "1px solid rgba(255,20,147,0.2)", borderRadius: "14px", padding: "16px", marginBottom: "10px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
