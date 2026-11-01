@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import InlineSpinner from "../components/InlineSpinner";
 import { db } from "../firebase";
 import { ref, onValue, push, set, remove } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
@@ -35,6 +36,7 @@ const tdStyle = {
 
 export default function GroupStageModal({ league, season }) {
   const { isAdmin, teamIconsCache } = useAdmin();
+  const [groupsLoaded, setGroupsLoaded] = useState(false);
   const [groups, setGroups] = useState([]); // [{ key, name, teams: [{key, name, p, w, d, l, gs, gc, gd, pts}] }]
   const [clubs, setClubs] = useState([]); // all clubs from career_team_management
   const [badges, setBadges] = useState({});
@@ -60,7 +62,8 @@ export default function GroupStageModal({ league, season }) {
           : [],
       }));
       setGroups(list);
-    });
+      setGroupsLoaded(true);
+    }, () => setGroupsLoaded(true));
     return () => unsub();
   }, [league, season]);
 
@@ -141,7 +144,8 @@ export default function GroupStageModal({ league, season }) {
         </div>
       )}
 
-      {!groups.length && (
+      {!groupsLoaded && <InlineSpinner label="LOADING GROUPS..." padding="80px 20px" />}
+      {groupsLoaded && !groups.length && (
         <div style={{ textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.35)" }}>
           <div style={{ fontSize: "3rem", marginBottom: 12 }}>🗂️</div>
           <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", letterSpacing: 3 }}>No Groups Yet</div>
