@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import InlineSpinner from "../components/InlineSpinner";
 import { db, PATHS } from "../firebase";
 import { ref, onValue, push, remove } from "firebase/database";
 
@@ -20,6 +21,7 @@ const labelStyle = {
 
 export default function TeamHistoryModal({ team, onClose }) {
   const [history, setHistory] = useState([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [accounts, setAccounts] = useState([]);
   const [selectedUid, setSelectedUid] = useState("");
   const [fromDate, setFromDate] = useState("");
@@ -36,7 +38,8 @@ export default function TeamHistoryModal({ team, onClose }) {
       } else {
         setHistory([]);
       }
-    });
+      setHistoryLoaded(true);
+    }, () => setHistoryLoaded(true));
     return () => unsub();
   }, [team]);
 
@@ -132,7 +135,9 @@ export default function TeamHistoryModal({ team, onClose }) {
       {/* History list */}
       <div>
         <label style={labelStyle}>Manager History</label>
-        {history.length === 0 ? (
+        {!historyLoaded ? (
+          <InlineSpinner label="LOADING HISTORY..." padding="40px 20px" />
+        ) : history.length === 0 ? (
           <div style={{ textAlign: "center", padding: "40px 20px", color: "rgba(255,255,255,0.3)" }}>
             <div style={{ fontSize: "2.5rem", marginBottom: "10px" }}>📋</div>
             <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: "2px" }}>No History Yet</div>
