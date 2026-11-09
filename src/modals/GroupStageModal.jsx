@@ -3,6 +3,8 @@ import InlineSpinner from "../components/InlineSpinner";
 import { db } from "../firebase";
 import { ref, onValue, push, set, remove } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
+import { recalculateTable } from "../utils/tableLogic";
+import { isUefaLeague } from "../utils/uefaLinks";
 
 const GLASS = {
   background: "rgba(255,255,255,0.04)",
@@ -46,6 +48,10 @@ export default function GroupStageModal({ league, season }) {
   // New group form
   const [newGroupName, setNewGroupName] = useState("");
   const [addingGroup, setAddingGroup] = useState(false);
+
+  // Recalculate from results
+  const [recalcBusy, setRecalcBusy] = useState(false);
+  const [recalcMsg, setRecalcMsg] = useState(null); // { ok, text, details }
 
   // Add team to group
   const [addTeamGroupKey, setAddTeamGroupKey] = useState(null);
@@ -123,6 +129,24 @@ export default function GroupStageModal({ league, season }) {
     await remove(ref(db, `career_${league}/seasons/season_${season}/groups/${gKey}/teams/${tKey}`));
   }
 
+  // Rebuilds every group table from the saved results (honours Team Linking).
+  async function handleRecalculate() {
+    setRecalcBusy(true);
+    setRecalcMsg(null);
+    try {
+      const { applied, skipped } = await recalculateTable(league, season);
+      setRecalcMsg({
+        ok: skipped.length === 0,
+        text: `${applied} result${applied === 1 ? "" : "s"} counted in the group tables.` +
+          (skipped.length ? ` ${skipped.length} could not be matched to a team. Check Admin → Team Linking.` : ""),
+        details: skipped.slice(0, 6).map(sk => `${sk.homeTeam} vs ${sk.awayTeam} (no team for: ${sk.missing.join(", ")})`),
+      });
+    } catch (e) {
+      setRecalcMsg({ ok: false, text: "Recalculation failed: " + e.message, details: [] });
+    }
+    setRecalcBusy(false);
+  }
+
   async function updateTeamStat(gKey, tKey, field, val) {
     await set(ref(db, `career_${league}/seasons/season_${season}/groups/${gKey}/teams/${tKey}/${field}`), +val);
   }
@@ -141,6 +165,15 @@ export default function GroupStageModal({ league, season }) {
           <button onClick={addGroup} disabled={addingGroup} style={{ padding: "10px 20px", background: "#FF1493", border: "none", borderRadius: 10, color: "#fff", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
             + Add Group
           </button>
+          {isUefaLeague(league) && <button onClick={handleRecalculate} disabled={recalcBusy} style={{ padding: "10px 20px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: 10, color: "#fff", fontWeight: 700, cursor: recalcBusy ? "not-allowed" : "pointer", whiteSpace: "nowrap", opacity: recalcBusy ? 0.6 : 1 }}>
+            {recalcBusy ? "Calculating..." : "🔄 Recalculate"}
+          </button>}
+        </div>
+      )}
+      {isAdmin && isUefaLeague(league) && recalcMsg && (
+        <div style={{ marginBottom: 20, padding: "10px 14px", borderRadius: 10, fontSize: "0.85rem", color: recalcMsg.ok ? "#22c55e" : "#FFB347", background: "rgba(255,255,255,0.04)", border: `1px solid ${recalcMsg.ok ? "rgba(34,197,94,0.35)" : "rgba(255,180,0,0.4)"}` }}>
+          {recalcMsg.text}
+          {recalcMsg.details.map((d, i) => <div key={i} style={{ color: "rgba(255,255,255,0.6)", marginTop: 4 }}>• {d}</div>)}
         </div>
       )}
 
