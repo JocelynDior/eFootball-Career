@@ -3,6 +3,7 @@ import { db } from "../firebase";
 import { ref, onValue } from "firebase/database";
 import { useState, useEffect } from "react";
 import { getTeamIcon } from "../utils/teamIcons";
+import { isUefaLeague, decodeUefaLinks, effectiveTeamName } from "../utils/uefaLinks";
 
 const PINK = "#FF1493";
 
@@ -215,8 +216,12 @@ export default function LeagueTable({ league, season, teams = [], onEdit, onDele
     return dashedLines.some(d => d.afterPosition === rank);
   }
 
-  function getForm(teamName) {
+  function getForm(tableTeamName) {
     if (!results || results.length === 0) return [];
+    // UEFA leagues: a linked team's form comes from the team it is linked to
+    const teamName = isUefaLeague(league)
+      ? effectiveTeamName(tableTeamName, decodeUefaLinks(teamLinks))
+      : tableTeamName;
     return results
       .filter(r => (r.homeTeam === teamName || r.awayTeam === teamName) && r.forfeitType !== "no_contest")
       .sort((a, b) => (a.submittedAt || 0) - (b.submittedAt || 0))
