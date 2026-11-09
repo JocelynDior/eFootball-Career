@@ -22,6 +22,7 @@ export default function UefaTeamLinker({ league, season, teams, onBack }) {
   const [groupTeams, setGroupTeams] = useState([]);       // teams that live inside groups
   const [calendarNames, setCalendarNames] = useState([]); // names used in calendar fixtures
   const [resultNames, setResultNames] = useState([]);     // names used in saved + pending results
+  const [clubNames, setClubNames] = useState([]);         // every club in the game (career_team_management)
   const [links, setLinks] = useState({});                 // { tableTeam: linkedTeam }
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("");
@@ -46,6 +47,20 @@ export default function UefaTeamLinker({ league, season, teams, onBack }) {
     });
     return () => unsub();
   }, [league, season]);
+
+  // Every club in the game — the same list "Add Team" picks from, so ANY club can be a link target
+  useEffect(() => {
+    const unsub = onValue(ref(db, "career_team_management"), snap => {
+      const out = [];
+      for (const [key, v] of Object.entries(snap.val() || {})) {
+        // clubs are normally keyed by name; entries created with push() keep the name inside
+        const name = typeof v?.name === "string" && /^-[\w-]{15,}$/.test(key) ? v.name : key;
+        if (name) out.push(name);
+      }
+      setClubNames(out);
+    });
+    return () => unsub();
+  }, []);
 
   // Team names used in this tournament's calendar fixtures
   useEffect(() => {
@@ -96,15 +111,15 @@ export default function UefaTeamLinker({ league, season, teams, onBack }) {
     return out.sort((a, b) => a.name.localeCompare(b.name));
   }, [teams, groupTeams]);
 
-  // Every name a team can be linked to: fixtures + results + the table's own teams
+  // Every name a team can be linked to: all clubs + fixtures + results + the table's own teams
   const options = useMemo(() => {
     const seen = new Map();
-    for (const n of [...calendarNames, ...resultNames, ...tableTeams.map(t => t.name)]) {
+    for (const n of [...clubNames, ...calendarNames, ...resultNames, ...tableTeams.map(t => t.name)]) {
       const k = normName(n);
       if (k && !seen.has(k)) seen.set(k, n);
     }
     return [...seen.values()].sort((a, b) => a.localeCompare(b));
-  }, [calendarNames, resultNames, tableTeams]);
+  }, [clubNames, calendarNames, resultNames, tableTeams]);
 
   // Names that actually appear in fixtures/results (used for the "no results yet" hints)
   const usedNorms = useMemo(
@@ -119,31 +134,42 @@ export default function UefaTeamLinker({ league, season, teams, onBack }) {
     return m;
   }, [links]);
 
-  function handleLink(tableTeam, target) {
-    setLinks(prev => {
-      const updated = { ...prev };
-      if (!target) delete updated[tableTeam];
-      else updated[tableTeam] = target;
-      return updated;
-    });
+  // Runs the (UEFA) table calculation and reports the result in the status line
+  async function recalc(prefix) {
+    const report = await recalculateTable(league, season);
+    setSkipped(report?.skipped || []);
+    setStatus(
+      `${prefix} ${report?.applied ?? 0} result${report?.applied === 1 ? "" : "s"} counted in the table.` +
+      (report?.skipped?.length ? ` ⚠️ ${report.skipped.length} could not be matched.` : "")
+    );
   }
 
-  async function saveLinks() {
+  // Picking a team saves straight away (no separate Save button) and recalculates
+  async function handleLink(tableTeam, target) {
+    const next = { ...links };
+    if (!target) delete next[tableTeam];
+    else next[tableTeam] = target;
+    setLinks(next);
     setSaving(true);
-    setStatus("");
     setSkipped([]);
+    setStatus(`Saving ${tableTeam}...`);
     try {
-      await set(ref(db, linksPath(league)), encodeUefaLinks(links));
-      setStatus("Links saved. Recalculating the table from results...");
-      const report = await recalculateTable(league, season);
-      setSkipped(report?.skipped || []);
-      setStatus(
-        `✅ Links saved! ${report?.applied ?? 0} result${report?.applied === 1 ? "" : "s"} counted in the table.` +
-        (report?.skipped?.length ? ` ⚠️ ${report.skipped.length} could not be matched.` : "")
+      await set(ref(db, linksPath(league)), encodeUefaLinks(next));
+      await recalc(
+        target ? `✅ Saved: ${tableTeam} → ${target}.` : `✅ Link removed: ${tableTeam} uses its own results.`
       );
     } catch (e) {
-      setStatus("❌ Error: " + e.message);
+      setStatus("❌ Could not save: " + e.message);
     }
+    setSaving(false);
+  }
+
+  async function recalcOnly() {
+    setSaving(true);
+    setSkipped([]);
+    setStatus("Recalculating...");
+    try { await recalc("✅ Recalculated."); }
+    catch (e) { setStatus("❌ Error: " + e.message); }
     setSaving(false);
   }
 
@@ -154,8 +180,21 @@ export default function UefaTeamLinker({ league, season, teams, onBack }) {
         Link a table team to another team. The table team takes its stats from <b>that team's results</b>,
         and its manager submits results as that team.<br />
         e.g. "Barcelona" linked to "Real Madrid" → Barcelona's row uses Real Madrid's results only.
-        Teams with no link use their own results.
+        Teams with no link use their own results. Picking a team saves immediately.
       </p>
+
+      {status && (
+        <div style={{ color: status.startsWith("❌") ? "#ff6b6b" : status.includes("⚠️") ? "#FFB347" : "#22c55e", fontSize: "0.85rem", marginBottom: 12, textAlign: "center", position: "sticky", top: 0, background: "rgb(0,0,40)", padding: "8px 0", zIndex: 1 }}>{status}</div>
+      )}
+      {skipped.length > 0 && (
+        <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.8rem", marginBottom: 12 }}>
+          Results using a team name no table team uses or is linked to:
+          {skipped.slice(0, 8).map((s, i) => (
+            <div key={i}>• {s.homeTeam} vs {s.awayTeam} — unknown: {s.missing.join(", ")}</div>
+          ))}
+          {skipped.length > 8 && <div>…and {skipped.length - 8} more</div>}
+        </div>
+      )}
 
       {tableTeams.length > 0 ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
@@ -171,6 +210,7 @@ export default function UefaTeamLinker({ league, season, teams, onBack }) {
                 <select
                   value={link}
                   onChange={e => handleLink(team.name, e.target.value)}
+                  disabled={saving}
                   style={inputStyle}
                 >
                   <option value="">— No link (use its own results) —</option>
@@ -212,26 +252,13 @@ export default function UefaTeamLinker({ league, season, teams, onBack }) {
         </div>
       )}
 
-      {status && (
-        <div style={{ color: status.startsWith("❌") ? "#ff6b6b" : status.includes("⚠️") ? "#FFB347" : "#22c55e", fontSize: "0.85rem", marginBottom: 12, textAlign: "center" }}>{status}</div>
-      )}
-      {skipped.length > 0 && (
-        <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.8rem", marginBottom: 12 }}>
-          Results using a team name no table team uses or is linked to:
-          {skipped.slice(0, 8).map((s, i) => (
-            <div key={i}>• {s.homeTeam} vs {s.awayTeam} — unknown: {s.missing.join(", ")}</div>
-          ))}
-          {skipped.length > 8 && <div>…and {skipped.length - 8} more</div>}
-        </div>
-      )}
-
       <div style={{ display: "flex", gap: 10 }}>
         <button
-          onClick={saveLinks}
+          onClick={recalcOnly}
           disabled={saving}
           style={{ flex: 1, padding: 14, background: saving ? "rgba(255,20,147,0.4)" : "#FF1493", border: "none", borderRadius: 12, color: "#fff", fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", fontSize: "1rem" }}
         >
-          {saving ? "Saving..." : "💾 Save Links"}
+          {saving ? "Working..." : "🔄 Recalculate"}
         </button>
         <button onClick={onBack} style={{ flex: 1, padding: 14, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, color: "#fff", cursor: "pointer" }}>
           ← Back
