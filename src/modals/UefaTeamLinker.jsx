@@ -111,15 +111,29 @@ export default function UefaTeamLinker({ league, season, teams, onBack }) {
     return out.sort((a, b) => a.name.localeCompare(b.name));
   }, [teams, groupTeams]);
 
-  // Every name a team can be linked to: all clubs + fixtures + results + the table's own teams
-  const options = useMemo(() => {
+  // Teams that appear in this league's Results tab (saved + pending results).
+  // BAYERN and Bayern are the same team, so each team is listed once.
+  const resultOptions = useMemo(() => {
     const seen = new Map();
-    for (const n of [...clubNames, ...calendarNames, ...resultNames, ...tableTeams.map(t => t.name)]) {
+    for (const n of resultNames) {
       const k = normName(n);
       if (k && !seen.has(k)) seen.set(k, n);
     }
     return [...seen.values()].sort((a, b) => a.localeCompare(b));
-  }, [clubNames, calendarNames, resultNames, tableTeams]);
+  }, [resultNames]);
+
+  // Any other team: all clubs in the game, calendar fixtures, the table's own teams
+  const otherOptions = useMemo(() => {
+    const inResults = new Set(resultOptions.map(normName));
+    const seen = new Map();
+    for (const n of [...clubNames, ...calendarNames, ...tableTeams.map(t => t.name)]) {
+      const k = normName(n);
+      if (k && !inResults.has(k) && !seen.has(k)) seen.set(k, n);
+    }
+    return [...seen.values()].sort((a, b) => a.localeCompare(b));
+  }, [resultOptions, clubNames, calendarNames, tableTeams]);
+
+  const options = useMemo(() => [...resultOptions, ...otherOptions], [resultOptions, otherOptions]);
 
   // Names that actually appear in fixtures/results (used for the "no results yet" hints)
   const usedNorms = useMemo(
@@ -180,7 +194,8 @@ export default function UefaTeamLinker({ league, season, teams, onBack }) {
         Link a table team to another team. The table team takes its stats from <b>that team's results</b>,
         and its manager submits results as that team.<br />
         e.g. "Barcelona" linked to "Real Madrid" → Barcelona's row uses Real Madrid's results only.
-        Teams with no link use their own results. Picking a team saves immediately.
+        Teams with no link use their own results. Picking a team saves immediately.<br />
+        <span style={{ color: "#FF69B4" }}>Teams found in this league's Results tab: {resultOptions.length}</span>
       </p>
 
       {status && (
@@ -216,17 +231,26 @@ export default function UefaTeamLinker({ league, season, teams, onBack }) {
                   <option value="">— No link (use its own results) —</option>
                   {/* keep a saved link visible even if that name has left the options */}
                   {link && !options.includes(link) && <option value={link}>{link}</option>}
-                  {options
-                    .filter(o => normName(o) !== normName(team.name))
-                    .map(o => {
-                      const owner = takenBy[normName(o)];
-                      const taken = owner && normName(owner) !== normName(team.name);
-                      return (
-                        <option key={o} value={o} disabled={taken}>
-                          {o}{taken ? `  (already linked to ${owner})` : ""}
-                        </option>
-                      );
-                    })}
+                  {[
+                    { label: `Teams in Results (${resultOptions.length})`, list: resultOptions },
+                    { label: "Other teams", list: otherOptions },
+                  ].map(group => {
+                    const list = group.list.filter(o => normName(o) !== normName(team.name));
+                    if (!list.length) return null;
+                    return (
+                      <optgroup key={group.label} label={group.label}>
+                        {list.map(o => {
+                          const owner = takenBy[normName(o)];
+                          const taken = owner && normName(owner) !== normName(team.name);
+                          return (
+                            <option key={o} value={o} disabled={taken}>
+                              {o}{taken ? `  (already linked to ${owner})` : ""}
+                            </option>
+                          );
+                        })}
+                      </optgroup>
+                    );
+                  })}
                 </select>
                 {link ? (
                   <div style={{ color: "#22c55e", fontSize: "0.8rem", marginTop: 6 }}>
