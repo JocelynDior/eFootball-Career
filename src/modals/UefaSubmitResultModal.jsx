@@ -1,0 +1,1268 @@
+import { useState, useEffect, useCallback } from "react";
+import { db, PATHS } from "../firebase";
+import { ref, push, get, set, update, remove, onValue } from "firebase/database";
+// ─────────────────────────────────────────────────────────────────────────────
+// UEFA version of SubmitResultModal (Champions League, Europa, Conference).
+// A copy of the original with ONE behavioural change: team linking.
+//
+// If the manager's assigned team is linked to another team (Admin → Team
+// Linking), the manager plays AS the linked team. Barcelona linked to
+// Real Madrid → a Barcelona manager sees Real Madrid's fixtures, and the result,
+// scorers and assists are saved under "Real Madrid". The table then credits the
+// Barcelona row with Real Madrid's results (see uefaTableLogic.js).
+// With no link everything works exactly like the original.
+// ─────────────────────────────────────────────────────────────────────────────
+import { applyResultToTable } from "../utils/tableLogic";
+import useUefaTeamLink from "../hooks/useUefaTeamLink";
+import { getSASTToday } from "../utils/sastTime";
+import { useAdmin } from "../context/AdminContext";
+import { uploadToImgBB } from "../utils/imgUpload";
+import { CUP_LEAGUES, CUP_STAGES, DOMESTIC_LEAGUE_KEYS } from "../utils/cupConfig";
+import { LEAGUE_TOURNAMENT_NAMES as LEAGUE_TOURNAMENT } from "../utils/leagueTournamentNames";
+
+
+const inputStyle = {
+  width: "100%", padding: "10px 14px",
+  background: "rgba(255,255,255,0.06)",
+  border: "1px solid rgba(255,20,147,0.4)",
+  borderRadius: 10, color: "#fff",
+  fontFamily: "inherit", fontSize: "0.9rem",
+  outline: "none", boxSizing: "border-box", marginBottom: 14,
+};
+const labelStyle = {
+  color: "rgba(255,255,255,0.6)", fontSize: "0.75rem",
+  display: "block", marginBottom: 4,
+  textTransform: "uppercase", letterSpacing: "0.5px",
+};
+
+// ── SAST helpers ──────────────────────────────────────────────────────────────
+function getSASTDateStr(offsetDays = 0) {
+  const d = new Date(Date.now() + 2 * 3600000);
+  d.setUTCDate(d.getUTCDate() + offsetDays);
+  return d.toISOString().split("T")[0];
+}
+
+// ── Check if a result matches any forbidden result ────────────────────────────
+function isForbiddenResult(forbiddenList, homeTeam, awayTeam, homeScore, awayScore) {
+  for (const f of forbiddenList) {
+    const teamsMatch =
+      (f.homeTeam === homeTeam && f.awayTeam === awayTeam) ||
+      (f.homeTeam === awayTeam && f.awayTeam === homeTeam);
+    if (!teamsMatch) continue;
+    if (f.homeScore !== undefined && f.awayScore !== undefined) {
+      const scoresMatch =
+        (Number(f.homeScore) === Number(homeTeam === f.homeTeam ? homeScore : awayScore) &&
+         Number(f.awayScore) === Number(homeTeam === f.homeTeam ? awayScore : homeScore));
+      if (scoresMatch) return true;
+    } else {
+      return true;
+    }
+  }
+  return false;
+}
+
+// ── Upsert scorer/assistant in top stats ──────────────────────────────────────
+async function updateTopStat(league, season, pathKey, playerName, count, team) {
+  const listRef = ref(db, `career_${league}/seasons/season_${season}/${pathKey}`);
+  const snap    = await get(listRef);
+  const existing = snap.val() || {};
+  let foundKey = null, foundEntry = null;
+  for (const [k, v] of Object.entries(existing)) {
+    if ((v.name || "").toLowerCase() === playerName.toLowerCase()) {
+      foundKey = k; foundEntry = v; break;
+    }
+  }
+  if (foundKey) {
+    await set(ref(db, `career_${league}/seasons/season_${season}/${pathKey}/${foundKey}`), {
+      ...foundEntry,
+      count: (foundEntry.count || 0) + count,
+      team: team || foundEntry.team || "",
+    });
+  } else {
+    await push(ref(db, `career_${league}/seasons/season_${season}/${pathKey}`), {
+      name: playerName, count, team: team || "",
+    });
+  }
+}
+
+// ── Detect home/away from calendar fixtures (today + yesterday, SAST) ─────────
+// Returns { homeTeam, awayTeam } from the fixture record — pair order is truth.
+// Falls back to { homeTeam: myTeam, awayTeam: opponent } if no fixture found.
+async function detectHomeAway(league, myTeam, opponent) {
+  const tournamentName = LEAGUE_TOURNAMENT[league] || "";
+  const todayStr     = getSASTDateStr(0);
+  const yesterdayStr = getSASTDateStr(-1);
+
+  const snap = await get(ref(db, "career_calendarEvents"));
+  const data = snap.val() || {};
+
+  for (const dateStr of [todayStr, yesterdayStr]) {
+    const dateData = data[dateStr];
+    if (!dateData?.tournaments) continue;
+    for (const tourn of Object.values(dateData.tournaments)) {
+      if (!tourn?.name) continue;
+      if (!tourn.name.trim().toLowerCase().includes(tournamentName)) continue;
+      for (const fix of Object.values(tourn.fixtures || {})) {
+        if (!fix?.home || !fix?.away) continue;
+        const pair =
+          (fix.home.toLowerCase() === myTeam.toLowerCase() && fix.away.toLowerCase() === opponent.toLowerCase()) ||
+          (fix.home.toLowerCase() === opponent.toLowerCase() && fix.away.toLowerCase() === myTeam.toLowerCase());
+        if (pair) return { homeTeam: fix.home, awayTeam: fix.away };
+      }
+    }
+  }
+  return { homeTeam: myTeam, awayTeam: opponent };
+}
+
+// ── Combined opponent pool for cup competitions: every team currently in the
+// active-season table of each of the 5 domestic leagues, deduped & sorted ───
+async function fetchCupOpponentPool() {
+  const names = new Set();
+  for (const leagueKey of DOMESTIC_LEAGUE_KEYS) {
+    try {
+      const settingsSnap = await get(ref(db, `career_${leagueKey}_settings/activeSeason`));
+      const activeSeason = settingsSnap.val() || "1";
+      const tableSnap = await get(ref(db, PATHS.table(leagueKey, activeSeason)));
+      const table = tableSnap.val() || {};
+      for (const t of Object.values(table)) {
+        if (t?.name) names.add(t.name);
+      }
+    } catch {
+      // one league failing shouldn't block the others
+    }
+  }
+  return Array.from(names).sort();
+}
+
+// ── Check for existing result (symmetric team pair) ───────────────────────────
+async function findExistingResult(league, season, myTeam, opponent, roundValue, isCup) {
+  const snap = await get(ref(db, PATHS.results(league, season)));
+  const data = snap.val() || {};
+  for (const [key, val] of Object.entries(data)) {
+    const roundMatches = isCup ? String(val.stage) === String(roundValue) : String(val.md) === String(roundValue);
+    if (!roundMatches) continue;
+    const sameTeams =
+      (val.homeTeam === myTeam && val.awayTeam === opponent) ||
+      (val.homeTeam === opponent && val.awayTeam === myTeam);
+    if (sameTeams) return { key, ...val };
+  }
+  return null;
+}
+
+// ── Player picker sheet ───────────────────────────────────────────────────────
+function PlayerPickerSheet({ title, players, myTeam, onSelectExisting, onAddNew, onClose }) {
+  const [newName, setNewName] = useState("");
+  const [showNew, setShowNew] = useState(false);
+  const myPlayers = players.filter(p => (p.team || "").toLowerCase() === myTeam.toLowerCase());
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "flex-end" }} onClick={onClose}>
+      <div style={{ width: "100%", maxHeight: "75vh", background: "rgba(10,0,25,0.98)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: "24px 24px 0 0", padding: "24px 20px", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+        <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.6rem", letterSpacing: 2, marginBottom: 16 }}>{title}</div>
+        {myPlayers.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>Your existing players</div>
+            {myPlayers.map(p => (
+              <button key={p.key} onClick={() => onSelectExisting(p)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", background: "rgba(255,20,147,0.08)", border: "1px solid rgba(255,20,147,0.25)", borderRadius: 12, padding: "12px 16px", marginBottom: 8, cursor: "pointer", color: "#fff" }}>
+                <span style={{ fontWeight: 700, fontSize: "1rem" }}>{p.name}</span>
+                <span style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.2rem" }}>{p.count || 0}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {!showNew ? (
+          <button onClick={() => setShowNew(true)} style={{ width: "100%", padding: "14px 0", background: "rgba(255,255,255,0.06)", border: "2px dashed rgba(255,20,147,0.4)", borderRadius: 12, color: "#FF1493", fontWeight: 700, fontSize: "1rem", cursor: "pointer" }}>
+            + Add Different Player
+          </button>
+        ) : (
+          <div>
+            <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>New player name</div>
+            <input autoFocus value={newName} onChange={e => setNewName(e.target.value)} placeholder="Player name..." style={inputStyle} onKeyDown={e => { if (e.key === "Enter" && newName.trim()) onAddNew(newName.trim()); }} />
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => { if (newName.trim()) onAddNew(newName.trim()); }} style={{ flex: 1, padding: 12, background: "#FF1493", border: "none", borderRadius: 12, color: "#fff", fontWeight: 700, cursor: "pointer" }}>Add</button>
+              <button onClick={() => setShowNew(false)} style={{ flex: 1, padding: 12, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 12, color: "#fff", cursor: "pointer" }}>Back</button>
+            </div>
+          </div>
+        )}
+        <button onClick={onClose} style={{ width: "100%", marginTop: 12, padding: 12, background: "transparent", border: "none", color: "rgba(255,255,255,0.4)", cursor: "pointer", fontSize: "0.9rem" }}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Count picker ──────────────────────────────────────────────────────────────
+function CountPicker({ label, value, onChange }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 6 }}>
+      {/* The modal forces padding + font-size on every <button> with !important, which pushed
+          the symbol out of the circle. This scoped rule wins and centres the symbol inside. */}
+      <style>{`
+        .modal-inner button.cp-btn {
+          width: 52px !important; height: 52px !important; min-width: 52px !important;
+          padding: 0 !important; font-size: 2.4rem !important; line-height: 1 !important;
+          display: inline-flex !important; align-items: center !important; justify-content: center !important;
+          border-radius: 50% !important; flex-shrink: 0;
+        }
+      `}</style>
+      <span style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.85rem" }}>{label}</span>
+      <button className="cp-btn" onClick={() => onChange(Math.max(1, value - 1))} style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", cursor: "pointer" }}>−</button>
+      <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", color: "#FF1493", minWidth: 40, textAlign: "center" }}>{value}</span>
+      <button className="cp-btn" onClick={() => onChange(value + 1)} style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", cursor: "pointer" }}>+</button>
+    </div>
+  );
+}
+
+// ── Matchday picker — two buttons driven by the page countdown numbers ─────────
+function MatchdayPicker({ matchday, setMatchday, prevMatchday, currMatchday }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <label style={labelStyle}>Matchday <span style={{ color: "#ff6b6b" }}>*</span></label>
+      <div style={{ display: "flex", gap: 10 }}>
+        <button
+          onClick={() => setMatchday(prevMatchday != null ? String(prevMatchday) : "")}
+          style={{
+            flex: 1, padding: "14px 10px", borderRadius: 12, cursor: "pointer",
+            border: `2px solid ${matchday === String(prevMatchday) ? "#FF1493" : "rgba(255,20,147,0.3)"}`,
+            background: matchday === String(prevMatchday) ? "rgba(255,20,147,0.18)" : "rgba(255,255,255,0.04)",
+            color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.1rem", letterSpacing: 1,
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+          }}
+        >
+          <span style={{ fontSize: "1.3rem" }}>⏮</span>
+          <span>PREVIOUS</span>
+          <span style={{ color: matchday === String(prevMatchday) ? "#FF1493" : "rgba(255,255,255,0.5)", fontSize: "1.4rem" }}>
+            {prevMatchday != null ? `MD ${prevMatchday}` : "—"}
+          </span>
+        </button>
+        <button
+          onClick={() => setMatchday(currMatchday != null ? String(currMatchday) : "")}
+          style={{
+            flex: 1, padding: "14px 10px", borderRadius: 12, cursor: "pointer",
+            border: `2px solid ${matchday === String(currMatchday) ? "#a855f7" : "rgba(168,85,247,0.3)"}`,
+            background: matchday === String(currMatchday) ? "rgba(168,85,247,0.18)" : "rgba(255,255,255,0.04)",
+            color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.1rem", letterSpacing: 1,
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+          }}
+        >
+          <span style={{ fontSize: "1.3rem" }}>📅</span>
+          <span>CURRENT</span>
+          <span style={{ color: matchday === String(currMatchday) ? "#a855f7" : "rgba(255,255,255,0.5)", fontSize: "1.4rem" }}>
+            {currMatchday != null ? `MD ${currMatchday}` : "—"}
+          </span>
+        </button>
+      </div>
+      {matchday && (
+        <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.78rem", marginTop: 6, textAlign: "center" }}>
+          Selected: <strong style={{ color: "#fff" }}>Matchday {matchday}</strong>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Opponent + stage/matchday picker — cup competitions get a free opponent
+// dropdown + stage select; leagues keep the scheduled-fixture card picker ────
+function OpponentAndRoundPicker({
+  isCup, opponent, setOpponent, others, cupOpponentsLoading,
+  matchday, setMatchday, date, setDate,
+  fixturesLoading, myFixtures, handleFixtureSelect, currMatchday, prevMatchday,
+}) {
+  if (isCup) {
+    return (
+      <>
+        <label style={labelStyle}>Opponent <span style={{ color: "#ff6b6b" }}>*</span></label>
+        <select value={opponent} onChange={e => setOpponent(e.target.value)} style={inputStyle} disabled={cupOpponentsLoading}>
+          <option value="">{cupOpponentsLoading ? "Loading teams..." : "— Select opponent —"}</option>
+          {others.map(name => <option key={name} value={name}>{name}</option>)}
+        </select>
+
+        <label style={labelStyle}>Stage <span style={{ color: "#ff6b6b" }}>*</span></label>
+        <select value={matchday} onChange={e => setMatchday(e.target.value)} style={inputStyle}>
+          <option value="">— Select stage —</option>
+          {CUP_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+
+        <label style={labelStyle}>Date</label>
+        <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <label style={labelStyle}>Select Your Fixture</label>
+      {fixturesLoading ? (
+        <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.85rem", marginBottom: 14 }}>Loading fixtures...</div>
+      ) : myFixtures.length === 0 ? (
+        <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, padding: "16px", marginBottom: 14, color: "rgba(255,255,255,0.4)", fontSize: "0.85rem", textAlign: "center" }}>
+          No scheduled fixtures found for your team in the current or previous matchday.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 18, marginBottom: 14 }}>
+          {/* The modal forces padding on every <button> with !important, so the card padding is set here */}
+          <style>{`.modal-inner button.fix-card { padding: 30px 36px !important; }`}</style>
+          {myFixtures.map((fix, i) => {
+            const isSelected = opponent === fix.opponent && date === fix.date;
+            const mdNum = fix.slot === "current" ? currMatchday : prevMatchday;
+            const slotLabel = fix.slot === "current" ? "📅 Current Matchday" : "⏮ Previous Matchday";
+            return (
+              <button
+                key={i}
+                className="fix-card"
+                onClick={() => handleFixtureSelect(fix)}
+                style={{
+                  width: "100%", borderRadius: 22, cursor: "pointer",
+                  border: `2px solid ${isSelected ? "#FF1493" : "rgba(255,20,147,0.25)"}`,
+                  background: isSelected ? "rgba(255,20,147,0.15)" : "rgba(255,255,255,0.04)",
+                  textAlign: "left", color: "#fff", fontFamily: "inherit",
+                  transition: "all 0.15s",
+                }}
+              >
+                <div style={{ color: isSelected ? "#FF1493" : "rgba(255,255,255,0.45)", fontSize: "2.16rem", fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", marginBottom: 12 }}>
+                  {slotLabel}{mdNum != null ? ` — MD ${mdNum}` : ""}
+                </div>
+                <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.6rem", letterSpacing: 2, lineHeight: 1.05, wordBreak: "break-word" }}>
+                  {fix.home} <span style={{ color: "#FF1493" }}>vs</span> {fix.away}
+                </div>
+                <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "2.25rem", marginTop: 10 }}>{fix.date}</div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Static matchday label */}
+      {matchday && (
+        <div style={{ background: "rgba(255,20,147,0.08)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 10, padding: "10px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: 1 }}>Matchday</span>
+          <span style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: 1 }}>{matchday}</span>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── Admin: Forbidden Results Manager ─────────────────────────────────────────
+function ForbiddenResultsManager({ league, teams, onClose }) {
+  const [forbiddenList, setForbiddenList] = useState([]);
+  const [homeTeam, setHomeTeam]   = useState("");
+  const [awayTeam, setAwayTeam]   = useState("");
+  const [homeScore, setHomeScore] = useState("");
+  const [awayScore, setAwayScore] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState("");
+
+  useEffect(() => {
+    const unsub = onValue(ref(db, `career_${league}_settings/forbiddenResults`), snap => {
+      const d = snap.val() || {};
+      setForbiddenList(Object.entries(d).map(([k, v]) => ({ key: k, ...v })));
+    });
+    return () => unsub();
+  }, [league]);
+
+  async function handleAdd() {
+    if (!homeTeam || !awayTeam) { setStatus("Select both teams."); return; }
+    if (homeTeam === awayTeam) { setStatus("Teams must be different."); return; }
+    setSaving(true);
+    setStatus("");
+    const entry = { homeTeam, awayTeam };
+    if (homeScore !== "" && awayScore !== "") {
+      entry.homeScore = Number(homeScore);
+      entry.awayScore = Number(awayScore);
+    }
+    await push(ref(db, `career_${league}_settings/forbiddenResults`), entry);
+    setHomeTeam(""); setAwayTeam(""); setHomeScore(""); setAwayScore("");
+    setSaving(false);
+    setStatus("✅ Forbidden result added.");
+  }
+
+  async function handleDelete(key) {
+    if (!window.confirm("Remove this forbidden result?")) return;
+    await remove(ref(db, `career_${league}_settings/forbiddenResults/${key}`));
+  }
+
+  const teamNames = teams.map(t => t.name).sort();
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: "1.2rem" }}>← Back</button>
+        <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", margin: 0 }}>🚫 Forbidden Results</h3>
+      </div>
+      <div style={{ background: "rgba(255,50,50,0.08)", border: "1px solid rgba(255,50,50,0.3)", borderRadius: 12, padding: "12px 16px", marginBottom: 20, color: "rgba(255,200,200,0.8)", fontSize: "0.85rem", lineHeight: 1.6 }}>
+        Any result matching a forbidden entry will be <strong>automatically declined</strong> when a manager or admin tries to submit it.
+        You can forbid a specific score, or leave the score blank to block any result between two teams.
+      </div>
+      <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,20,147,0.2)", borderRadius: 14, padding: "16px 18px", marginBottom: 20 }}>
+        <div style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.2rem", letterSpacing: 1, marginBottom: 14 }}>Add Forbidden Result</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div>
+            <label style={labelStyle}>Home Team</label>
+            <select value={homeTeam} onChange={e => setHomeTeam(e.target.value)} style={inputStyle}>
+              <option value="">— Select —</option>
+              {teamNames.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>Away Team</label>
+            <select value={awayTeam} onChange={e => setAwayTeam(e.target.value)} style={inputStyle}>
+              <option value="">— Select —</option>
+              {teamNames.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.75rem", marginBottom: 10 }}>Score (optional — leave blank to block any result between these teams)</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div>
+            <label style={labelStyle}>Home Score</label>
+            <input type="number" min={0} value={homeScore} onChange={e => setHomeScore(e.target.value)} placeholder="e.g. 3" style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Away Score</label>
+            <input type="number" min={0} value={awayScore} onChange={e => setAwayScore(e.target.value)} placeholder="e.g. 0" style={inputStyle} />
+          </div>
+        </div>
+        {status && <div style={{ color: status.startsWith("✅") ? "#22c55e" : "#ff6b6b", fontSize: "0.85rem", marginBottom: 10 }}>{status}</div>}
+        <button onClick={handleAdd} disabled={saving} style={{ width: "100%", padding: 12, background: "#FF1493", border: "none", borderRadius: 12, color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem" }}>
+          {saving ? "Saving..." : "🚫 Add Forbidden Result"}
+        </button>
+      </div>
+      {forbiddenList.length === 0 ? (
+        <div style={{ color: "rgba(255,255,255,0.3)", textAlign: "center", padding: "24px 0", fontSize: "0.9rem" }}>No forbidden results set.</div>
+      ) : (
+        <div>
+          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Active Forbidden Results</div>
+          {forbiddenList.map(f => (
+            <div key={f.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,50,50,0.06)", border: "1px solid rgba(255,50,50,0.2)", borderRadius: 12, padding: "12px 16px", marginBottom: 8 }}>
+              <div>
+                <div style={{ color: "#fff", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.1rem", letterSpacing: 1 }}>
+                  {f.homeTeam} <span style={{ color: "#FF1493" }}>vs</span> {f.awayTeam}
+                </div>
+                {f.homeScore !== undefined && f.awayScore !== undefined ? (
+                  <div style={{ color: "rgba(255,200,200,0.6)", fontSize: "0.8rem" }}>Score: {f.homeScore} — {f.awayScore}</div>
+                ) : (
+                  <div style={{ color: "rgba(255,200,200,0.6)", fontSize: "0.8rem" }}>Any score</div>
+                )}
+              </div>
+              <button onClick={() => handleDelete(f.key)} style={{ background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.3)", borderRadius: 8, color: "#ff6b6b", padding: "6px 12px", cursor: "pointer", fontSize: "0.9rem" }}>🗑️</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Admin: Enter Result Directly ──────────────────────────────────────────────
+function AdminEnterResultView({ league, season, teams, forbiddenList, onClose }) {
+  const isCup = CUP_LEAGUES.has(league);
+  const [homeTeam, setHomeTeam]   = useState("");
+  const [awayTeam, setAwayTeam]   = useState("");
+  const [homeScore, setHomeScore] = useState(0);
+  const [awayScore, setAwayScore] = useState(0);
+  const [matchday, setMatchday]   = useState(""); // stage string for cups, matchday number for leagues
+  const [date, setDate]           = useState(getSASTToday());
+  const [matchType, setMatchType] = useState("normal");
+  const [saving, setSaving]       = useState(false);
+  const [status, setStatus]       = useState("");
+
+  const [cupOpponents, setCupOpponents] = useState([]);
+  const [cupOpponentsLoading, setCupOpponentsLoading] = useState(true);
+  useEffect(() => {
+    if (!isCup) { setCupOpponentsLoading(false); return; }
+    let cancelled = false;
+    setCupOpponentsLoading(true);
+    fetchCupOpponentPool().then(names => {
+      if (cancelled) return;
+      setCupOpponents(names);
+      setCupOpponentsLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [isCup]);
+
+  const teamNames = isCup ? cupOpponents : teams.map(t => t.name).sort();
+
+  async function handleSubmit() {
+    if (!homeTeam || !awayTeam) { setStatus("Select both teams."); return; }
+    if (homeTeam === awayTeam)  { setStatus("Teams must be different."); return; }
+    if (!matchday)              { setStatus(isCup ? "Stage is required." : "Matchday is required."); return; }
+
+    const isForfeit   = matchType === "forfeit";
+    const isNoContest = matchType === "no_contest";
+    const finalHome   = isForfeit ? 3 : isNoContest ? 0 : Number(homeScore);
+    const finalAway   = isForfeit ? 0 : isNoContest ? 0 : Number(awayScore);
+    const forfeitType = isForfeit ? "forfeit_win" : isNoContest ? "no_contest" : "none";
+
+    if (!isForfeit && !isNoContest) {
+      if (isForbiddenResult(forbiddenList, homeTeam, awayTeam, finalHome, finalAway)) {
+        setStatus("❌ Result Declined — this result is on the forbidden list.");
+        return;
+      }
+    }
+
+    setSaving(true);
+    setStatus("Saving...");
+    try {
+      await push(ref(db, PATHS.results(league, season)), {
+        homeTeam, awayTeam, homeScore: finalHome, awayScore: finalAway,
+        forfeitType, matchType,
+        ...(isCup ? { stage: matchday } : { md: Number(matchday) }),
+        date,
+        goalScorers: { home: [], away: [] },
+        assists: { home: [], away: [] },
+        submittedBy: "admin",
+        submittedAt: Date.now(),
+        status: "approved",
+        approvedAt: Date.now(),
+      });
+      await applyResultToTable(league, season, homeTeam, awayTeam, finalHome, finalAway, forfeitType);
+      setStatus("✅ Result entered successfully!");
+      setTimeout(onClose, 1200);
+    } catch (e) {
+      setStatus("Error: " + e.message);
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: "1.2rem" }}>← Back</button>
+        <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", margin: 0 }}>📋 Enter Result</h3>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 18 }}>
+        {[["normal","⚽ Normal"], ["forfeit","🚫 Forfeit Win"], ["no_contest","🟡 No Contest"]].map(([val, label]) => (
+          <button key={val} onClick={() => setMatchType(val)} style={{ padding: "10px 6px", borderRadius: 10, border: `2px solid ${matchType === val ? "#FF1493" : "rgba(255,255,255,0.15)"}`, background: matchType === val ? "rgba(255,20,147,0.15)" : "rgba(255,255,255,0.04)", color: matchType === val ? "#FF1493" : "rgba(255,255,255,0.6)", fontWeight: 700, cursor: "pointer", fontSize: "0.8rem" }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div>
+          <label style={labelStyle}>Home Team</label>
+          <select value={homeTeam} onChange={e => setHomeTeam(e.target.value)} style={inputStyle} disabled={isCup && cupOpponentsLoading}>
+            <option value="">{isCup && cupOpponentsLoading ? "Loading teams..." : "— Select —"}</option>
+            {teamNames.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>Away Team</label>
+          <select value={awayTeam} onChange={e => setAwayTeam(e.target.value)} style={inputStyle} disabled={isCup && cupOpponentsLoading}>
+            <option value="">{isCup && cupOpponentsLoading ? "Loading teams..." : "— Select —"}</option>
+            {teamNames.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {matchType === "normal" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div>
+            <label style={labelStyle}>Home Score</label>
+            <input type="number" min={0} value={homeScore} onChange={e => setHomeScore(e.target.value)} style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Away Score</label>
+            <input type="number" min={0} value={awayScore} onChange={e => setAwayScore(e.target.value)} style={inputStyle} />
+          </div>
+        </div>
+      )}
+
+      {isCup ? (
+        <>
+          <label style={labelStyle}>Stage</label>
+          <select value={matchday} onChange={e => setMatchday(e.target.value)} style={inputStyle}>
+            <option value="">— Select stage —</option>
+            {CUP_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </>
+      ) : (
+        <>
+          <label style={labelStyle}>Matchday</label>
+          <input type="number" min={1} value={matchday} onChange={e => setMatchday(e.target.value)} placeholder="e.g. 5" style={inputStyle} />
+        </>
+      )}
+
+      <label style={labelStyle}>Date</label>
+      <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} />
+
+      {status && <div style={{ color: status.startsWith("✅") ? "#22c55e" : "#ff6b6b", fontSize: "0.85rem", margin: "10px 0", textAlign: "center" }}>{status}</div>}
+
+      <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+        <button onClick={handleSubmit} disabled={saving} style={{ flex: 1, padding: 14, background: saving ? "rgba(255,20,147,0.4)" : "#FF1493", border: "none", borderRadius: 12, color: "#fff", fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", fontSize: "1rem" }}>
+          {saving ? "Saving..." : "✅ Save Result"}
+        </button>
+        <button onClick={onClose} style={{ flex: 1, padding: 14, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, color: "#fff", cursor: "pointer" }}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Main Modal ────────────────────────────────────────────────────────────────
+export default function UefaSubmitResultModal({ league, season, teams, onClose, prevMatchday, currMatchday }) {
+  const { manager, isAdmin } = useAdmin();
+  // The team the manager was assigned vs the team they play as (via team linking)
+  const assignedTeam = manager?.team || "";
+  const { effectiveTeam: myTeam, isLinked } = useUefaTeamLink(league, assignedTeam);
+  const teamLabel = isLinked ? `${assignedTeam} (playing as ${myTeam})` : myTeam;
+  const isCup = CUP_LEAGUES.has(league);
+
+  const [forbiddenList, setForbiddenList] = useState([]);
+  useEffect(() => {
+    const unsub = onValue(ref(db, `career_${league}_settings/forbiddenResults`), snap => {
+      const d = snap.val() || {};
+      setForbiddenList(Object.entries(d).map(([k, v]) => ({ key: k, ...v })));
+    });
+    return () => unsub();
+  }, [league]);
+
+  // Managers may only submit into the ACTIVE season of this competition
+  const [activeSeasonNow, setActiveSeasonNow] = useState(null);
+  useEffect(() => {
+    const unsub = onValue(ref(db, `career_${league}_settings`), snap => {
+      const d = snap.val() || {};
+      const list = Array.isArray(d.seasons) && d.seasons.length ? d.seasons.map(String) : ["1"];
+      setActiveSeasonNow(d.activeSeason != null ? String(d.activeSeason) : list[0]);
+    });
+    return () => unsub();
+  }, [league]);
+  const seasonLocked = !isAdmin && activeSeasonNow !== null && String(season) !== activeSeasonNow;
+
+  const [adminView, setAdminView] = useState(null);
+  const [matchType, setMatchType] = useState(null);
+
+  const [opponent,   setOpponent]   = useState("");
+  const [myScore,    setMyScore]    = useState(0);
+  const [oppScore,   setOppScore]   = useState(0);
+  const [matchday,   setMatchday]   = useState(""); // holds a stage string for cups, a matchday number for leagues
+  const [date,       setDate]       = useState(getSASTToday());
+
+  // Fixtures from pending sections (today + yesterday) for opponent card selection — leagues only
+  const [myFixtures, setMyFixtures] = useState([]); // [{opponent, home, away, date, matchday, slot}]
+  const [fixturesLoading, setFixturesLoading] = useState(true);
+
+  // Combined domestic-league team pool for cup opponent picking
+  const [cupOpponents, setCupOpponents] = useState([]);
+  const [cupOpponentsLoading, setCupOpponentsLoading] = useState(true);
+
+  const [scorers,  setScorers]  = useState([]);
+  const [assists,  setAssists]  = useState([]);
+
+  const [existingScorers, setExistingScorers] = useState([]);
+  const [existingAssists, setExistingAssists] = useState([]);
+
+  const [pickerType,   setPickerType]   = useState(null);
+  const [pendingCount, setPendingCount] = useState(1);
+
+  const [matchImage,        setMatchImage]        = useState(null);
+  const [matchImagePreview, setMatchImagePreview] = useState("");
+
+  const [existingResult,    setExistingResult]    = useState(null);
+  const [isSecondManager,   setIsSecondManager]   = useState(false);
+  const [checkingDuplicate, setCheckingDuplicate] = useState(false);
+
+  const [detectedHome, setDetectedHome] = useState(null);
+  const [detectedAway, setDetectedAway] = useState(null);
+
+  const [saving,     setSaving]     = useState(false);
+  const [status,     setStatus]     = useState("");
+  const [confirming, setConfirming] = useState(false);
+
+  const others = isCup
+    ? cupOpponents.filter(n => n.toLowerCase() !== myTeam.toLowerCase())
+    : teams.filter(t => t.name !== myTeam).map(t => t.name).sort();
+
+  // Cup competitions: load the combined domestic-league opponent pool once
+  useEffect(() => {
+    if (!isCup) { setCupOpponentsLoading(false); return; }
+    let cancelled = false;
+    setCupOpponentsLoading(true);
+    fetchCupOpponentPool().then(names => {
+      if (cancelled) return;
+      setCupOpponents(names);
+      setCupOpponentsLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [isCup]);
+
+
+  // Load existing scorers/assists for player picker
+  useEffect(() => {
+    if (!league || !season) return;
+    get(ref(db, `career_${league}/seasons/season_${season}/top_scorers`)).then(snap => {
+      const d = snap.val() || {};
+      setExistingScorers(Object.entries(d).map(([k, v]) => ({ key: k, ...v })));
+    });
+    get(ref(db, `career_${league}/seasons/season_${season}/top_assistants`)).then(snap => {
+      const d = snap.val() || {};
+      setExistingAssists(Object.entries(d).map(([k, v]) => ({ key: k, ...v })));
+    });
+  }, [league, season]);
+
+  // Load fixtures from today + yesterday where myTeam appears — leagues only
+  useEffect(() => {
+    if (!myTeam || !league || isCup) { setFixturesLoading(false); return; }
+    const tournamentName = LEAGUE_TOURNAMENT[league] || "";
+    const todayStr     = getSASTDateStr(0);
+    const yesterdayStr = getSASTDateStr(-1);
+
+    const unsub = onValue(ref(db, "career_calendarEvents"), snap => {
+      const data = snap.val() || {};
+      const found = [];
+
+      for (const [slot, dateStr] of [["current", todayStr], ["previous", yesterdayStr]]) {
+        const dayData = data[dateStr];
+        if (!dayData?.tournaments) continue;
+        for (const tourn of Object.values(dayData.tournaments)) {
+          if (!(tourn?.name || "").toLowerCase().includes(tournamentName)) continue;
+          for (const fix of Object.values(tourn?.fixtures || {})) {
+            if (!fix?.home || !fix?.away) continue;
+            const isHome = fix.home.toLowerCase() === myTeam.toLowerCase();
+            const isAway = fix.away.toLowerCase() === myTeam.toLowerCase();
+            if (!isHome && !isAway) continue;
+            found.push({
+              opponent: isHome ? fix.away : fix.home,
+              home: fix.home,
+              away: fix.away,
+              date: dateStr,
+              slot, // "current" or "previous"
+            });
+          }
+        }
+      }
+      setMyFixtures(found);
+      setFixturesLoading(false);
+    });
+    return () => unsub();
+  }, [myTeam, league]);
+
+  // Detect home/away as soon as opponent is selected — does NOT wait for matchday.
+  // Cups have no scheduled fixture to look up, so just default to myTeam as home.
+  useEffect(() => {
+    if (!opponent || !myTeam) {
+      setDetectedHome(null);
+      setDetectedAway(null);
+      return;
+    }
+    if (isCup) {
+      setDetectedHome(myTeam);
+      setDetectedAway(opponent);
+      return;
+    }
+    let cancelled = false;
+    detectHomeAway(league, myTeam, opponent).then(homeAway => {
+      if (cancelled) return;
+      setDetectedHome(homeAway.homeTeam);
+      setDetectedAway(homeAway.awayTeam);
+    });
+    return () => { cancelled = true; };
+  }, [opponent, myTeam, league, isCup]);
+
+  // Check for duplicate / second manager once opponent AND stage/matchday are both set
+  useEffect(() => {
+    if (!opponent || !matchday || matchType !== "normal") {
+      setExistingResult(null);
+      setIsSecondManager(false);
+      setCheckingDuplicate(false);
+      return;
+    }
+    let cancelled = false;
+    setCheckingDuplicate(true);
+    findExistingResult(league, season, myTeam, opponent, matchday, isCup).then(existing => {
+      if (cancelled) return;
+      if (existing) {
+        setExistingResult(existing);
+        setIsSecondManager(true);
+        // Use already-set detectedHome/Away to fill scores correctly
+        const iAmHome = (detectedHome || "").toLowerCase() === myTeam.toLowerCase();
+        setMyScore(iAmHome ? (existing.homeScore ?? 0) : (existing.awayScore ?? 0));
+        setOppScore(iAmHome ? (existing.awayScore ?? 0) : (existing.homeScore ?? 0));
+      } else {
+        setExistingResult(null);
+        setIsSecondManager(false);
+      }
+      setCheckingDuplicate(false);
+    });
+    return () => { cancelled = true; };
+  }, [opponent, matchday, matchType, league, season, myTeam, detectedHome, isCup]);
+
+  function handleMatchImageChange(e) {
+    const f = e.target.files[0]; if (!f) return;
+    setMatchImage(f);
+    const r = new FileReader(); r.onload = ev => setMatchImagePreview(ev.target.result); r.readAsDataURL(f);
+  }
+
+  function openScorerPicker() { setPendingCount(1); setPickerType("scorer"); }
+  function openAssistPicker() { setPendingCount(1); setPickerType("assist"); }
+
+  function handleSelectExistingScorer(player) {
+    setScorers(prev => {
+      const idx = prev.findIndex(s => s.player.toLowerCase() === player.name.toLowerCase());
+      if (idx >= 0) { const u = [...prev]; u[idx] = { ...u[idx], goals: u[idx].goals + pendingCount }; return u; }
+      return [...prev, { player: player.name, goals: pendingCount }];
+    });
+    setPickerType(null);
+  }
+  function handleAddNewScorer(name) {
+    setScorers(prev => {
+      const idx = prev.findIndex(s => s.player.toLowerCase() === name.toLowerCase());
+      if (idx >= 0) { const u = [...prev]; u[idx] = { ...u[idx], goals: u[idx].goals + pendingCount }; return u; }
+      return [...prev, { player: name, goals: pendingCount }];
+    });
+    setPickerType(null);
+  }
+  function handleSelectExistingAssist(player) {
+    setAssists(prev => {
+      const idx = prev.findIndex(a => a.player.toLowerCase() === player.name.toLowerCase());
+      if (idx >= 0) { const u = [...prev]; u[idx] = { ...u[idx], assists: u[idx].assists + pendingCount }; return u; }
+      return [...prev, { player: player.name, assists: pendingCount }];
+    });
+    setPickerType(null);
+  }
+  function handleAddNewAssist(name) {
+    setAssists(prev => {
+      const idx = prev.findIndex(a => a.player.toLowerCase() === name.toLowerCase());
+      if (idx >= 0) { const u = [...prev]; u[idx] = { ...u[idx], assists: u[idx].assists + pendingCount }; return u; }
+      return [...prev, { player: name, assists: pendingCount }];
+    });
+    setPickerType(null);
+  }
+  function removeScorer(i) { setScorers(prev => prev.filter((_, idx) => idx !== i)); }
+  function removeAssist(i) { setAssists(prev => prev.filter((_, idx) => idx !== i)); }
+
+  function handleFixtureSelect(fix) {
+    setOpponent(fix.opponent);
+    setDetectedHome(fix.home);
+    setDetectedAway(fix.away);
+    setDate(fix.date);
+    setMatchday(fix.slot === "current"
+      ? (currMatchday != null ? String(currMatchday) : "")
+      : (prevMatchday != null ? String(prevMatchday) : "")
+    );
+  }
+
+  function handleSubmitClick() {
+    if (seasonLocked) { setStatus(`Results can only be submitted to the active season (Season ${activeSeasonNow}).`); return; }
+    if (!opponent)  { setStatus("Please select an opponent."); return; }
+    if (!matchday)  { setStatus(isCup ? "Please select a stage." : "Please select a matchday."); return; }
+    if (!matchImage) { setStatus("A match image is required."); return; }
+    setStatus(""); setConfirming(true);
+  }
+
+  async function handleConfirmSubmit() {
+    setSaving(true);
+    try {
+      if (!isAdmin) {
+        const [aSnap, lSnap] = await Promise.all([
+          get(ref(db, `career_${league}_settings/activeSeason`)),
+          get(ref(db, `career_${league}_settings/seasons`)),
+        ]);
+        const l = Array.isArray(lSnap.val()) && lSnap.val().length ? lSnap.val().map(String) : ["1"];
+        const act = aSnap.val() != null ? String(aSnap.val()) : l[0];
+        if (String(season) !== act) {
+          setStatus(`Results can only be submitted to the active season (Season ${act}).`);
+          setSaving(false);
+          setConfirming(false);
+          return;
+        }
+      }
+      // Fresh Firebase check at submit time — prevents race-condition duplicates
+      const existingNow = await findExistingResult(league, season, myTeam, opponent, matchday, isCup);
+      const isSecondNow = !!existingNow;
+
+      const scorersData = scorers.map(s => ({ player: s.player, goals: s.goals, team: myTeam }));
+      const assistsData = assists.map(a => ({ player: a.player, assists: a.assists, team: myTeam }));
+
+      setStatus("Uploading match image...");
+      const matchImageUrl = await uploadToImgBB(matchImage);
+
+      if (isSecondNow && existingNow) {
+        // ── SECOND MANAGER ───────────────────────────────────────────────────
+        // iAmHome derived from the STORED result's homeTeam — never from local
+        // detectedHome state which may differ for the 2nd manager.
+        // Table is NOT updated again.
+        const iAmHome = existingNow.homeTeam?.toLowerCase() === myTeam.toLowerCase();
+        const side = iAmHome ? "home" : "away";
+
+        const existingGoalScorers = existingNow.goalScorers || { home: [], away: [] };
+        const existingAssistsData = existingNow.assists    || { home: [], away: [] };
+
+        setStatus("Adding your scorers to match result...");
+        await update(ref(db, `${PATHS.results(league, season)}/${existingNow.key}`), {
+          goalScorers: {
+            home: iAmHome
+              ? [...(existingGoalScorers.home || []), ...scorersData]
+              : (existingGoalScorers.home || []),
+            away: iAmHome
+              ? (existingGoalScorers.away || [])
+              : [...(existingGoalScorers.away || []), ...scorersData],
+          },
+          assists: {
+            home: iAmHome
+              ? [...(existingAssistsData.home || []), ...assistsData]
+              : (existingAssistsData.home || []),
+            away: iAmHome
+              ? (existingAssistsData.away || [])
+              : [...(existingAssistsData.away || []), ...assistsData],
+          },
+          [`matchImageUrl_${side}`]: matchImageUrl,
+          secondManagerSubmittedBy: manager?.uid || myTeam,
+          secondManagerSubmittedAt: Date.now(),
+        });
+        setStatus("Updating stats...");
+        for (const s of scorersData) await updateTopStat(league, season, "top_scorers",    s.player, s.goals,   myTeam);
+        for (const a of assistsData) await updateTopStat(league, season, "top_assistants", a.player, a.assists, myTeam);
+
+      } else {
+        // ── FIRST MANAGER ────────────────────────────────────────────────────
+        const homeTeam = detectedHome || myTeam;
+        const awayTeam = detectedAway || opponent;
+        const iAmHome  = homeTeam.toLowerCase() === myTeam.toLowerCase();
+        const isForfeit = matchType === "forfeit";
+
+        // Forfeit: uploader always wins — score depends on which side they are
+        const homeScore = isForfeit ? (iAmHome ? 3 : 0) : (iAmHome ? +myScore : +oppScore);
+        const awayScore = isForfeit ? (iAmHome ? 0 : 3) : (iAmHome ? +oppScore : +myScore);
+
+        if (!isForfeit) {
+          if (isForbiddenResult(forbiddenList, homeTeam, awayTeam, homeScore, awayScore)) {
+            setStatus("❌ Result Declined — this result has been flagged as forbidden by the admin.");
+            setSaving(false);
+            setConfirming(false);
+            return;
+          }
+        }
+
+        setStatus("Saving result...");
+        await push(ref(db, PATHS.results(league, season)), {
+          homeTeam, awayTeam, homeScore, awayScore,
+          forfeitType: isForfeit ? "forfeit_win" : "none",
+          matchType:   isForfeit ? "forfeit"      : "normal",
+          ...(isCup ? { stage: matchday } : { md: +matchday }),
+          date, matchImageUrl,
+          goalScorers: { home: iAmHome ? scorersData : [], away: iAmHome ? [] : scorersData },
+          assists:     { home: iAmHome ? assistsData : [], away: iAmHome ? [] : assistsData },
+          submittedBy:  manager?.uid || myTeam,
+          submittedAt:  Date.now(),
+          status: "approved",
+        });
+        setStatus("Updating table...");
+        await applyResultToTable(league, season, homeTeam, awayTeam, homeScore, awayScore, isForfeit ? "forfeit_win" : "none");
+        if (!isForfeit) {
+          setStatus("Updating stats...");
+          for (const s of scorersData) await updateTopStat(league, season, "top_scorers",    s.player, s.goals,   myTeam);
+          for (const a of assistsData) await updateTopStat(league, season, "top_assistants", a.player, a.assists, myTeam);
+        }
+      }
+
+      setStatus("✅ Result submitted successfully!");
+      setTimeout(onClose, 1500);
+    } catch (e) {
+      setStatus("Error: " + e.message);
+      setConfirming(false);
+    }
+    setSaving(false);
+  }
+
+  // ── Admin landing screen ──────────────────────────────────────────────────
+  if (isAdmin && !myTeam && !adminView) {
+    return (
+      <div>
+        <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: 8 }}>⚽ Admin Result Tools</h3>
+        <p style={{ color: "rgba(255,255,255,0.5)", marginBottom: 28, fontSize: "0.9rem" }}>Choose an action:</p>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+          <button onClick={() => setAdminView("enter_result")} style={{ background: "rgba(255,20,147,0.1)", border: "2px solid rgba(255,20,147,0.5)", borderRadius: 20, padding: "32px 16px", cursor: "pointer", color: "#fff", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}
+            onMouseOver={e => e.currentTarget.style.background = "rgba(255,20,147,0.22)"} onMouseOut={e => e.currentTarget.style.background = "rgba(255,20,147,0.1)"}>
+            <span style={{ fontSize: "2.5rem" }}>📋</span>
+            <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: 2, textAlign: "center" }}>Enter New Result</span>
+          </button>
+          <button onClick={() => setAdminView("forbidden")} style={{ background: "rgba(255,50,50,0.08)", border: "2px solid rgba(255,50,50,0.4)", borderRadius: 20, padding: "32px 16px", cursor: "pointer", color: "#fff", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}
+            onMouseOver={e => e.currentTarget.style.background = "rgba(255,50,50,0.18)"} onMouseOut={e => e.currentTarget.style.background = "rgba(255,50,50,0.08)"}>
+            <span style={{ fontSize: "2.5rem" }}>🚫</span>
+            <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.4rem", letterSpacing: 2, textAlign: "center" }}>Forbidden Results</span>
+            {forbiddenList.length > 0 && (
+              <span style={{ background: "#FF1493", borderRadius: 20, padding: "2px 10px", fontSize: "0.8rem", fontWeight: 700 }}>{forbiddenList.length} active</span>
+            )}
+          </button>
+        </div>
+        <button onClick={onClose} style={{ width: "100%", padding: 14, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, color: "#fff", cursor: "pointer" }}>Cancel</button>
+      </div>
+    );
+  }
+
+  if (adminView === "forbidden") return <ForbiddenResultsManager league={league} teams={teams} onClose={() => setAdminView(null)} />;
+  if (adminView === "enter_result") return <AdminEnterResultView league={league} season={season} teams={teams} forbiddenList={forbiddenList} onClose={() => setAdminView(null)} />;
+
+  // ── No team assigned (non-admin) ──────────────────────────────────────────
+  if (!myTeam) {
+    return (
+      <div>
+        <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: 16 }}>⚽ Submit Result</h3>
+        <p style={{ color: "rgba(255,255,255,0.5)", textAlign: "center", padding: "40px 0" }}>You must have a team assigned to submit results.</p>
+        <button onClick={onClose} style={{ width: "100%", padding: 14, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, color: "#fff", cursor: "pointer" }}>Close</button>
+      </div>
+    );
+  }
+
+  // ── Step 1: Match type ────────────────────────────────────────────────────
+  if (!matchType) {
+    return (
+      <div>
+        <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: 8 }}>⚽ Submit Result</h3>
+        <p style={{ color: "rgba(255,255,255,0.5)", marginBottom: 28, fontSize: "0.9rem" }}>Your Team: <strong style={{ color: "#FF1493" }}>{teamLabel}</strong></p>
+        <div style={{ background: "rgba(255,165,0,0.12)", border: "2px solid rgba(255,165,0,0.5)", borderRadius: 14, padding: "18px 20px", marginBottom: 28, color: "#FFB347", fontSize: "1.5rem", fontWeight: 800, lineHeight: 1.5, textAlign: "center" }}>
+          ⚠️ FALSE RESULTS WILL RESULT IN A 6 POINT DEDUCTION AND THE MATCH WILL BE DECLARED A FORFEIT LOSS.
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+          <button onClick={() => setMatchType("normal")} style={{ background: "rgba(255,20,147,0.1)", border: "2px solid rgba(255,20,147,0.5)", borderRadius: 20, padding: "32px 16px", cursor: "pointer", color: "#fff", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}
+            onMouseOver={e => e.currentTarget.style.background = "rgba(255,20,147,0.22)"} onMouseOut={e => e.currentTarget.style.background = "rgba(255,20,147,0.1)"}>
+            <span style={{ fontSize: "2.5rem" }}>⚽</span>
+            <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.5rem", letterSpacing: 2 }}>NORMAL MATCH</span>
+            <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem" }}>Goals, scorers, assists</span>
+          </button>
+          <button onClick={() => setMatchType("forfeit")} style={{ background: "rgba(255,100,0,0.1)", border: "2px solid rgba(255,100,0,0.5)", borderRadius: 20, padding: "32px 16px", cursor: "pointer", color: "#fff", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}
+            onMouseOver={e => e.currentTarget.style.background = "rgba(255,100,0,0.22)"} onMouseOut={e => e.currentTarget.style.background = "rgba(255,100,0,0.1)"}>
+            <span style={{ fontSize: "2.5rem" }}>🚫</span>
+            <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.5rem", letterSpacing: 2 }}>FORFEIT WIN</span>
+            <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem" }}>Opponent didn't show</span>
+          </button>
+        </div>
+        {isAdmin && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+            <button onClick={() => setAdminView("enter_result")} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 14, padding: "14px 10px", cursor: "pointer", color: "rgba(255,255,255,0.7)", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, fontSize: "0.8rem", fontWeight: 700 }}>
+              📋 Admin: Enter Result
+            </button>
+            <button onClick={() => setAdminView("forbidden")} style={{ background: "rgba(255,50,50,0.06)", border: "1px solid rgba(255,50,50,0.25)", borderRadius: 14, padding: "14px 10px", cursor: "pointer", color: "rgba(255,150,150,0.8)", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, fontSize: "0.8rem", fontWeight: 700 }}>
+              🚫 Forbidden Results {forbiddenList.length > 0 && `(${forbiddenList.length})`}
+            </button>
+          </div>
+        )}
+        <button onClick={onClose} style={{ width: "100%", padding: 14, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, color: "#fff", cursor: "pointer" }}>Cancel</button>
+      </div>
+    );
+  }
+
+  const isForfeit = matchType === "forfeit";
+
+  // ── Confirmation screen ───────────────────────────────────────────────────
+  if (confirming) {
+    const homeDisplay = detectedHome || myTeam;
+    const awayDisplay = detectedAway || opponent;
+    const iAmHome = homeDisplay.toLowerCase() === myTeam.toLowerCase();
+    return (
+      <div>
+        <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: 20, textAlign: "center" }}>⚠️ Confirm Submission</h3>
+        {matchImagePreview && (
+          <div style={{ marginBottom: 16, borderRadius: 16, overflow: "hidden", maxHeight: 200 }}>
+            <img src={matchImagePreview} alt="Match" style={{ width: "100%", height: 200, objectFit: "cover" }} />
+          </div>
+        )}
+        <div style={{ background: "rgba(255,20,147,0.08)", border: "1px solid rgba(255,20,147,0.25)", borderRadius: 16, padding: "20px 24px", marginBottom: 20, textAlign: "center" }}>
+          <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2rem", color: "#fff", marginBottom: 8, letterSpacing: 1 }}>
+            {homeDisplay} <span style={{ color: "#FF1493" }}>
+              {isForfeit
+                ? (iAmHome ? "3 — 0" : "0 — 3")
+                : (iAmHome ? `${myScore} — ${oppScore}` : `${oppScore} — ${myScore}`)
+              }
+            </span> {awayDisplay}
+          </div>
+          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.85rem" }}>
+            {isForfeit ? "Forfeit Win" : isSecondManager ? "Adding your scorers to existing result" : "Normal Match"}
+            &nbsp;·&nbsp; {isCup ? matchday : `Matchday ${matchday}`} &nbsp;·&nbsp; {date}
+          </div>
+          {!isForfeit && scorers.length > 0 && (
+            <div style={{ marginTop: 10, fontSize: "0.85rem", color: "rgba(255,255,255,0.6)" }}>
+              ⚽ {scorers.map(s => `${s.player}${s.goals > 1 ? ` (${s.goals})` : ""}`).join(", ")}
+            </div>
+          )}
+          {!isForfeit && assists.length > 0 && (
+            <div style={{ marginTop: 6, fontSize: "0.85rem", color: "rgba(255,255,255,0.6)" }}>
+              🎯 {assists.map(a => `${a.player}${a.assists > 1 ? ` (${a.assists})` : ""}`).join(", ")}
+            </div>
+          )}
+          {isSecondManager && (
+            <div style={{ marginTop: 10, background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: 10, padding: "8px 14px", color: "#22c55e", fontSize: "0.85rem" }}>
+              ✅ Score auto-filled. Table will NOT be updated again.
+            </div>
+          )}
+        </div>
+        <div style={{ background: "rgba(255,165,0,0.12)", border: "2px solid rgba(255,165,0,0.5)", borderRadius: 14, padding: "14px 18px", marginBottom: 24, color: "#FFB347", fontSize: "1.4rem", fontWeight: 800, textAlign: "center", lineHeight: 1.5 }}>
+          ⚠️ FALSE RESULTS = 6 POINT DEDUCTION + FORFEIT LOSS
+        </div>
+        {status && <div style={{ color: status.startsWith("✅") ? "#22c55e" : "#ff6b6b", fontSize: "0.85rem", margin: "0 0 12px", textAlign: "center" }}>{status}</div>}
+        <div style={{ display: "flex", gap: 12 }}>
+          <button onClick={handleConfirmSubmit} disabled={saving} style={{ flex: 1, padding: 14, background: "#FF1493", border: "none", borderRadius: 12, color: "#fff", fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1, fontSize: "1rem" }}>
+            {saving ? "Submitting..." : "✅ Submit"}
+          </button>
+          <button onClick={() => setConfirming(false)} disabled={saving} style={{ flex: 1, padding: 14, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, color: "#fff", cursor: "pointer" }}>
+            🔍 Review
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Forfeit form ──────────────────────────────────────────────────────────
+  if (isForfeit) {
+    return (
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+          <button onClick={() => setMatchType(null)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: "1.2rem" }}>← Back</button>
+          <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem" }}>🚫 Forfeit Win</h3>
+        </div>
+        <div style={{ background: "rgba(255,165,0,0.12)", border: "2px solid rgba(255,165,0,0.5)", borderRadius: 14, padding: "16px 18px", marginBottom: 20, color: "#FFB347", fontSize: "1.4rem", fontWeight: 800, lineHeight: 1.5 }}>
+          ⚠️ FALSE RESULTS WILL RESULT IN A 6 POINT DEDUCTION AND THE MATCH WILL BE DECLARED A FORFEIT LOSS.
+        </div>
+        <div style={{ background: "rgba(255,20,147,0.1)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, padding: "12px 16px", marginBottom: 16, color: "#FF1493", fontWeight: 700 }}>
+          Your Team: {teamLabel}
+        </div>
+        <OpponentAndRoundPicker
+          isCup={isCup} opponent={opponent} setOpponent={setOpponent}
+          others={others} cupOpponentsLoading={cupOpponentsLoading}
+          matchday={matchday} setMatchday={setMatchday} date={date} setDate={setDate}
+          fixturesLoading={fixturesLoading} myFixtures={myFixtures}
+          handleFixtureSelect={handleFixtureSelect} currMatchday={currMatchday} prevMatchday={prevMatchday}
+        />
+
+        <div style={{ border: "2px dashed rgba(255,20,147,0.5)", borderRadius: 14, padding: "16px", marginBottom: 16, background: "rgba(255,20,147,0.05)" }}>
+          <div style={{ color: "#FF1493", fontWeight: 700, fontSize: "0.9rem", marginBottom: 8 }}>📸 Match Image <span style={{ color: "#ff6b6b" }}>* Required</span></div>
+          {matchImagePreview ? (
+            <div style={{ position: "relative" }}>
+              <img src={matchImagePreview} alt="Match" style={{ width: "100%", height: 160, objectFit: "cover", borderRadius: 10 }} />
+              <button onClick={() => { setMatchImage(null); setMatchImagePreview(""); }} style={{ position: "absolute", top: 8, right: 8, background: "#cc3333", border: "none", borderRadius: "50%", width: 28, height: 28, color: "#fff", cursor: "pointer", fontSize: 14 }}>✖</button>
+            </div>
+          ) : (
+            <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, cursor: "pointer", padding: "20px", background: "rgba(255,20,147,0.08)", borderRadius: 10, color: "rgba(255,255,255,0.6)", fontSize: "0.9rem" }}>
+              📷 Tap to upload match image
+              <input type="file" accept="image/*" onChange={handleMatchImageChange} style={{ display: "none" }} />
+            </label>
+          )}
+        </div>
+        {status && <div style={{ color: "#ff6b6b", fontSize: "0.85rem", margin: "12px 0", textAlign: "center" }}>{status}</div>}
+        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+          <button onClick={() => {
+            if (!opponent)  { setStatus("Please select an opponent."); return; }
+            if (!matchday)  { setStatus(isCup ? "Please select a stage." : "Please select a matchday."); return; }
+            if (!matchImage) { setStatus("A match image is required."); return; }
+            setStatus(""); setConfirming(true);
+          }} style={{ flex: 1, padding: 14, background: "#FF1493", border: "none", borderRadius: 12, color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem" }}>Submit Forfeit</button>
+          <button onClick={onClose} style={{ flex: 1, padding: 14, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, color: "#fff", cursor: "pointer" }}>Cancel</button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Normal match form ─────────────────────────────────────────────────────
+  return (
+    <div>
+      {pickerType === "scorer" && (
+        <PlayerPickerSheet title="⚽ Add Goal Scorer" players={existingScorers} myTeam={myTeam} onSelectExisting={handleSelectExistingScorer} onAddNew={handleAddNewScorer} onClose={() => setPickerType(null)} />
+      )}
+      {pickerType === "assist" && (
+        <PlayerPickerSheet title="🎯 Add Assist" players={existingAssists} myTeam={myTeam} onSelectExisting={handleSelectExistingAssist} onAddNew={handleAddNewAssist} onClose={() => setPickerType(null)} />
+      )}
+
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        <button onClick={() => setMatchType(null)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: "1.2rem" }}>← Back</button>
+        <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem" }}>⚽ Normal Match</h3>
+      </div>
+
+      <div style={{ background: "rgba(255,165,0,0.12)", border: "2px solid rgba(255,165,0,0.5)", borderRadius: 14, padding: "16px 18px", marginBottom: 20, color: "#FFB347", fontSize: "1.4rem", fontWeight: 800, lineHeight: 1.5 }}>
+        ⚠️ FALSE RESULTS WILL RESULT IN A 6 POINT DEDUCTION AND THE MATCH WILL BE DECLARED A FORFEIT LOSS.
+      </div>
+
+      <div style={{ background: "rgba(255,20,147,0.1)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, padding: "12px 16px", marginBottom: 16, color: "#FF1493", fontWeight: 700 }}>
+        Your Team: {teamLabel}
+      </div>
+
+      <OpponentAndRoundPicker
+        isCup={isCup} opponent={opponent} setOpponent={setOpponent}
+        others={others} cupOpponentsLoading={cupOpponentsLoading}
+        matchday={matchday} setMatchday={setMatchday} date={date} setDate={setDate}
+        fixturesLoading={fixturesLoading} myFixtures={myFixtures}
+        handleFixtureSelect={handleFixtureSelect} currMatchday={currMatchday} prevMatchday={prevMatchday}
+      />
+
+      {checkingDuplicate && (
+        <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", marginBottom: 10 }}>🔍 Checking for existing result...</div>
+      )}
+      {isSecondManager && existingResult && (
+        <div style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.4)", borderRadius: 12, padding: "12px 16px", marginBottom: 16, color: "#22c55e", fontSize: "0.9rem", fontWeight: 600 }}>
+          ✅ Your opponent already submitted this result. Score is locked — just add your goal scorers & assists. Table will not be updated again.
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div>
+          <label style={labelStyle}>Your Score</label>
+          <input type="number" min={0} value={myScore} onChange={e => setMyScore(e.target.value)} style={{ ...inputStyle, opacity: isSecondManager ? 0.5 : 1 }} disabled={isSecondManager} />
+        </div>
+        <div>
+          <label style={labelStyle}>Opponent Score</label>
+          <input type="number" min={0} value={oppScore} onChange={e => setOppScore(e.target.value)} style={{ ...inputStyle, opacity: isSecondManager ? 0.5 : 1 }} disabled={isSecondManager} />
+        </div>
+      </div>
+
+      <div style={{ border: "2px dashed rgba(255,20,147,0.5)", borderRadius: 14, padding: "16px", marginBottom: 20, background: "rgba(255,20,147,0.05)" }}>
+        <div style={{ color: "#FF1493", fontWeight: 700, fontSize: "0.9rem", marginBottom: 8 }}>📸 Match Image <span style={{ color: "#ff6b6b" }}>* Required</span></div>
+        {matchImagePreview ? (
+          <div style={{ position: "relative" }}>
+            <img src={matchImagePreview} alt="Match" style={{ width: "100%", height: 160, objectFit: "cover", borderRadius: 10 }} />
+            <button onClick={() => { setMatchImage(null); setMatchImagePreview(""); }} style={{ position: "absolute", top: 8, right: 8, background: "#cc3333", border: "none", borderRadius: "50%", width: 28, height: 28, color: "#fff", cursor: "pointer", fontSize: 14 }}>✖</button>
+          </div>
+        ) : (
+          <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, cursor: "pointer", padding: "20px", background: "rgba(255,20,147,0.08)", borderRadius: 10, color: "rgba(255,255,255,0.6)", fontSize: "0.9rem" }}>
+            📷 Tap to upload match image
+            <input type="file" accept="image/*" onChange={handleMatchImageChange} style={{ display: "none" }} />
+          </label>
+        )}
+      </div>
+
+      {/* Scorers */}
+      <div style={{ borderTop: "1px solid rgba(255,20,147,0.2)", paddingTop: 16, marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <div style={{ color: "#fff", fontWeight: 700, fontSize: "0.95rem" }}>⚽ Goal Scorers</div>
+          <button onClick={openScorerPicker} style={{ background: "#FF1493", border: "none", borderRadius: 20, color: "#fff", padding: "8px 18px", cursor: "pointer", fontWeight: 700, fontSize: "0.85rem" }}>+ Add Scorer</button>
+        </div>
+        {scorers.length === 0 && <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "0.85rem" }}>No scorers added yet.</div>}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {scorers.map((s, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 30, padding: "6px 14px" }}>
+              <span style={{ color: "#fff", fontSize: "0.9rem" }}>⚽ {s.player}</span>
+              <CountPicker label="" value={s.goals} onChange={v => setScorers(prev => { const u = [...prev]; u[i] = { ...u[i], goals: v }; return u; })} />
+              <button onClick={() => removeScorer(i)} style={{ background: "#cc3333", color: "#fff", border: "none", borderRadius: "50%", width: 22, height: 22, cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>✖</button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Assists */}
+      <div style={{ borderTop: "1px solid rgba(255,20,147,0.2)", paddingTop: 16, marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <div style={{ color: "#fff", fontWeight: 700, fontSize: "0.95rem" }}>🎯 Assists</div>
+          <button onClick={openAssistPicker} style={{ background: "rgba(255,20,147,0.2)", border: "1px solid rgba(255,20,147,0.5)", borderRadius: 20, color: "#FF1493", padding: "8px 18px", cursor: "pointer", fontWeight: 700, fontSize: "0.85rem" }}>+ Add Assist</button>
+        </div>
+        {assists.length === 0 && <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "0.85rem" }}>No assists added yet.</div>}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {assists.map((a, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 30, padding: "6px 14px" }}>
+              <span style={{ color: "#fff", fontSize: "0.9rem" }}>🎯 {a.player}</span>
+              <CountPicker label="" value={a.assists} onChange={v => setAssists(prev => { const u = [...prev]; u[i] = { ...u[i], assists: v }; return u; })} />
+              <button onClick={() => removeAssist(i)} style={{ background: "#cc3333", color: "#fff", border: "none", borderRadius: "50%", width: 22, height: 22, cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>✖</button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {status && <div style={{ color: "#ff6b6b", fontSize: "0.85rem", margin: "12px 0", textAlign: "center" }}>{status}</div>}
+
+      <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+        <button onClick={handleSubmitClick} style={{ flex: 1, padding: 14, background: "#FF1493", border: "none", borderRadius: 12, color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "1rem" }}>Submit Result</button>
+        <button onClick={onClose} style={{ flex: 1, padding: 14, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, color: "#fff", cursor: "pointer" }}>Cancel</button>
+      </div>
+    </div>
+  );
+}
