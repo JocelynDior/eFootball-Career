@@ -192,11 +192,20 @@ export default function ResultsList({ league, season, onEdit, onDelete }) {
   };
 
   // Get all unique team names for filter dropdown
-  const allTeams = [...new Set(allResults.flatMap(r => [r.homeTeam, r.awayTeam].filter(Boolean)))].sort();
+  // (BAYERN and Bayern are the same team → listed once)
+  const allTeams = (() => {
+    const seen = new Map();
+    for (const r of allResults) {
+      for (const n of [r.homeTeam, r.awayTeam]) {
+        if (n && !seen.has(normName(n))) seen.set(normName(n), n);
+      }
+    }
+    return [...seen.values()].sort();
+  })();
 
   // Apply filters
   const filtered = allResults.filter(r => {
-    if (filterTeam && r.homeTeam !== filterTeam && r.awayTeam !== filterTeam) return false;
+    if (filterTeam && normName(r.homeTeam) !== normName(filterTeam) && normName(r.awayTeam) !== normName(filterTeam)) return false;
     if (filterDate && r.date !== filterDate) return false;
     return true;
   });
