@@ -1,5 +1,7 @@
 import { db, PATHS } from '../firebase';
 import { ref, get, set } from 'firebase/database';
+import { isUefaLeague } from './uefaLinks';
+import { recalculateUefaTable } from './uefaTableLogic';
 
 // ── Debounce map: one pending recalc per league+season ────────────────────────
 const pendingRecalc = {};
@@ -14,6 +16,11 @@ const norm = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
 //  - no_contest:     l for both, no pts, no gs/gc/gd
 
 export async function recalculateTable(league, season) {
+  // Champions League / Europa League / Conference League use their own version,
+  // which understands team linking and group stage (see uefaTableLogic.js).
+  // Every other league continues below exactly as before.
+  if (isUefaLeague(league)) return recalculateUefaTable(league, season);
+
   // Load current table entries (to get team names and preserve non-stat fields)
   const tableSnap = await get(ref(db, PATHS.table(league, season)));
   const tableVal  = tableSnap.val() || {};
@@ -93,19 +100,22 @@ export async function recalculateTable(league, season) {
 // ── Debounced recalculate: collapses rapid successive calls into one ──────────
 // This prevents race conditions where multiple submissions fire recalculate
 // before Firebase has finished writing the previous result.
+// Every caller's promise is settled when the shared recalculation finishes
+// (previously only the LAST caller's promise ever settled, so earlier callers
+// could wait forever).
 function debouncedRecalculate(league, season, delayMs = 600) {
   const key = `${league}_${season}`;
-  if (pendingRecalc[key]) {
-    clearTimeout(pendingRecalc[key]);
-  }
   return new Promise((resolve, reject) => {
-    pendingRecalc[key] = setTimeout(async () => {
+    const slot = pendingRecalc[key] || (pendingRecalc[key] = { timer: null, waiters: [] });
+    slot.waiters.push({ resolve, reject });
+    clearTimeout(slot.timer);
+    slot.timer = setTimeout(async () => {
       delete pendingRecalc[key];
       try {
-        await recalculateTable(league, season);
-        resolve();
+        const report = await recalculateTable(league, season);
+        slot.waiters.forEach((w) => w.resolve(report));
       } catch (e) {
-        reject(e);
+        slot.waiters.forEach((w) => w.reject(e));
       }
     }, delayMs);
   });
@@ -116,9 +126,9 @@ function debouncedRecalculate(league, season, delayMs = 600) {
 // Now debounced to prevent race conditions on rapid submissions.
 
 export async function applyResultToTable(league, season) {
-  await debouncedRecalculate(league, season);
+  return debouncedRecalculate(league, season);
 }
 
 export async function reverseResultFromTable(league, season) {
-  await debouncedRecalculate(league, season);
+  return debouncedRecalculate(league, season);
 }
