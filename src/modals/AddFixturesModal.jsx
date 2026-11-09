@@ -9,9 +9,9 @@ const TOURNAMENT_LEAGUE_MAP = {
   "Serie A": "seriea",
   "Bundesliga": "bundesliga",
   "Ligue 1": "ligue1",
-  "Champions League": "championsleague",
+  "Champions League": "champions",
   "Europa League": "europa",
-  "Conference League": "conferenceleague",
+  "Conference League": "conference",
   "Club World Cup": "clubworldcup",
   "Super Cup": "supercup",
   "Tokyo Pre Season": "tokyo",
@@ -187,11 +187,17 @@ async function fetchLeagueTeams(leagueKey) {
     if (!seasons) return [];
     const teamSet = new Set();
     for (const seasonData of Object.values(seasons)) {
-      const table = seasonData?.table;
-      if (!table) continue;
-      for (const entry of Object.values(table)) {
+      // Flat table teams
+      for (const entry of Object.values(seasonData?.table || {})) {
         const name = entry?.name || entry?.team;
         if (name) teamSet.add(name.trim());
+      }
+      // Group-stage teams (career_<league>/seasons/season_<n>/groups/<g>/teams/<t>)
+      for (const group of Object.values(seasonData?.groups || {})) {
+        for (const entry of Object.values(group?.teams || {})) {
+          const name = entry?.name || entry?.team;
+          if (name) teamSet.add(name.trim());
+        }
       }
     }
     return Array.from(teamSet).sort();
