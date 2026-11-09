@@ -7,6 +7,8 @@ import ManagerHistoryModal from "./ManagerHistoryModal";
 import RequestsHistoryModal from "./RequestsHistoryModal";
 import { uploadToImgBB } from "../utils/imgUpload";
 import { getTournamentKey } from "../utils/leagueTournamentNames";
+import UefaTeamLinker from "./UefaTeamLinker";
+import { isUefaLeague } from "../utils/uefaLinks";
 
 const inputStyle = {
   width: "100%", padding: "10px 14px",
@@ -388,7 +390,12 @@ export default function LeagueAdminSettingsModal({ league, season, teams, onClos
   if (view === "history") return <Modal active onClose={() => setView("main")}><ManagerHistoryModal league={league} season={season} onClose={() => setView("main")} /></Modal>;
   if (view === "requests") return <Modal active onClose={() => setView("main")}><RequestsHistoryModal league={league} season={season} onClose={() => setView("main")} /></Modal>;
 
-  if (view === "teamLinks") return <TeamLinker league={league} teams={teams} onBack={() => setView("main")} />;
+  if (view === "teamLinks") {
+    // Champions / Europa / Conference use the UEFA linker (link = "use that team's results")
+    return isUefaLeague(league)
+      ? <UefaTeamLinker league={league} season={season} teams={teams} onBack={() => setView("main")} />
+      : <TeamLinker league={league} teams={teams} onBack={() => setView("main")} />;
+  }
 
   if (view === "zones") {
     return (
