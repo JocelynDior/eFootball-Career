@@ -4,6 +4,7 @@ import { db, PATHS } from "../firebase";
 import { ref, push, set, onValue, get } from "firebase/database";
 import { getTeamIcon } from "../utils/teamIcons";
 import AutoCalcModal from "./AutoCalcModal";
+import { normName, isUefaLeague, decodeUefaLinks, effectiveTeamName, linksPath } from "../utils/uefaLinks";
 
 const inputStyle = {
   width: "100%", padding: "10px 14px",
@@ -65,16 +66,24 @@ export default function AddTeamModal({ league, season, team = null, onClose }) {
       const resultsVal = snap.val() || {};
 
       const stats = { p: 0, w: 0, d: 0, l: 0, gs: 0, gc: 0, gd: 0, pts: 0 };
-      const teamName = form.name.trim();
+      // UEFA leagues: a linked team takes its stats from the team it is linked to
+      let teamName = form.name.trim();
+      if (isUefaLeague(league)) {
+        const linksSnap = await get(ref(db, linksPath(league)));
+        teamName = effectiveTeamName(teamName, decodeUefaLinks(linksSnap.val()));
+      }
+      // Names are compared ignoring capitals and extra spaces (BAYERN = Bayern)
+      const wanted = normName(teamName);
       const log = [];
 
       for (const result of Object.values(resultsVal)) {
         if (!result?.homeTeam || !result?.awayTeam) continue;
         if (result.status && result.status !== "approved") continue;
 
-        const isHome = result.homeTeam === teamName;
-        const isAway = result.awayTeam === teamName;
+        const isHome = normName(result.homeTeam) === wanted;
+        const isAway = normName(result.awayTeam) === wanted;
         if (!isHome && !isAway) continue;
+        if (isHome && isAway) continue; // a team can't play itself
 
         const ft = result.forfeitType || "none";
         const opponent = isHome ? result.awayTeam : result.homeTeam;
