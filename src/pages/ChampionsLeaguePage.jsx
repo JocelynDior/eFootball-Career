@@ -18,7 +18,7 @@ import AddResultModal from "../modals/AddResultModal";
 import StatPlayerModal from "../modals/StatPlayerModal";
 import LeagueRulesModal from "../modals/LeagueRulesModal";
 import LeagueAdminSettingsModal from "../modals/LeagueAdminSettingsModal";
-import UefaSubmitResultModal from "../modals/UefaSubmitResultModal";
+import SubmitResultModal from "../modals/SubmitResultModal";
 import PendingFixturesModal from "../modals/PendingFixturesModal";
 import LoadingSpinner from "../components/LoadingSpinner";
 import LeagueHeadlineSlideshow from "../components/LeagueHeadlineSlideshow";
@@ -27,7 +27,6 @@ import MatchdayCountdowns from "../components/MatchdayCountdowns";
 import { applyResultToTable } from "../utils/tableLogic";
 import { renameSeason, setActiveSeason, deleteSeason } from "../utils/seasonActions";
 import useSeasonState from "../utils/useSeasonState";
-import useGroupTeams from "../hooks/useGroupTeams";
 
 const LEAGUE = "champions";
 const LEAGUE_NAME = "Champions League";
@@ -159,10 +158,6 @@ export default function ChampionsLeaguePage() {
   const [submitOpen, setSubmitOpen] = useState(false);
   const [pendingOpen, setPendingOpen] = useState(false);
 
-  // Flat-table teams + group-stage teams. The modals below need both: in group
-  // stage mode the flat table is empty, so they would have no teams to pick.
-  const allTeams = useGroupTeams(LEAGUE, season, teams);
-
   const todayStr = getSASTDateStr(0);
   const yesterdayStr = getSASTDateStr(-1);
   const todayMd = useMatchdayNumber(todayStr);
@@ -258,7 +253,7 @@ export default function ChampionsLeaguePage() {
   return (
     <div style={{ minHeight: "100vh", background: "transparent", fontFamily: "'Inter', sans-serif" }}>
       <BackgroundVideo />
-      <Navbar leagueMenuProps={{ league: LEAGUE, season, teams: allTeams, onEditTeamIcon: () => setEditTeam(null), onAddPlayerIcon: () => { setStatType("scorer"); setEditStat(null); } }} />
+      <Navbar leagueMenuProps={{ league: LEAGUE, season, teams, onEditTeamIcon: () => setEditTeam(null), onAddPlayerIcon: () => { setStatType("scorer"); setEditStat(null); } }} />
       <LeagueHeadlineSlideshow league={LEAGUE} />
 
       <div style={{ padding: "20px 20px 0" }}>
@@ -373,19 +368,19 @@ export default function ChampionsLeaguePage() {
         <AddTeamModal league={LEAGUE} season={season} team={editTeam || null} onClose={() => setEditTeam(undefined)} />
       </Modal>
       <Modal active={editResult !== undefined} onClose={() => setEditResult(undefined)}>
-        <AddResultModal league={LEAGUE} season={season} teams={allTeams} result={editResult} onClose={() => setEditResult(undefined)} />
+        <AddResultModal league={LEAGUE} season={season} teams={teams} result={editResult} onClose={() => setEditResult(undefined)} />
       </Modal>
       <Modal active={editStat !== undefined} onClose={() => setEditStat(undefined)}>
-        <StatPlayerModal league={LEAGUE} season={season} type={statType} teams={allTeams} player={editStat} onClose={() => setEditStat(undefined)} />
+        <StatPlayerModal league={LEAGUE} season={season} type={statType} teams={teams} player={editStat} onClose={() => setEditStat(undefined)} />
       </Modal>
       <Modal active={adminOpen} onClose={() => setAdminOpen(false)}>
-        <LeagueAdminSettingsModal league={LEAGUE} season={season} teams={allTeams} onClose={() => setAdminOpen(false)} />
+        <LeagueAdminSettingsModal league={LEAGUE} season={season} teams={teams} onClose={() => setAdminOpen(false)} />
       </Modal>
       <Modal active={rulesOpen} onClose={() => setRulesOpen(false)}>
         <LeagueRulesModal league={LEAGUE} leagueName={LEAGUE_NAME} onClose={() => setRulesOpen(false)} />
       </Modal>
       <Modal active={submitOpen} onClose={() => setSubmitOpen(false)}>
-        <UefaSubmitResultModal league={LEAGUE} season={season} teams={allTeams} onClose={() => setSubmitOpen(false)} prevMatchday={yesterdayMd} currMatchday={todayMd} />
+        <SubmitResultModal league={LEAGUE} season={season} teams={teams} onClose={() => setSubmitOpen(false)} prevMatchday={yesterdayMd} currMatchday={todayMd} />
       </Modal>
       <Modal active={pendingOpen} onClose={() => setPendingOpen(false)}>
         <PendingFixturesModal league={LEAGUE} season={season} onClose={() => setPendingOpen(false)} />
