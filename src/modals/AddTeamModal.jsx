@@ -4,7 +4,8 @@ import { db, PATHS } from "../firebase";
 import { ref, push, set, onValue, get } from "firebase/database";
 import { getTeamIcon } from "../utils/teamIcons";
 import AutoCalcModal from "./AutoCalcModal";
-import { normName, isUefaLeague, decodeUefaLinks, effectiveTeamName, linksPath } from "../utils/uefaLinks";
+import { isUefaLeague, decodeUefaLinks, linkedNamesFor, linksPath } from "../utils/uefaLinks";
+import { computeUefaTeamStats } from "../utils/uefaAutoCalc";
 
 const inputStyle = {
   width: "100%", padding: "10px 14px",
@@ -65,25 +66,31 @@ export default function AddTeamModal({ league, season, team = null, onClose }) {
       const snap = await get(ref(db, PATHS.results(league, season)));
       const resultsVal = snap.val() || {};
 
-      const stats = { p: 0, w: 0, d: 0, l: 0, gs: 0, gc: 0, gd: 0, pts: 0 };
-      // UEFA leagues: a linked team takes its stats from the team it is linked to
-      let teamName = form.name.trim();
+      // Champions / Europa / Conference: add up the results of every team linked
+      // to this team, ignoring capitals (see utils/uefaAutoCalc.js).
+      // Every other league continues below exactly as before.
       if (isUefaLeague(league)) {
         const linksSnap = await get(ref(db, linksPath(league)));
-        teamName = effectiveTeamName(teamName, decodeUefaLinks(linksSnap.val()));
+        const linked = linkedNamesFor(form.name.trim(), decodeUefaLinks(linksSnap.val()));
+        const uefa = computeUefaTeamStats(Object.values(resultsVal), form.name.trim(), linked);
+        setMatchLog(uefa.log);
+        setCalcStats(uefa.stats);
+        setAutoCalcOpen(true);
+        setAutoCalcing(false);
+        return;
       }
-      // Names are compared ignoring capitals and extra spaces (BAYERN = Bayern)
-      const wanted = normName(teamName);
+
+      const stats = { p: 0, w: 0, d: 0, l: 0, gs: 0, gc: 0, gd: 0, pts: 0 };
+      const teamName = form.name.trim();
       const log = [];
 
       for (const result of Object.values(resultsVal)) {
         if (!result?.homeTeam || !result?.awayTeam) continue;
         if (result.status && result.status !== "approved") continue;
 
-        const isHome = normName(result.homeTeam) === wanted;
-        const isAway = normName(result.awayTeam) === wanted;
+        const isHome = result.homeTeam === teamName;
+        const isAway = result.awayTeam === teamName;
         if (!isHome && !isAway) continue;
-        if (isHome && isAway) continue; // a team can't play itself
 
         const ft = result.forfeitType || "none";
         const opponent = isHome ? result.awayTeam : result.homeTeam;
