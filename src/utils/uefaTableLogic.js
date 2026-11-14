@@ -1,18 +1,17 @@
 import { db, PATHS } from '../firebase';
 import { ref, get, update } from 'firebase/database';
-import { normName, decodeUefaLinks, effectiveTeamName, linksPath } from './uefaLinks';
+import { normName, decodeUefaLinks, linkedNamesFor, linksPath } from './uefaLinks';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // UEFA version of recalculateTable (Champions League, Europa, Conference).
 // Same rules and the same name matching as the original in tableLogic.js, with
 // two additions:
 //
-//  1. TEAM LINKING. Every table team looks for its results under the name of the
-//     team it is linked to (Admin → Team Linking). Barcelona linked to
-//     Real Madrid  →  the Barcelona row is built from Real Madrid's results and
-//     ONLY those. Results saved under "Barcelona" are not counted for it.
-//     A team with no link uses its own name. One team's results can feed more
-//     than one row (e.g. Real Madrid's own row and Barcelona's linked row).
+//  1. TEAM LINKING. A table team can be linked to several teams (Admin → Team
+//     Linking). Its row is built from the results of ALL of them added together,
+//     ignoring capitals (REAL MADRID = Real Madrid), and NOT from results saved
+//     under its own name. A team with no links uses its own name. One team's
+//     results can feed more than one row.
 //
 //  2. GROUP STAGE. Teams that live inside groups
 //     (career_<league>/seasons/season_<n>/groups/<group>/teams/<team>) are
@@ -65,9 +64,14 @@ function buildStructure(entries, links) {
   for (const { key, name, path } of entries) {
     const row = { key, name, path, stats: freshStats() };
     rows.push(row);
-    const lookup = normName(effectiveTeamName(name, links));
-    if (!byName.has(lookup)) byName.set(lookup, []);
-    byName.get(lookup).push(row);
+    // A linked team uses the results of ALL its linked teams (and not its own
+    // name); a team with no links uses its own name.
+    const linked = linkedNamesFor(name, links);
+    for (const n of (linked.length ? linked : [name])) {
+      const k = normName(n);
+      if (!byName.has(k)) byName.set(k, []);
+      if (!byName.get(k).includes(row)) byName.get(k).push(row);
+    }
   }
   return { rows, byName };
 }
