@@ -28,9 +28,9 @@ import { applyResultToTable } from "../utils/tableLogic";
 import { renameSeason, setActiveSeason, deleteSeason } from "../utils/seasonActions";
 import useSeasonState from "../utils/useSeasonState";
 
-const LEAGUE = "champions";
-const LEAGUE_NAME = "Champions League";
-const TOURNAMENT_NAME_KEY = "champions league";
+const LEAGUE = "europa";
+const LEAGUE_NAME = "Europa League";
+const TOURNAMENT_NAME_KEY = "europa league";
 
 function getSASTNow() { return new Date(Date.now() + 2 * 60 * 60 * 1000); }
 function getSASTDateStr(offsetDays = 0) {
@@ -137,7 +137,7 @@ function Countdown({ title, startMs, durationMs, accent = "#FF1493", matchday })
   );
 }
 
-export default function ChampionsLeaguePage() {
+export default function EuropaLeaguePage() {
   const { isAdmin } = useAdmin();
   const { season, setSeason, seasons, setSeasons, activeSeason, seasonReady } = useSeasonState(LEAGUE);
 
@@ -326,7 +326,7 @@ export default function ChampionsLeaguePage() {
               />
             )}
             {tab === "main" && tabMode === "groupStage" && <GroupStageModal league={LEAGUE} season={season} />}
-            {tab === "fixtures" && <FixturesList tournamentName="Champions League" />}
+            {tab === "fixtures" && <FixturesList tournamentName="Europa League" />}
             {tab === "results" && (
               <>
                 {(isAdmin || season === activeSeason) && (
