@@ -9,16 +9,17 @@ import TabBar from "../components/TabBar";
 import LeagueTable from "../components/LeagueTable";
 import GroupStageModal from "../modals/GroupStageModal";
 import FixturesList from "../components/FixturesList";
-import ResultsList from "../components/ResultsList";
+import UefaResultsList from "../components/UefaResultsList";
+import UefaStageBanner from "../components/UefaStageBanner";
 import TopScorers from "../components/TopScorers";
 import TopAssistants from "../components/TopAssistants";
 import Modal from "../components/Modal";
 import AddTeamModal from "../modals/AddTeamModal";
-import AddResultModal from "../modals/AddResultModal";
+import UefaAddResultModal from "../modals/UefaAddResultModal";
 import StatPlayerModal from "../modals/StatPlayerModal";
 import LeagueRulesModal from "../modals/LeagueRulesModal";
-import LeagueAdminSettingsModal from "../modals/LeagueAdminSettingsModal";
-import SubmitResultModal from "../modals/SubmitResultModal";
+import UefaLeagueAdminSettingsModal from "../modals/UefaLeagueAdminSettingsModal";
+import UefaSubmitResultModal from "../modals/UefaSubmitResultModal";
 import PendingFixturesModal from "../modals/PendingFixturesModal";
 import LoadingSpinner from "../components/LoadingSpinner";
 import LeagueHeadlineSlideshow from "../components/LeagueHeadlineSlideshow";
@@ -27,6 +28,7 @@ import MatchdayCountdowns from "../components/MatchdayCountdowns";
 import { applyResultToTable } from "../utils/tableLogic";
 import { renameSeason, setActiveSeason, deleteSeason } from "../utils/seasonActions";
 import useSeasonState from "../utils/useSeasonState";
+import useUefaTeams from "../hooks/useUefaTeams";
 
 const LEAGUE = "champions";
 const LEAGUE_NAME = "Champions League";
@@ -157,6 +159,9 @@ export default function ChampionsLeaguePage() {
   const [rulesOpen, setRulesOpen] = useState(false);
   const [submitOpen, setSubmitOpen] = useState(false);
   const [pendingOpen, setPendingOpen] = useState(false);
+
+  // Flat-table teams + group-stage teams: the UEFA result / admin modals need both
+  const allTeams = useUefaTeams(LEAGUE, season, teams);
 
   const todayStr = getSASTDateStr(0);
   const yesterdayStr = getSASTDateStr(-1);
@@ -322,11 +327,11 @@ export default function ChampionsLeaguePage() {
               <LeagueTable league={LEAGUE} season={season} teams={teams}
                 onEdit={isAdmin ? setEditTeam : undefined}
                 onDelete={isAdmin ? async k => { if (confirm("Delete?")) await remove(ref(db, `${PATHS.table(LEAGUE, season)}/${k}`)); } : undefined}
-                results={results}
+                results={results.filter(r => !r.stage)}
               />
             )}
             {tab === "main" && tabMode === "groupStage" && <GroupStageModal league={LEAGUE} season={season} />}
-            {tab === "fixtures" && <FixturesList tournamentName="Champions League" />}
+            {tab === "fixtures" && <FixturesList tournamentName="Champions League" banner={<UefaStageBanner league={LEAGUE} />} />}
             {tab === "results" && (
               <>
                 {(isAdmin || season === activeSeason) && (
@@ -339,7 +344,7 @@ export default function ChampionsLeaguePage() {
                   </button>
                 </div>
                 )}
-                <ResultsList league={LEAGUE} season={season}
+                <UefaResultsList league={LEAGUE} season={season}
                   onEdit={isAdmin ? r => setEditResult(r) : undefined}
                   onDelete={isAdmin ? handleDeleteResult : undefined}
                 />
@@ -368,19 +373,19 @@ export default function ChampionsLeaguePage() {
         <AddTeamModal league={LEAGUE} season={season} team={editTeam || null} onClose={() => setEditTeam(undefined)} />
       </Modal>
       <Modal active={editResult !== undefined} onClose={() => setEditResult(undefined)}>
-        <AddResultModal league={LEAGUE} season={season} teams={teams} result={editResult} onClose={() => setEditResult(undefined)} />
+        <UefaAddResultModal league={LEAGUE} season={season} teams={allTeams} result={editResult} onClose={() => setEditResult(undefined)} />
       </Modal>
       <Modal active={editStat !== undefined} onClose={() => setEditStat(undefined)}>
         <StatPlayerModal league={LEAGUE} season={season} type={statType} teams={teams} player={editStat} onClose={() => setEditStat(undefined)} />
       </Modal>
       <Modal active={adminOpen} onClose={() => setAdminOpen(false)}>
-        <LeagueAdminSettingsModal league={LEAGUE} season={season} teams={teams} onClose={() => setAdminOpen(false)} />
+        <UefaLeagueAdminSettingsModal league={LEAGUE} season={season} teams={allTeams} onClose={() => setAdminOpen(false)} />
       </Modal>
       <Modal active={rulesOpen} onClose={() => setRulesOpen(false)}>
         <LeagueRulesModal league={LEAGUE} leagueName={LEAGUE_NAME} onClose={() => setRulesOpen(false)} />
       </Modal>
       <Modal active={submitOpen} onClose={() => setSubmitOpen(false)}>
-        <SubmitResultModal league={LEAGUE} season={season} teams={teams} onClose={() => setSubmitOpen(false)} prevMatchday={yesterdayMd} currMatchday={todayMd} />
+        <UefaSubmitResultModal league={LEAGUE} season={season} teams={allTeams} onClose={() => setSubmitOpen(false)} prevMatchday={yesterdayMd} currMatchday={todayMd} />
       </Modal>
       <Modal active={pendingOpen} onClose={() => setPendingOpen(false)}>
         <PendingFixturesModal league={LEAGUE} season={season} onClose={() => setPendingOpen(false)} />
