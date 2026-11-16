@@ -1,6 +1,7 @@
 import { db, PATHS } from '../firebase';
 import { ref, get, update } from 'firebase/database';
 import { normName, decodeUefaLinks, linkedNamesFor, linksPath } from './uefaLinks';
+import { isKnockoutResult } from './uefaStage';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // UEFA version of recalculateTable (Champions League, Europa, Conference).
@@ -113,6 +114,7 @@ export async function recalculateUefaTable(league, season) {
   for (const result of Object.values(resultsVal)) {
     if (!result?.homeTeam || !result?.awayTeam) continue;
     if (result.status && result.status !== 'approved') continue;
+    if (isKnockoutResult(result)) continue; // knockout results never change the table
 
     const hn = normName(result.homeTeam);
     const an = normName(result.awayTeam);
