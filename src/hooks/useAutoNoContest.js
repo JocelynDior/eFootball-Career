@@ -62,10 +62,9 @@ export function useAutoNoContest(league, season) {
 
             // Check if a result exists for this team pair within 2 days either direction
             const resultFound = existingResults.some(r => {
-              const same = (a, b) => String(a || "").trim().replace(/\s+/g, " ").toLowerCase() === String(b || "").trim().replace(/\s+/g, " ").toLowerCase();
               const teamsMatch =
-                (same(r.homeTeam, home) && same(r.awayTeam, away)) ||
-                (same(r.homeTeam, away) && same(r.awayTeam, home));
+                (r.homeTeam === home && r.awayTeam === away) ||
+                (r.homeTeam === away && r.awayTeam === home);
               if (!teamsMatch) return false;
               const rDate = r.date ? String(r.date).slice(0, 10) : "";
               return withinTwoDays(dateStr, rDate);
