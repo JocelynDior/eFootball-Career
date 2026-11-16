@@ -5,7 +5,6 @@ import { useAdmin } from "../context/AdminContext";
 import Modal from "./Modal";
 import MatchDetailsModal from "../modals/MatchDetailsModal";
 import { getTeamIcon } from "../utils/teamIcons";
-import { isUefaLeague } from "../utils/uefaLinks";
 
 const GLASS = {
   background: "rgba(255,255,255,0.06)",
@@ -193,24 +192,11 @@ export default function ResultsList({ league, season, onEdit, onDelete }) {
   };
 
   // Get all unique team names for filter dropdown
-  // Champions / Europa / Conference: BAYERN and Bayern are one team, listed once
-  // and filtered together. Every other league behaves as before.
-  const ignoreCaps = isUefaLeague(league);
-  const sameName = (a, b) => (ignoreCaps ? normName(a) === normName(b) : a === b);
-  const allTeams = (() => {
-    if (!ignoreCaps) return [...new Set(allResults.flatMap(r => [r.homeTeam, r.awayTeam].filter(Boolean)))].sort();
-    const seen = new Map();
-    for (const r of allResults) {
-      for (const n of [r.homeTeam, r.awayTeam]) {
-        if (n && !seen.has(normName(n))) seen.set(normName(n), n);
-      }
-    }
-    return [...seen.values()].sort();
-  })();
+  const allTeams = [...new Set(allResults.flatMap(r => [r.homeTeam, r.awayTeam].filter(Boolean)))].sort();
 
   // Apply filters
   const filtered = allResults.filter(r => {
-    if (filterTeam && !sameName(r.homeTeam, filterTeam) && !sameName(r.awayTeam, filterTeam)) return false;
+    if (filterTeam && r.homeTeam !== filterTeam && r.awayTeam !== filterTeam) return false;
     if (filterDate && r.date !== filterDate) return false;
     return true;
   });
