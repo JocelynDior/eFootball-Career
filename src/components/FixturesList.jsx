@@ -91,7 +91,7 @@ function sortGroupedDates(grouped) {
   return [...today, ...yest, ...upcoming, ...past];
 }
 
-export default function FixturesList({ tournamentName }) {
+export default function FixturesList({ tournamentName, banner = null }) {
   const { isAdmin, teamIconsCache } = useAdmin();
   const [allFixtures, setAllFixtures] = useState([]);
   const [teamFilter, setTeamFilter] = useState("all");
@@ -358,6 +358,9 @@ export default function FixturesList({ tournamentName }) {
           </div>
         </div>
       )}
+
+      {/* Optional banner (UEFA knockout stage image) — sits under the filter, above the fixtures */}
+      {banner}
 
       {!initialLoading && allFixtures.length === 0 && (
         <div style={{ textAlign: "center", padding: "80px 20px", color: "rgba(255,255,255,0.3)" }}>
