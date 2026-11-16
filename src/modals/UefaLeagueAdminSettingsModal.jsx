@@ -1,0 +1,470 @@
+import { useState, useEffect } from "react";
+import { db, PATHS } from "../firebase";
+import { ref, onValue, set, push, remove } from "firebase/database";
+import Modal from "../components/Modal";
+import ManagerKeysModal from "./ManagerKeysModal";
+import ManagerHistoryModal from "./ManagerHistoryModal";
+import RequestsHistoryModal from "./RequestsHistoryModal";
+import { uploadToImgBB } from "../utils/imgUpload";
+import UefaTeamLinker from "./UefaTeamLinker";
+import { stagePath } from "../utils/uefaStage";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UEFA version of LeagueAdminSettingsModal (Champions / Europa / Conference).
+// A copy of the original with:
+//   • a "Competition Stage" block: League Phase (default) / Knockout, and — while
+//     Knockout is active — the stage image shown on the Results and Fixtures tabs
+//   • the UEFA Team Linking screen (several links per team) instead of the original
+// ─────────────────────────────────────────────────────────────────────────────
+
+const inputStyle = {
+  width: "100%", padding: "10px 14px",
+  background: "rgba(255,255,255,0.06)",
+  border: "1px solid rgba(255,20,147,0.4)",
+  borderRadius: 10, color: "#fff",
+  fontFamily: "inherit", fontSize: "0.9rem",
+  outline: "none", boxSizing: "border-box", marginBottom: 10,
+};
+const labelStyle = {
+  color: "rgba(255,255,255,0.6)", fontSize: "0.75rem",
+  display: "block", marginBottom: 4,
+  textTransform: "uppercase", letterSpacing: "0.5px",
+};
+const btnStyle = {
+  width: "100%", padding: "16px 20px",
+  background: "rgba(255,20,147,0.08)",
+  border: "1px solid rgba(255,20,147,0.25)",
+  borderRadius: 14, color: "#fff", cursor: "pointer",
+  fontWeight: 600, fontSize: "0.95rem", textAlign: "left",
+  display: "flex", alignItems: "center", gap: 14,
+  transition: "all 0.2s", marginBottom: 10, fontFamily: "inherit",
+};
+
+const DEFAULT_COLORS = ["#4169E1", "#FF6B00", "#ef4444", "#22c55e", "#FFB800", "#a855f7"];
+
+// ─── Slideshow Manager ────────────────────────────────────────────────────────
+function SlideshowManager({ league, onBack }) {
+  const [slides, setSlides] = useState([]); // [{ id, imageUrl, caption }]
+  const [file, setFile] = useState(null);
+  const [preview, setPreview] = useState("");
+  const [caption, setCaption] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [status, setStatus] = useState("");
+
+  const basePath = `career_${league}_settings/headlines`;
+
+  useEffect(() => {
+    const unsub = onValue(ref(db, basePath), snap => {
+      const d = snap.val();
+      setSlides(d ? Object.entries(d).map(([k, v]) => ({ id: k, ...v })) : []);
+    });
+    return () => unsub();
+  }, [basePath]);
+
+  function handleFileChange(e) {
+    const f = e.target.files[0];
+    if (!f) return;
+    setFile(f);
+    const reader = new FileReader();
+    reader.onload = ev => setPreview(ev.target.result);
+    reader.readAsDataURL(f);
+    setStatus("");
+  }
+
+  async function handleUpload() {
+    if (!file) { setStatus("Please select an image."); return; }
+    setUploading(true);
+    setStatus("Uploading...");
+    try {
+      const url = await uploadToImgBB(file);
+      await push(ref(db, basePath), { imageUrl: url, caption: caption.trim() });
+      setStatus("✅ Slide added!");
+      setFile(null);
+      setPreview("");
+      setCaption("");
+    } catch (e) {
+      setStatus("❌ Failed: " + e.message);
+    }
+    setUploading(false);
+  }
+
+  async function handleDelete(id) {
+    if (!window.confirm("Remove this slide?")) return;
+    await remove(ref(db, `${basePath}/${id}`));
+  }
+
+  async function handleUpdateCaption(id, newCaption) {
+    await set(ref(db, `${basePath}/${id}/caption`), newCaption);
+  }
+
+  return (
+    <div>
+      <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: 20 }}>
+        🎞️ Manage Slideshow
+      </h3>
+
+      {/* Current slides */}
+      {slides.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 10 }}>
+            Current Slides ({slides.length})
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {slides.map(slide => (
+              <div key={slide.id} style={{ background: "rgba(255,20,147,0.06)", border: "1px solid rgba(255,20,147,0.2)", borderRadius: 12, overflow: "hidden" }}>
+                {/* Image preview */}
+                <div style={{ position: "relative", width: "100%", aspectRatio: "16/5", overflow: "hidden" }}>
+                  <img src={slide.imageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  <button
+                    onClick={() => handleDelete(slide.id)}
+                    style={{ position: "absolute", top: 8, right: 8, background: "rgba(200,0,0,0.85)", color: "#fff", border: "none", borderRadius: "50%", width: 30, height: 30, cursor: "pointer", fontSize: "0.9rem", display: "flex", alignItems: "center", justifyContent: "center" }}
+                  >✕</button>
+                </div>
+                {/* Caption edit */}
+                <div style={{ padding: "10px 12px" }}>
+                  <CaptionEditor
+                    initial={slide.caption || ""}
+                    onSave={val => handleUpdateCaption(slide.id, val)}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Add new slide */}
+      <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, padding: 14 }}>
+        <div style={{ color: "rgba(255,255,255,0.7)", fontWeight: 700, marginBottom: 12, fontSize: "0.9rem" }}>➕ Add New Slide</div>
+
+        {/* Image picker */}
+        <label style={{ display: "block", marginBottom: 10 }}>
+          <div style={{ background: "rgba(255,20,147,0.1)", border: "2px dashed rgba(255,20,147,0.4)", borderRadius: 10, padding: "16px", textAlign: "center", cursor: "pointer" }}>
+            {preview ? (
+              <img src={preview} alt="" style={{ width: "100%", maxHeight: 140, objectFit: "cover", borderRadius: 8 }} />
+            ) : (
+              <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.9rem" }}>📷 Tap to choose image</span>
+            )}
+          </div>
+          <input type="file" accept="image/*" onChange={handleFileChange} style={{ display: "none" }} />
+        </label>
+
+        {/* Caption */}
+        <label style={labelStyle}>Caption (optional)</label>
+        <input
+          value={caption}
+          onChange={e => setCaption(e.target.value)}
+          placeholder="e.g. Matchday 5 Results"
+          style={inputStyle}
+        />
+
+        {status && (
+          <div style={{ color: status.startsWith("✅") ? "#22c55e" : status.startsWith("❌") ? "#ff6b6b" : "rgba(255,255,255,0.5)", fontSize: "0.85rem", marginBottom: 10 }}>
+            {status}
+          </div>
+        )}
+
+        <button
+          onClick={handleUpload}
+          disabled={uploading || !file}
+          style={{ width: "100%", padding: 12, background: uploading || !file ? "rgba(255,20,147,0.3)" : "#FF1493", border: "none", borderRadius: 10, color: "#fff", fontWeight: 700, cursor: uploading || !file ? "not-allowed" : "pointer", fontSize: "0.95rem" }}
+        >
+          {uploading ? "Uploading..." : "Upload Slide"}
+        </button>
+      </div>
+
+      <button onClick={onBack} style={{ width: "100%", marginTop: 14, padding: 14, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, color: "#fff", cursor: "pointer" }}>
+        ← Back
+      </button>
+    </div>
+  );
+}
+
+// Inline caption editor
+function CaptionEditor({ initial, onSave }) {
+  const [val, setVal] = useState(initial);
+  const [saved, setSaved] = useState(false);
+
+  async function save() {
+    await onSave(val);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  }
+
+  return (
+    <div style={{ display: "flex", gap: 8 }}>
+      <input
+        value={val}
+        onChange={e => { setVal(e.target.value); setSaved(false); }}
+        placeholder="Caption (optional)"
+        style={{ ...inputStyle, marginBottom: 0, flex: 1, fontSize: "0.82rem", padding: "7px 10px" }}
+      />
+      <button onClick={save} style={{ padding: "7px 14px", background: saved ? "#22c55e" : "rgba(255,20,147,0.2)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: 8, color: "#fff", cursor: "pointer", fontSize: "0.8rem", whiteSpace: "nowrap" }}>
+        {saved ? "✅" : "Save"}
+      </button>
+    </div>
+  );
+}
+
+// ─── Main Modal ───────────────────────────────────────────────────────────────
+export default function UefaLeagueAdminSettingsModal({ league, season, teams, onClose }) {
+  const [view, setView] = useState("main");
+
+  // Zone config state
+  const [zones, setZones] = useState([]);
+  const [dashedLines, setDashedLines] = useState([]);
+  const [savingZones, setSavingZones] = useState(false);
+
+  // Table / Group Stage toggle
+  const [tabMode, setTabMode] = useState("table");
+  const [savingMode, setSavingMode] = useState(false);
+
+  // Competition stage: League Phase (default) / Knockout + stage image
+  const [stageMode, setStageMode] = useState("league");
+  const [stageImage, setStageImage] = useState("");
+  const [savingStage, setSavingStage] = useState(false);
+  const [stageStatus, setStageStatus] = useState("");
+
+  // New zone form
+  const [newZoneFrom, setNewZoneFrom] = useState("");
+  const [newZoneTo, setNewZoneTo] = useState("");
+  const [newZoneColor, setNewZoneColor] = useState("#4169E1");
+  const [newZoneLabel, setNewZoneLabel] = useState("");
+
+  // New dashed line form
+  const [newDashAfter, setNewDashAfter] = useState("");
+  const [newDashLabel, setNewDashLabel] = useState("");
+
+  useEffect(() => {
+    const unsub = onValue(ref(db, `career_${league}_settings`), snap => {
+      const d = snap.val() || {};
+      setZones(d.zones?.colorZones || []);
+      setDashedLines(d.zones?.dashedLines || []);
+      setTabMode(d.tabMode || "table");
+    });
+    return () => unsub();
+  }, [league]);
+
+  useEffect(() => {
+    const unsub = onValue(ref(db, stagePath(league)), snap => {
+      const d = snap.val() || {};
+      setStageMode(d.mode === "knockout" ? "knockout" : "league");
+      setStageImage(d.imageUrl || "");
+    });
+    return () => unsub();
+  }, [league]);
+
+  async function saveStage(next) {
+    setSavingStage(true);
+    setStageStatus("");
+    try {
+      await set(ref(db, stagePath(league)), { mode: next.mode, imageUrl: next.imageUrl || "" });
+      setStageStatus("✅ Saved");
+    } catch (e) {
+      setStageStatus("❌ " + e.message);
+    }
+    setSavingStage(false);
+  }
+
+  async function handleStageImage(e) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setSavingStage(true);
+    setStageStatus("Uploading image...");
+    try {
+      const url = await uploadToImgBB(file);
+      await saveStage({ mode: stageMode, imageUrl: url });
+    } catch (err) {
+      setStageStatus("❌ Upload failed: " + err.message);
+      setSavingStage(false);
+    }
+  }
+
+  async function saveTabMode(mode) {
+    setSavingMode(true);
+    await set(ref(db, `career_${league}_settings/tabMode`), mode);
+    setTabMode(mode);
+    setSavingMode(false);
+  }
+
+  function addZone() {
+    if (!newZoneFrom || !newZoneTo || !newZoneLabel) return;
+    setZones(prev => [...prev, { from: +newZoneFrom, to: +newZoneTo, color: newZoneColor, label: newZoneLabel }]);
+    setNewZoneFrom(""); setNewZoneTo(""); setNewZoneLabel(""); setNewZoneColor("#4169E1");
+  }
+
+  function removeZone(i) { setZones(prev => prev.filter((_, idx) => idx !== i)); }
+
+  function addDashedLine() {
+    if (!newDashAfter || !newDashLabel) return;
+    setDashedLines(prev => [...prev, { afterPosition: +newDashAfter, label: newDashLabel }]);
+    setNewDashAfter(""); setNewDashLabel("");
+  }
+
+  function removeDashedLine(i) { setDashedLines(prev => prev.filter((_, idx) => idx !== i)); }
+
+  async function saveZones() {
+    setSavingZones(true);
+    await set(ref(db, `career_${league}_settings/zones`), { colorZones: zones, dashedLines });
+    setSavingZones(false);
+    alert("Zone config saved!");
+  }
+
+  // Sub-views
+  if (view === "slideshow") return <SlideshowManager league={league} onBack={() => setView("main")} />;
+  if (view === "keys") return <Modal active onClose={() => setView("main")}><ManagerKeysModal onClose={() => setView("main")} /></Modal>;
+  if (view === "history") return <Modal active onClose={() => setView("main")}><ManagerHistoryModal league={league} season={season} onClose={() => setView("main")} /></Modal>;
+  if (view === "requests") return <Modal active onClose={() => setView("main")}><RequestsHistoryModal league={league} season={season} onClose={() => setView("main")} /></Modal>;
+
+  if (view === "teamLinks") return <UefaTeamLinker league={league} season={season} teams={teams} onBack={() => setView("main")} />;
+
+  if (view === "zones") {
+    return (
+      <div>
+        <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: 20 }}>🎨 Zone Config</h3>
+
+        {/* Color Zones */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ color: "rgba(255,255,255,0.7)", fontWeight: 700, marginBottom: 10, fontSize: "0.95rem" }}>Color Zones</div>
+          {zones.map((z, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(255,20,147,0.06)", border: "1px solid rgba(255,20,147,0.2)", borderRadius: 10, padding: "10px 14px", marginBottom: 8 }}>
+              <span style={{ width: 16, height: 16, borderRadius: 3, background: z.color, display: "inline-block", flexShrink: 0 }} />
+              <span style={{ color: "#fff", flex: 1, fontSize: "0.9rem" }}>Pos {z.from}–{z.to}: {z.label}</span>
+              <button onClick={() => removeZone(i)} style={{ background: "rgba(255,0,0,0.2)", border: "none", color: "#ff6b6b", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontSize: "0.8rem" }}>✕</button>
+            </div>
+          ))}
+          <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, padding: 14, marginTop: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+              <div><label style={labelStyle}>From Position</label><input type="number" value={newZoneFrom} onChange={e => setNewZoneFrom(e.target.value)} style={inputStyle} min={1} /></div>
+              <div><label style={labelStyle}>To Position</label><input type="number" value={newZoneTo} onChange={e => setNewZoneTo(e.target.value)} style={inputStyle} min={1} /></div>
+            </div>
+            <label style={labelStyle}>Label (e.g. "Champions League")</label>
+            <input value={newZoneLabel} onChange={e => setNewZoneLabel(e.target.value)} style={inputStyle} placeholder="Zone label" />
+            <label style={labelStyle}>Color</label>
+            <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+              {DEFAULT_COLORS.map(c => (
+                <button key={c} onClick={() => setNewZoneColor(c)} style={{ width: 32, height: 32, borderRadius: "50%", background: c, border: newZoneColor === c ? "3px solid #fff" : "2px solid transparent", cursor: "pointer" }} />
+              ))}
+              <input type="color" value={newZoneColor} onChange={e => setNewZoneColor(e.target.value)} style={{ width: 36, height: 36, borderRadius: "50%", border: "none", cursor: "pointer", background: "transparent" }} />
+            </div>
+            <button onClick={addZone} style={{ width: "100%", padding: 10, background: "#FF1493", border: "none", borderRadius: 10, color: "#fff", fontWeight: 700, cursor: "pointer" }}>+ Add Zone</button>
+          </div>
+        </div>
+
+        {/* Dashed Lines */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ color: "rgba(255,255,255,0.7)", fontWeight: 700, marginBottom: 10, fontSize: "0.95rem" }}>Dashed Lines</div>
+          {dashedLines.map((d, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(255,20,147,0.06)", border: "1px solid rgba(255,20,147,0.2)", borderRadius: 10, padding: "10px 14px", marginBottom: 8 }}>
+              <span style={{ color: "#ef4444", fontSize: "0.85rem", flex: 1 }}>After pos {d.afterPosition}: {d.label}</span>
+              <button onClick={() => removeDashedLine(i)} style={{ background: "rgba(255,0,0,0.2)", border: "none", color: "#ff6b6b", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontSize: "0.8rem" }}>✕</button>
+            </div>
+          ))}
+          <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, padding: 14, marginTop: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div><label style={labelStyle}>After Position</label><input type="number" value={newDashAfter} onChange={e => setNewDashAfter(e.target.value)} style={inputStyle} min={1} /></div>
+              <div><label style={labelStyle}>Label</label><input value={newDashLabel} onChange={e => setNewDashLabel(e.target.value)} style={inputStyle} placeholder="e.g. Relegation line" /></div>
+            </div>
+            <button onClick={addDashedLine} style={{ width: "100%", padding: 10, background: "#FF1493", border: "none", borderRadius: 10, color: "#fff", fontWeight: 700, cursor: "pointer" }}>+ Add Dashed Line</button>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={saveZones} disabled={savingZones} style={{ flex: 1, padding: 14, background: "#FF1493", border: "none", borderRadius: 12, color: "#fff", fontWeight: 700, cursor: "pointer", opacity: savingZones ? 0.7 : 1 }}>{savingZones ? "Saving..." : "💾 Save Zone Config"}</button>
+          <button onClick={() => setView("main")} style={{ flex: 1, padding: 14, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, color: "#fff", cursor: "pointer" }}>← Back</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: 20 }}>⚙️ League Admin Settings</h3>
+
+      {/* Tab Mode Toggle */}
+      <div style={{ background: "rgba(255,20,147,0.06)", border: "1px solid rgba(255,20,147,0.2)", borderRadius: 14, padding: 16, marginBottom: 16 }}>
+        <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.75rem", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.5px" }}>First Tab Mode</div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={() => saveTabMode("table")} style={{ flex: 1, padding: "12px 0", background: tabMode === "table" ? "#FF1493" : "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: 10, color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "0.9rem" }}>
+            🏆 League Table
+          </button>
+          <button onClick={() => saveTabMode("groupStage")} style={{ flex: 1, padding: "12px 0", background: tabMode === "groupStage" ? "#FF1493" : "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: 10, color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "0.9rem" }}>
+            🗂️ Group Stage
+          </button>
+        </div>
+        {savingMode && <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", marginTop: 6, textAlign: "center" }}>Saving...</div>}
+      </div>
+
+      {/* Competition stage */}
+      <div style={{ background: "rgba(255,20,147,0.06)", border: "1px solid rgba(255,20,147,0.2)", borderRadius: 14, padding: 16, marginBottom: 16 }}>
+        <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.75rem", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.5px" }}>Competition Stage</div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={() => saveStage({ mode: "league", imageUrl: stageImage })} disabled={savingStage}
+            style={{ flex: 1, padding: "12px 0", background: stageMode === "league" ? "#FF1493" : "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: 10, color: "#fff", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+            📊 League Phase
+          </button>
+          <button onClick={() => saveStage({ mode: "knockout", imageUrl: stageImage })} disabled={savingStage}
+            style={{ flex: 1, padding: "12px 0", background: stageMode === "knockout" ? "#FF1493" : "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: 10, color: "#fff", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+            ⚔️ Knockout Stage
+          </button>
+        </div>
+        <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.78rem", marginTop: 10, lineHeight: 1.5 }}>
+          {stageMode === "knockout"
+            ? "Knockout: new results are tagged with the stage set in the calendar and do NOT change the table. Opponents are picked from the table."
+            : "League Phase: results use the calendar fixtures and update the table."}
+        </div>
+
+        {stageMode === "knockout" && (
+          <div style={{ marginTop: 14 }}>
+            <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.75rem", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.5px" }}>Stage Image (shown on Results &amp; Fixtures)</div>
+            {stageImage && (
+              <div style={{ width: "100%", aspectRatio: "16/6", overflow: "hidden", borderRadius: 10, marginBottom: 10 }}>
+                <img src={stageImage} alt="Knockout stage" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 10 }}>
+              <label style={{ flex: 1, textAlign: "center", padding: "11px 0", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: 10, color: "#fff", fontWeight: 600, cursor: savingStage ? "not-allowed" : "pointer", opacity: savingStage ? 0.6 : 1 }}>
+                🖼️ {stageImage ? "Replace Image" : "Upload Image"}
+                <input type="file" accept="image/*" onChange={handleStageImage} disabled={savingStage} style={{ display: "none" }} />
+              </label>
+              {stageImage && (
+                <button onClick={() => saveStage({ mode: stageMode, imageUrl: "" })} disabled={savingStage}
+                  style={{ padding: "11px 18px", background: "rgba(220,50,50,0.15)", border: "1px solid rgba(220,50,50,0.4)", borderRadius: 10, color: "#ff6b6b", fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                  Remove
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        {(savingStage || stageStatus) && (
+          <div style={{ color: stageStatus.startsWith("❌") ? "#ff6b6b" : "rgba(255,255,255,0.5)", fontSize: "0.8rem", marginTop: 8, textAlign: "center" }}>{savingStage ? "Saving..." : stageStatus}</div>
+        )}
+      </div>
+
+      {teams && teams.length > 0 && (
+        <div style={{ background: "rgba(255,20,147,0.06)", border: "1px solid rgba(255,20,147,0.2)", borderRadius: 14, padding: 16, marginBottom: 16 }}>
+          <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.75rem", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.5px" }}>Teams in {league} — Season {season}</div>
+          <div style={{ color: "rgba(255,255,255,0.85)", fontSize: "0.9rem" }}>{teams.length} team{teams.length === 1 ? "" : "s"} registered</div>
+        </div>
+      )}
+
+      {[
+        ["🎞️", "Manage Slideshow", "slideshow"],
+        ["🎨", "Zone Config", "zones"],
+        ["🔗", "Team Linking", "teamLinks"],
+        ["📜", "Submission History", "requests"],
+        ["🔑", "Manager Keys", "keys"],
+        ["📋", "Manager History", "history"],
+      ].map(([icon, label, id]) => (
+        <button key={id} onClick={() => setView(id)} style={btnStyle}
+          onMouseOver={e => { e.currentTarget.style.background = "rgba(255,20,147,0.18)"; e.currentTarget.style.borderColor = "#FF1493"; }}
+          onMouseOut={e => { e.currentTarget.style.background = "rgba(255,20,147,0.08)"; e.currentTarget.style.borderColor = "rgba(255,20,147,0.25)"; }}>
+          <span style={{ fontSize: "1.4rem" }}>{icon}</span>{label}<span style={{ marginLeft: "auto", color: "#FF1493" }}>›</span>
+        </button>
+      ))}
+
+      <button onClick={onClose} style={{ width: "100%", marginTop: 8, padding: 14, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, color: "#fff", cursor: "pointer" }}>Close</button>
+    </div>
+  );
+}
