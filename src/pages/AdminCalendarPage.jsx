@@ -809,6 +809,8 @@ export default function AdminCalendarPage() {
           <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "0.6rem", fontWeight: 700, color: "rgba(255,255,255,0.5)", marginBottom: "6px", letterSpacing: "0.1em" }}>STAGE / PHASE (OPTIONAL)</div>
           <select value={fixStage} onChange={e => setFixStage(e.target.value)} style={{ width: "100%", padding: "10px 14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: 10, color: "#fff", fontFamily: "inherit", fontSize: "0.9rem", outline: "none", marginBottom: "1rem", cursor: "pointer" }}>
             <option value="">— No stage —</option>
+            <option value="Play-off 1st Leg">Play-off 1st Leg</option>
+            <option value="Play-off 2nd Leg">Play-off 2nd Leg</option>
             <option value="Round of 32 1st Leg">Round of 32 1st Leg</option>
             <option value="Round of 32 2nd Leg">Round of 32 2nd Leg</option>
             <option value="Round of 16 1st Leg">Round of 16 1st Leg</option>
