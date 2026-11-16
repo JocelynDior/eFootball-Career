@@ -1,23 +1,26 @@
 import { useState, useEffect, useCallback } from "react";
 import { db, PATHS } from "../firebase";
 import { ref, push, get, set, update, remove, onValue } from "firebase/database";
-// ─────────────────────────────────────────────────────────────────────────────
-// UEFA version of SubmitResultModal (Champions League, Europa, Conference).
-// A copy of the original with ONE behavioural change: team linking.
-//
-// If the manager's assigned team is linked to another team (Admin → Team
-// Linking), the manager plays AS the linked team. Barcelona linked to
-// Real Madrid → a Barcelona manager sees Real Madrid's fixtures, and the result,
-// scorers and assists are saved under "Real Madrid". The table then credits the
-// Barcelona row with Real Madrid's results (see uefaTableLogic.js).
-// With no link everything works exactly like the original.
-// ─────────────────────────────────────────────────────────────────────────────
 import { applyResultToTable } from "../utils/tableLogic";
-import useUefaTeamLink from "../hooks/useUefaTeamLink";
 import { getSASTToday } from "../utils/sastTime";
 import { useAdmin } from "../context/AdminContext";
 import { uploadToImgBB } from "../utils/imgUpload";
-import { CUP_LEAGUES, CUP_STAGES, DOMESTIC_LEAGUE_KEYS } from "../utils/cupConfig";
+import useUefaStageSettings from "../hooks/useUefaStageSettings";
+import useCalendarStages from "../hooks/useCalendarStages";
+import { UEFA_STAGES, sameStage } from "../utils/uefaStage";
+import { normName } from "../utils/uefaLinks";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UEFA version of SubmitResultModal (Champions / Europa / Conference).
+// A copy of the original with the KNOCKOUT stage added:
+//   • League Phase (default): exactly the original — pick your fixture from the
+//     calendar, the table updates.
+//   • Knockout: pick ANY opponent from the table. The stage is filled in from the
+//     calendar (previous / current matchday). The result is saved with a `stage`
+//     tag and does NOT change the table. The same stage + the same two teams is
+//     ONE match: a second manager's submission is merged into it (scorers, assists,
+//     image) instead of creating a duplicate. Goals/assists still count.
+// ─────────────────────────────────────────────────────────────────────────────
 import { LEAGUE_TOURNAMENT_NAMES as LEAGUE_TOURNAMENT } from "../utils/leagueTournamentNames";
 
 
@@ -114,36 +117,16 @@ async function detectHomeAway(league, myTeam, opponent) {
   return { homeTeam: myTeam, awayTeam: opponent };
 }
 
-// ── Combined opponent pool for cup competitions: every team currently in the
-// active-season table of each of the 5 domestic leagues, deduped & sorted ───
-async function fetchCupOpponentPool() {
-  const names = new Set();
-  for (const leagueKey of DOMESTIC_LEAGUE_KEYS) {
-    try {
-      const settingsSnap = await get(ref(db, `career_${leagueKey}_settings/activeSeason`));
-      const activeSeason = settingsSnap.val() || "1";
-      const tableSnap = await get(ref(db, PATHS.table(leagueKey, activeSeason)));
-      const table = tableSnap.val() || {};
-      for (const t of Object.values(table)) {
-        if (t?.name) names.add(t.name);
-      }
-    } catch {
-      // one league failing shouldn't block the others
-    }
-  }
-  return Array.from(names).sort();
-}
-
 // ── Check for existing result (symmetric team pair) ───────────────────────────
 async function findExistingResult(league, season, myTeam, opponent, roundValue, isCup) {
   const snap = await get(ref(db, PATHS.results(league, season)));
   const data = snap.val() || {};
   for (const [key, val] of Object.entries(data)) {
-    const roundMatches = isCup ? String(val.stage) === String(roundValue) : String(val.md) === String(roundValue);
+    const roundMatches = isCup ? sameStage(val.stage, roundValue) : String(val.md) === String(roundValue);
     if (!roundMatches) continue;
     const sameTeams =
-      (val.homeTeam === myTeam && val.awayTeam === opponent) ||
-      (val.homeTeam === opponent && val.awayTeam === myTeam);
+      (normName(val.homeTeam) === normName(myTeam) && normName(val.awayTeam) === normName(opponent)) ||
+      (normName(val.homeTeam) === normName(opponent) && normName(val.awayTeam) === normName(myTeam));
     if (sameTeams) return { key, ...val };
   }
   return null;
@@ -263,7 +246,7 @@ function MatchdayPicker({ matchday, setMatchday, prevMatchday, currMatchday }) {
 // ── Opponent + stage/matchday picker — cup competitions get a free opponent
 // dropdown + stage select; leagues keep the scheduled-fixture card picker ────
 function OpponentAndRoundPicker({
-  isCup, opponent, setOpponent, others, cupOpponentsLoading,
+  isCup, stageOptions, opponent, setOpponent, others, cupOpponentsLoading,
   matchday, setMatchday, date, setDate,
   fixturesLoading, myFixtures, handleFixtureSelect, currMatchday, prevMatchday,
 }) {
@@ -279,7 +262,7 @@ function OpponentAndRoundPicker({
         <label style={labelStyle}>Stage <span style={{ color: "#ff6b6b" }}>*</span></label>
         <select value={matchday} onChange={e => setMatchday(e.target.value)} style={inputStyle}>
           <option value="">— Select stage —</option>
-          {CUP_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+          {stageOptions.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
 
         <label style={labelStyle}>Date</label>
@@ -454,8 +437,8 @@ function ForbiddenResultsManager({ league, teams, onClose }) {
 }
 
 // ── Admin: Enter Result Directly ──────────────────────────────────────────────
-function AdminEnterResultView({ league, season, teams, forbiddenList, onClose }) {
-  const isCup = CUP_LEAGUES.has(league);
+function AdminEnterResultView({ league, season, teams, forbiddenList, onClose, knockout, stageOptions }) {
+  const isCup = knockout;
   const [homeTeam, setHomeTeam]   = useState("");
   const [awayTeam, setAwayTeam]   = useState("");
   const [homeScore, setHomeScore] = useState(0);
@@ -466,21 +449,8 @@ function AdminEnterResultView({ league, season, teams, forbiddenList, onClose })
   const [saving, setSaving]       = useState(false);
   const [status, setStatus]       = useState("");
 
-  const [cupOpponents, setCupOpponents] = useState([]);
-  const [cupOpponentsLoading, setCupOpponentsLoading] = useState(true);
-  useEffect(() => {
-    if (!isCup) { setCupOpponentsLoading(false); return; }
-    let cancelled = false;
-    setCupOpponentsLoading(true);
-    fetchCupOpponentPool().then(names => {
-      if (cancelled) return;
-      setCupOpponents(names);
-      setCupOpponentsLoading(false);
-    });
-    return () => { cancelled = true; };
-  }, [isCup]);
-
-  const teamNames = isCup ? cupOpponents : teams.map(t => t.name).sort();
+  const cupOpponentsLoading = false;
+  const teamNames = teams.map(t => t.name).sort();
 
   async function handleSubmit() {
     if (!homeTeam || !awayTeam) { setStatus("Select both teams."); return; }
@@ -515,7 +485,7 @@ function AdminEnterResultView({ league, season, teams, forbiddenList, onClose })
         status: "approved",
         approvedAt: Date.now(),
       });
-      await applyResultToTable(league, season, homeTeam, awayTeam, finalHome, finalAway, forfeitType);
+      if (!isCup) await applyResultToTable(league, season, homeTeam, awayTeam, finalHome, finalAway, forfeitType); // knockout never changes the table
       setStatus("✅ Result entered successfully!");
       setTimeout(onClose, 1200);
     } catch (e) {
@@ -574,7 +544,7 @@ function AdminEnterResultView({ league, season, teams, forbiddenList, onClose })
           <label style={labelStyle}>Stage</label>
           <select value={matchday} onChange={e => setMatchday(e.target.value)} style={inputStyle}>
             <option value="">— Select stage —</option>
-            {CUP_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+            {stageOptions.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </>
       ) : (
@@ -604,11 +574,12 @@ function AdminEnterResultView({ league, season, teams, forbiddenList, onClose })
 // ── Main Modal ────────────────────────────────────────────────────────────────
 export default function UefaSubmitResultModal({ league, season, teams, onClose, prevMatchday, currMatchday }) {
   const { manager, isAdmin } = useAdmin();
-  // The team the manager was assigned vs the team they play as (via team linking)
-  const assignedTeam = manager?.team || "";
-  const { effectiveTeam: myTeam, isLinked } = useUefaTeamLink(league, assignedTeam);
-  const teamLabel = isLinked ? `${assignedTeam} (playing as ${myTeam})` : myTeam;
-  const isCup = CUP_LEAGUES.has(league);
+  const myTeam = manager?.team || "";
+  // Knockout mode behaves like the original cup flow: any opponent + a stage
+  const stageSettings = useUefaStageSettings(league);
+  const isCup = stageSettings.mode === "knockout";
+  const calendar = useCalendarStages(league, [getSASTDateStr(-1), getSASTDateStr(0)]);
+  const stageOptions = calendar.stages.length ? calendar.stages : UEFA_STAGES;
 
   const [forbiddenList, setForbiddenList] = useState([]);
   useEffect(() => {
@@ -644,9 +615,7 @@ export default function UefaSubmitResultModal({ league, season, teams, onClose, 
   const [myFixtures, setMyFixtures] = useState([]); // [{opponent, home, away, date, matchday, slot}]
   const [fixturesLoading, setFixturesLoading] = useState(true);
 
-  // Combined domestic-league team pool for cup opponent picking
-  const [cupOpponents, setCupOpponents] = useState([]);
-  const [cupOpponentsLoading, setCupOpponentsLoading] = useState(true);
+  const cupOpponentsLoading = false;
 
   const [scorers,  setScorers]  = useState([]);
   const [assists,  setAssists]  = useState([]);
@@ -671,22 +640,13 @@ export default function UefaSubmitResultModal({ league, season, teams, onClose, 
   const [status,     setStatus]     = useState("");
   const [confirming, setConfirming] = useState(false);
 
-  const others = isCup
-    ? cupOpponents.filter(n => n.toLowerCase() !== myTeam.toLowerCase())
-    : teams.filter(t => t.name !== myTeam).map(t => t.name).sort();
+  // Opponents come from the table (flat table + groups), never the calendar, in knockout
+  const others = teams.filter(t => normName(t.name) !== normName(myTeam)).map(t => t.name).sort();
 
-  // Cup competitions: load the combined domestic-league opponent pool once
+  // Knockout: the stage is filled in from the calendar (current matchday first, else previous)
   useEffect(() => {
-    if (!isCup) { setCupOpponentsLoading(false); return; }
-    let cancelled = false;
-    setCupOpponentsLoading(true);
-    fetchCupOpponentPool().then(names => {
-      if (cancelled) return;
-      setCupOpponents(names);
-      setCupOpponentsLoading(false);
-    });
-    return () => { cancelled = true; };
-  }, [isCup]);
+    if (isCup && !matchday && calendar.preferred) setMatchday(calendar.preferred);
+  }, [isCup, calendar.preferred]);
 
 
   // Load existing scorers/assists for player picker
@@ -950,7 +910,8 @@ export default function UefaSubmitResultModal({ league, season, teams, onClose, 
           status: "approved",
         });
         setStatus("Updating table...");
-        await applyResultToTable(league, season, homeTeam, awayTeam, homeScore, awayScore, isForfeit ? "forfeit_win" : "none");
+        // Knockout results never change the table
+        if (!isCup) await applyResultToTable(league, season, homeTeam, awayTeam, homeScore, awayScore, isForfeit ? "forfeit_win" : "none");
         if (!isForfeit) {
           setStatus("Updating stats...");
           for (const s of scorersData) await updateTopStat(league, season, "top_scorers",    s.player, s.goals,   myTeam);
@@ -994,7 +955,7 @@ export default function UefaSubmitResultModal({ league, season, teams, onClose, 
   }
 
   if (adminView === "forbidden") return <ForbiddenResultsManager league={league} teams={teams} onClose={() => setAdminView(null)} />;
-  if (adminView === "enter_result") return <AdminEnterResultView league={league} season={season} teams={teams} forbiddenList={forbiddenList} onClose={() => setAdminView(null)} />;
+  if (adminView === "enter_result") return <AdminEnterResultView league={league} season={season} teams={teams} forbiddenList={forbiddenList} onClose={() => setAdminView(null)} knockout={isCup} stageOptions={stageOptions} />;
 
   // ── No team assigned (non-admin) ──────────────────────────────────────────
   if (!myTeam) {
@@ -1012,7 +973,7 @@ export default function UefaSubmitResultModal({ league, season, teams, onClose, 
     return (
       <div>
         <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: 8 }}>⚽ Submit Result</h3>
-        <p style={{ color: "rgba(255,255,255,0.5)", marginBottom: 28, fontSize: "0.9rem" }}>Your Team: <strong style={{ color: "#FF1493" }}>{teamLabel}</strong></p>
+        <p style={{ color: "rgba(255,255,255,0.5)", marginBottom: 28, fontSize: "0.9rem" }}>Your Team: <strong style={{ color: "#FF1493" }}>{myTeam}</strong></p>
         <div style={{ background: "rgba(255,165,0,0.12)", border: "2px solid rgba(255,165,0,0.5)", borderRadius: 14, padding: "18px 20px", marginBottom: 28, color: "#FFB347", fontSize: "1.5rem", fontWeight: 800, lineHeight: 1.5, textAlign: "center" }}>
           ⚠️ FALSE RESULTS WILL RESULT IN A 6 POINT DEDUCTION AND THE MATCH WILL BE DECLARED A FORFEIT LOSS.
         </div>
@@ -1117,10 +1078,10 @@ export default function UefaSubmitResultModal({ league, season, teams, onClose, 
           ⚠️ FALSE RESULTS WILL RESULT IN A 6 POINT DEDUCTION AND THE MATCH WILL BE DECLARED A FORFEIT LOSS.
         </div>
         <div style={{ background: "rgba(255,20,147,0.1)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, padding: "12px 16px", marginBottom: 16, color: "#FF1493", fontWeight: 700 }}>
-          Your Team: {teamLabel}
+          Your Team: {myTeam}
         </div>
         <OpponentAndRoundPicker
-          isCup={isCup} opponent={opponent} setOpponent={setOpponent}
+          isCup={isCup} stageOptions={stageOptions} opponent={opponent} setOpponent={setOpponent}
           others={others} cupOpponentsLoading={cupOpponentsLoading}
           matchday={matchday} setMatchday={setMatchday} date={date} setDate={setDate}
           fixturesLoading={fixturesLoading} myFixtures={myFixtures}
@@ -1175,11 +1136,11 @@ export default function UefaSubmitResultModal({ league, season, teams, onClose, 
       </div>
 
       <div style={{ background: "rgba(255,20,147,0.1)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, padding: "12px 16px", marginBottom: 16, color: "#FF1493", fontWeight: 700 }}>
-        Your Team: {teamLabel}
+        Your Team: {myTeam}
       </div>
 
       <OpponentAndRoundPicker
-        isCup={isCup} opponent={opponent} setOpponent={setOpponent}
+        isCup={isCup} stageOptions={stageOptions} opponent={opponent} setOpponent={setOpponent}
         others={others} cupOpponentsLoading={cupOpponentsLoading}
         matchday={matchday} setMatchday={setMatchday} date={date} setDate={setDate}
         fixturesLoading={fixturesLoading} myFixtures={myFixtures}
