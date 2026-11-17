@@ -13,7 +13,6 @@
 // ─────────────────────────────────────────────────────────────────────────
 import { db, PATHS } from "../firebase";
 import { ref, get } from "firebase/database";
-import { isUefaLeague, decodeUefaLinks, effectiveTeamName, linksPath } from "./uefaLinks";
 
 // Real database keys — these must match the `const LEAGUE = "..."` in each page.
 export const COMPETITIONS = [
@@ -76,13 +75,6 @@ export function loadAllResults(force = false) {
           if (list.length) seasons = list.map(String);
         } catch {}
 
-        // UEFA leagues: a linked team's manager plays AS the linked team, so their
-        // results are saved under that team's name (see uefaLinks.js).
-        let links = null;
-        if (isUefaLeague(comp.key)) {
-          try { links = decodeUefaLinks((await get(ref(db, linksPath(comp.key)))).val()); } catch { links = {}; }
-        }
-
         const perSeason = await Promise.all(
           seasons.map(async (season) => {
             try {
@@ -99,7 +91,6 @@ export function loadAllResults(force = false) {
                 md: r.md || 0,
                 season,
                 tournament: comp.name,
-                links, // null for non-UEFA competitions
               }));
             } catch {
               return [];
@@ -170,13 +161,8 @@ export function buildBlockedWindows(accounts) {
   return map;
 }
 
-// The name this club's results are saved under in this record's competition.
-// Same as the club name everywhere except UEFA leagues with a team link.
-const teamFor = (r, team) => (r.links ? effectiveTeamName(team, r.links) : team);
-
 function inStint(r, s, uid, blocked) {
-  const t = teamFor(r, s.team);
-  if (r.home !== t && r.away !== t) return false;
+  if (r.home !== s.team && r.away !== s.team) return false;
   if (!r.date) return !s.fromDate && !s.toDate; // undated results only fit an unbounded stint
   if (s.fromDate && r.date < s.fromDate) return false;
   if (s.toDate && r.date >= s.toDate) return false;
@@ -205,7 +191,7 @@ export function computeStats(records, stints, uid, blocked) {
     }
 
     const forf = isForfeit(r);
-    const isHome = r.home === teamFor(r, stint.team);
+    const isHome = r.home === stint.team;
     const ms = isHome ? r.homeScore : r.awayScore;
     const mc = isHome ? r.awayScore : r.homeScore;
 
