@@ -7,7 +7,7 @@ import { useAdmin } from "../context/AdminContext";
 import { uploadToImgBB } from "../utils/imgUpload";
 import useUefaStageSettings from "../hooks/useUefaStageSettings";
 import useCalendarStages from "../hooks/useCalendarStages";
-import { UEFA_STAGES, sameStage } from "../utils/uefaStage";
+import { fallbackStages, sameStage } from "../utils/uefaStage";
 import { normName } from "../utils/uefaLinks";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -579,7 +579,7 @@ export default function UefaSubmitResultModal({ league, season, teams, onClose, 
   const stageSettings = useUefaStageSettings(league);
   const isCup = stageSettings.mode === "knockout";
   const calendar = useCalendarStages(league, [getSASTDateStr(-1), getSASTDateStr(0)]);
-  const stageOptions = calendar.stages.length ? calendar.stages : UEFA_STAGES;
+  const stageOptions = calendar.stages.length ? calendar.stages : fallbackStages(league);
 
   const [forbiddenList, setForbiddenList] = useState([]);
   useEffect(() => {
