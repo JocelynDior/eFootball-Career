@@ -5,7 +5,7 @@ import { applyResultToTable, reverseResultFromTable } from "../utils/tableLogic"
 import { getSASTToday } from "../utils/sastTime";
 import useUefaStageSettings from "../hooks/useUefaStageSettings";
 import useCalendarStages from "../hooks/useCalendarStages";
-import { UEFA_STAGES, isKnockoutResult, sameStage } from "../utils/uefaStage";
+import { fallbackStages, isKnockoutResult, sameStage } from "../utils/uefaStage";
 import { normName } from "../utils/uefaLinks";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -72,7 +72,7 @@ export default function UefaAddResultModal({ league, season, teams, result = nul
   useEffect(() => {
     if (knockout && !stage && calendar.preferred) setStage(calendar.preferred);
   }, [knockout, calendar.preferred]);
-  const baseStageOptions = calendar.stages.length ? calendar.stages : UEFA_STAGES;
+  const baseStageOptions = calendar.stages.length ? calendar.stages : fallbackStages(league);
   const stageOptions = stage && !baseStageOptions.some(s => sameStage(s, stage)) ? [stage, ...baseStageOptions] : baseStageOptions;
 
   // Step 1 for new results: pick match type
