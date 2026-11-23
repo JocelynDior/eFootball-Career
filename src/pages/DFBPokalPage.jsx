@@ -9,16 +9,17 @@ import TabBar from "../components/TabBar";
 import LeagueTable from "../components/LeagueTable";
 import GroupStageModal from "../modals/GroupStageModal";
 import FixturesList from "../components/FixturesList";
-import ResultsList from "../components/ResultsList";
+import UefaResultsList from "../components/UefaResultsList";
+import UefaStageBanner from "../components/UefaStageBanner";
 import TopScorers from "../components/TopScorers";
 import TopAssistants from "../components/TopAssistants";
 import Modal from "../components/Modal";
 import AddTeamModal from "../modals/AddTeamModal";
-import AddResultModal from "../modals/AddResultModal";
+import UefaAddResultModal from "../modals/UefaAddResultModal";
 import StatPlayerModal from "../modals/StatPlayerModal";
 import LeagueRulesModal from "../modals/LeagueRulesModal";
-import LeagueAdminSettingsModal from "../modals/LeagueAdminSettingsModal";
-import SubmitResultModal from "../modals/SubmitResultModal";
+import UefaLeagueAdminSettingsModal from "../modals/UefaLeagueAdminSettingsModal";
+import UefaSubmitResultModal from "../modals/UefaSubmitResultModal";
 import PendingFixturesModal from "../modals/PendingFixturesModal";
 import LoadingSpinner from "../components/LoadingSpinner";
 import LeagueHeadlineSlideshow from "../components/LeagueHeadlineSlideshow";
@@ -27,6 +28,7 @@ import MatchdayCountdowns from "../components/MatchdayCountdowns";
 import { applyResultToTable } from "../utils/tableLogic";
 import { renameSeason, setActiveSeason, deleteSeason } from "../utils/seasonActions";
 import useSeasonState from "../utils/useSeasonState";
+import useCupTeams from "../hooks/useCupTeams";
 
 const LEAGUE = "dfbpokal";
 const LEAGUE_NAME = "DFB Pokal";
@@ -158,6 +160,9 @@ export default function DFBPokalPage() {
   const [rulesOpen, setRulesOpen] = useState(false);
   const [submitOpen, setSubmitOpen] = useState(false);
   const [pendingOpen, setPendingOpen] = useState(false);
+
+  // Opponents: the cup's own teams + the 5-league pool, for admins and managers
+  const cupTeams = useCupTeams(LEAGUE, teams);
 
   const todayStr = getSASTDateStr(0);
   const yesterdayStr = getSASTDateStr(-1);
@@ -318,7 +323,7 @@ export default function DFBPokalPage() {
       <div style={{ padding: "0 20px 160px" }}>
         {loading || tabLoading ? <LoadingSpinner /> : (
           <>
-            {tab === "fixtures" && <FixturesList tournamentName="DFB Pokal" />}
+            {tab === "fixtures" && <FixturesList tournamentName="DFB Pokal" banner={<UefaStageBanner league={LEAGUE} />} />}
             {tab === "results" && (
               <>
                 {(isAdmin || season === activeSeason) && (
@@ -331,7 +336,7 @@ export default function DFBPokalPage() {
                   </button>
                 </div>
                 )}
-                <ResultsList league={LEAGUE} season={season}
+                <UefaResultsList league={LEAGUE} season={season}
                   onEdit={isAdmin ? r => setEditResult(r) : undefined}
                   onDelete={isAdmin ? handleDeleteResult : undefined}
                 />
@@ -360,19 +365,19 @@ export default function DFBPokalPage() {
         <AddTeamModal league={LEAGUE} season={season} team={editTeam || null} onClose={() => setEditTeam(undefined)} />
       </Modal>
       <Modal active={editResult !== undefined} onClose={() => setEditResult(undefined)}>
-        <AddResultModal league={LEAGUE} season={season} teams={teams} result={editResult} onClose={() => setEditResult(undefined)} />
+        <UefaAddResultModal league={LEAGUE} season={season} teams={cupTeams} result={editResult} onClose={() => setEditResult(undefined)} />
       </Modal>
       <Modal active={editStat !== undefined} onClose={() => setEditStat(undefined)}>
         <StatPlayerModal league={LEAGUE} season={season} type={statType} teams={teams} player={editStat} onClose={() => setEditStat(undefined)} />
       </Modal>
       <Modal active={adminOpen} onClose={() => setAdminOpen(false)}>
-        <LeagueAdminSettingsModal league={LEAGUE} season={season} teams={teams} onClose={() => setAdminOpen(false)} />
+        <UefaLeagueAdminSettingsModal league={LEAGUE} season={season} teams={teams} onClose={() => setAdminOpen(false)} />
       </Modal>
       <Modal active={rulesOpen} onClose={() => setRulesOpen(false)}>
         <LeagueRulesModal league={LEAGUE} leagueName={LEAGUE_NAME} onClose={() => setRulesOpen(false)} />
       </Modal>
       <Modal active={submitOpen} onClose={() => setSubmitOpen(false)}>
-        <SubmitResultModal league={LEAGUE} season={season} teams={teams} onClose={() => setSubmitOpen(false)} prevMatchday={yesterdayMd} currMatchday={todayMd} />
+        <UefaSubmitResultModal league={LEAGUE} season={season} teams={cupTeams} onClose={() => setSubmitOpen(false)} prevMatchday={yesterdayMd} currMatchday={todayMd} />
       </Modal>
       <Modal active={pendingOpen} onClose={() => setPendingOpen(false)}>
         <PendingFixturesModal league={LEAGUE} season={season} onClose={() => setPendingOpen(false)} />
