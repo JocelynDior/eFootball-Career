@@ -7,7 +7,7 @@ import ManagerHistoryModal from "./ManagerHistoryModal";
 import RequestsHistoryModal from "./RequestsHistoryModal";
 import { uploadToImgBB } from "../utils/imgUpload";
 import UefaTeamLinker from "./UefaTeamLinker";
-import { stagePath } from "../utils/uefaStage";
+import { stagePath, isDomesticCup } from "../utils/uefaStage";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // UEFA version of LeagueAdminSettingsModal (Champions / Europa / Conference).
@@ -208,6 +208,8 @@ function CaptionEditor({ initial, onSave }) {
 
 // ─── Main Modal ───────────────────────────────────────────────────────────────
 export default function UefaLeagueAdminSettingsModal({ league, season, teams, onClose }) {
+  // Domestic cups: always Knockout, no table → hide the table-only settings
+  const isCup = isDomesticCup(league);
   const [view, setView] = useState("main");
 
   // Zone config state
@@ -274,7 +276,7 @@ export default function UefaLeagueAdminSettingsModal({ league, season, teams, on
     setStageStatus("Uploading image...");
     try {
       const url = await uploadToImgBB(file);
-      await saveStage({ mode: stageMode, imageUrl: url });
+      await saveStage({ mode: isCup ? "knockout" : stageMode, imageUrl: url });
     } catch (err) {
       setStageStatus("❌ Upload failed: " + err.message);
       setSavingStage(false);
@@ -383,6 +385,7 @@ export default function UefaLeagueAdminSettingsModal({ league, season, teams, on
       <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", fontSize: "1.8rem", marginBottom: 20 }}>⚙️ League Admin Settings</h3>
 
       {/* Tab Mode Toggle */}
+      {!isCup && (
       <div style={{ background: "rgba(255,20,147,0.06)", border: "1px solid rgba(255,20,147,0.2)", borderRadius: 14, padding: 16, marginBottom: 16 }}>
         <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.75rem", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.5px" }}>First Tab Mode</div>
         <div style={{ display: "flex", gap: 10 }}>
@@ -395,11 +398,12 @@ export default function UefaLeagueAdminSettingsModal({ league, season, teams, on
         </div>
         {savingMode && <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", marginTop: 6, textAlign: "center" }}>Saving...</div>}
       </div>
+      )}
 
       {/* Competition stage */}
       <div style={{ background: "rgba(255,20,147,0.06)", border: "1px solid rgba(255,20,147,0.2)", borderRadius: 14, padding: 16, marginBottom: 16 }}>
         <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.75rem", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.5px" }}>Competition Stage</div>
-        <div style={{ display: "flex", gap: 10 }}>
+        {!isCup && <div style={{ display: "flex", gap: 10 }}>
           <button onClick={() => saveStage({ mode: "league", imageUrl: stageImage })} disabled={savingStage}
             style={{ flex: 1, padding: "12px 0", background: stageMode === "league" ? "#FF1493" : "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: 10, color: "#fff", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
             📊 League Phase
@@ -408,19 +412,21 @@ export default function UefaLeagueAdminSettingsModal({ league, season, teams, on
             style={{ flex: 1, padding: "12px 0", background: stageMode === "knockout" ? "#FF1493" : "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: 10, color: "#fff", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
             ⚔️ Knockout Stage
           </button>
-        </div>
+        </div>}
         <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.78rem", marginTop: 10, lineHeight: 1.5 }}>
-          {stageMode === "knockout"
-            ? "Knockout: new results are tagged with the stage set in the calendar and do NOT change the table. Opponents are picked from the table."
-            : "League Phase: results use the calendar fixtures and update the table."}
+          {isCup
+            ? "Cup results are tagged with the stage set in the calendar (Quarter Final to Final). Opponents can be any team."
+            : stageMode === "knockout"
+              ? "Knockout: new results are tagged with the stage set in the calendar and do NOT change the table. Opponents are picked from the table."
+              : "League Phase: results use the calendar fixtures and update the table."}
         </div>
 
-        {stageMode === "knockout" && (
+        {(isCup || stageMode === "knockout") && (
           <div style={{ marginTop: 14 }}>
             <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.75rem", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.5px" }}>Stage Image (shown on Results &amp; Fixtures)</div>
             {stageImage && (
-              <div style={{ width: "100%", aspectRatio: "16/6", overflow: "hidden", borderRadius: 10, marginBottom: 10 }}>
-                <img src={stageImage} alt="Knockout stage" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+              <div style={{ width: "100%", borderRadius: 10, overflow: "hidden", marginBottom: 10 }}>
+                <img src={stageImage} alt="Knockout stage" style={{ width: "100%", height: "auto", display: "block" }} />
               </div>
             )}
             <div style={{ display: "flex", gap: 10 }}>
@@ -429,7 +435,7 @@ export default function UefaLeagueAdminSettingsModal({ league, season, teams, on
                 <input type="file" accept="image/*" onChange={handleStageImage} disabled={savingStage} style={{ display: "none" }} />
               </label>
               {stageImage && (
-                <button onClick={() => saveStage({ mode: stageMode, imageUrl: "" })} disabled={savingStage}
+                <button onClick={() => saveStage({ mode: isCup ? "knockout" : stageMode, imageUrl: "" })} disabled={savingStage}
                   style={{ padding: "11px 18px", background: "rgba(220,50,50,0.15)", border: "1px solid rgba(220,50,50,0.4)", borderRadius: 10, color: "#ff6b6b", fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
                   Remove
                 </button>
@@ -442,7 +448,7 @@ export default function UefaLeagueAdminSettingsModal({ league, season, teams, on
         )}
       </div>
 
-      {teams && teams.length > 0 && (
+      {!isCup && teams && teams.length > 0 && (
         <div style={{ background: "rgba(255,20,147,0.06)", border: "1px solid rgba(255,20,147,0.2)", borderRadius: 14, padding: 16, marginBottom: 16 }}>
           <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.75rem", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.5px" }}>Teams in {league} — Season {season}</div>
           <div style={{ color: "rgba(255,255,255,0.85)", fontSize: "0.9rem" }}>{teams.length} team{teams.length === 1 ? "" : "s"} registered</div>
@@ -456,7 +462,7 @@ export default function UefaLeagueAdminSettingsModal({ league, season, teams, on
         ["📜", "Submission History", "requests"],
         ["🔑", "Manager Keys", "keys"],
         ["📋", "Manager History", "history"],
-      ].map(([icon, label, id]) => (
+      ].filter(([, , id]) => !(isCup && (id === "zones" || id === "teamLinks"))).map(([icon, label, id]) => (
         <button key={id} onClick={() => setView(id)} style={btnStyle}
           onMouseOver={e => { e.currentTarget.style.background = "rgba(255,20,147,0.18)"; e.currentTarget.style.borderColor = "#FF1493"; }}
           onMouseOut={e => { e.currentTarget.style.background = "rgba(255,20,147,0.08)"; e.currentTarget.style.borderColor = "rgba(255,20,147,0.25)"; }}>
