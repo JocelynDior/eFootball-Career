@@ -141,9 +141,10 @@ export default function UefaTeamLinker({ league, season, teams, onBack }) {
   function suggestionsFor(team) {
     const q = normName(queries[team.name] || "");
     if (!q) return [];
-    const own = normName(team.name);
+    // Every team is offered in every bar — including this team's own name (and its
+    // other spellings), since a linked team can add its own results back in.
     return pool
-      .filter(p => normName(p.name).includes(q) && normName(p.name) !== own)
+      .filter(p => normName(p.name).includes(q))
       .slice(0, 40);
   }
 
@@ -269,6 +270,7 @@ export default function UefaTeamLinker({ league, season, teams, onBack }) {
                       <div style={{ padding: "10px 14px", color: "rgba(255,255,255,0.5)", fontSize: "0.85rem" }}>No team matches "{query}".</div>
                     ) : suggestions.map(s => {
                       const already = linkedNorms.has(normName(s.name));
+                      const isOwn = normName(s.name) === normName(team.name);
                       return (
                         <button
                           key={s.name}
@@ -279,7 +281,7 @@ export default function UefaTeamLinker({ league, season, teams, onBack }) {
                         >
                           <span>{s.name}</span>
                           <span style={{ fontSize: "0.7rem", color: already ? "#22c55e" : s.fromResults ? "#FF69B4" : "rgba(255,255,255,0.35)" }}>
-                            {already ? "✓ linked" : s.fromResults ? "in Results" : "other"}
+                            {already ? "✓ linked" : isOwn ? "this team" : s.fromResults ? "in Results" : "other"}
                           </span>
                         </button>
                       );
