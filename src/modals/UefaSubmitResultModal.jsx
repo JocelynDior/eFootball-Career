@@ -196,6 +196,9 @@ function CountPicker({ label, value, onChange }) {
 }
 
 // ── Matchday picker — two buttons driven by the page countdown numbers ─────────
+// Matchday numbers read "MD 3"; stage names (cup-style leagues) are shown as they are
+const mdLabel = (v) => (/^\d+$/.test(String(v)) ? `MD ${v}` : String(v));
+
 function MatchdayPicker({ matchday, setMatchday, prevMatchday, currMatchday }) {
   return (
     <div style={{ marginBottom: 14 }}>
@@ -214,7 +217,7 @@ function MatchdayPicker({ matchday, setMatchday, prevMatchday, currMatchday }) {
           <span style={{ fontSize: "1.3rem" }}>⏮</span>
           <span>PREVIOUS</span>
           <span style={{ color: matchday === String(prevMatchday) ? "#FF1493" : "rgba(255,255,255,0.5)", fontSize: "1.4rem" }}>
-            {prevMatchday != null ? `MD ${prevMatchday}` : "—"}
+            {prevMatchday != null ? mdLabel(prevMatchday) : "—"}
           </span>
         </button>
         <button
@@ -230,7 +233,7 @@ function MatchdayPicker({ matchday, setMatchday, prevMatchday, currMatchday }) {
           <span style={{ fontSize: "1.3rem" }}>📅</span>
           <span>CURRENT</span>
           <span style={{ color: matchday === String(currMatchday) ? "#a855f7" : "rgba(255,255,255,0.5)", fontSize: "1.4rem" }}>
-            {currMatchday != null ? `MD ${currMatchday}` : "—"}
+            {currMatchday != null ? mdLabel(currMatchday) : "—"}
           </span>
         </button>
       </div>
@@ -302,7 +305,7 @@ function OpponentAndRoundPicker({
                 }}
               >
                 <div style={{ color: isSelected ? "#FF1493" : "rgba(255,255,255,0.45)", fontSize: "2.16rem", fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", marginBottom: 12 }}>
-                  {slotLabel}{mdNum != null ? ` — MD ${mdNum}` : ""}
+                  {slotLabel}{mdNum != null ? ` — ${mdLabel(mdNum)}` : ""}
                 </div>
                 <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "3.6rem", letterSpacing: 2, lineHeight: 1.05, wordBreak: "break-word" }}>
                   {fix.home} <span style={{ color: "#FF1493" }}>vs</span> {fix.away}
