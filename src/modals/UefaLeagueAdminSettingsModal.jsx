@@ -210,6 +210,8 @@ function CaptionEditor({ initial, onSave }) {
 export default function UefaLeagueAdminSettingsModal({ league, season, teams, onClose }) {
   // Domestic cups: always Knockout, no table → hide the table-only settings
   const isCup = isDomesticCup(league);
+  // Club World Cup calls its league phase the Group Stage
+  const phaseName = league === "clubworldcup" ? "Group Stage" : "League Phase";
   const [view, setView] = useState("main");
 
   // Zone config state
@@ -406,7 +408,7 @@ export default function UefaLeagueAdminSettingsModal({ league, season, teams, on
         {!isCup && <div style={{ display: "flex", gap: 10 }}>
           <button onClick={() => saveStage({ mode: "league", imageUrl: stageImage })} disabled={savingStage}
             style={{ flex: 1, padding: "12px 0", background: stageMode === "league" ? "#FF1493" : "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: 10, color: "#fff", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
-            📊 League Phase
+            📊 {phaseName}
           </button>
           <button onClick={() => saveStage({ mode: "knockout", imageUrl: stageImage })} disabled={savingStage}
             style={{ flex: 1, padding: "12px 0", background: stageMode === "knockout" ? "#FF1493" : "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: 10, color: "#fff", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
@@ -418,7 +420,7 @@ export default function UefaLeagueAdminSettingsModal({ league, season, teams, on
             ? "Cup results are tagged with the stage set in the calendar (Quarter Final to Final). Opponents can be any team."
             : stageMode === "knockout"
               ? "Knockout: new results are tagged with the stage set in the calendar and do NOT change the table. Opponents are picked from the table."
-              : "League Phase: results use the calendar fixtures and update the table."}
+              : `${phaseName}: results use the calendar fixtures and update the table.`}
         </div>
 
         {(isCup || stageMode === "knockout") && (
