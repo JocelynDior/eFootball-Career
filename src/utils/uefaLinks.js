@@ -11,7 +11,7 @@
 // original teamLinks data and the code that reads it are not affected.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const UEFA_LEAGUES = new Set(["champions", "europa", "conference"]);
+export const UEFA_LEAGUES = new Set(["champions", "europa", "conference", "clubworldcup"]);
 export const isUefaLeague = (league) => UEFA_LEAGUES.has(league);
 
 // Same comparison the original table logic uses: ignore capitals and extra spaces.
