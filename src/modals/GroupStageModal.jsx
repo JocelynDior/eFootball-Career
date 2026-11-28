@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import InlineSpinner from "../components/InlineSpinner";
+import Modal from "../components/Modal";
 import { db } from "../firebase";
 import { ref, onValue, push, set, remove } from "firebase/database";
 import { useAdmin } from "../context/AdminContext";
@@ -48,6 +49,8 @@ export default function GroupStageModal({ league, season }) {
   // New group form
   const [newGroupName, setNewGroupName] = useState("");
   const [addingGroup, setAddingGroup] = useState(false);
+  const [addGroupOpen, setAddGroupOpen] = useState(false);
+  const [addGroupError, setAddGroupError] = useState("");
 
   // Recalculate from results
   const [recalcBusy, setRecalcBusy] = useState(false);
@@ -102,11 +105,34 @@ export default function GroupStageModal({ league, season }) {
     return null;
   }
 
-  async function addGroup() {
-    if (!newGroupName.trim()) return;
-    setAddingGroup(true);
-    await push(ref(db, `career_${league}/seasons/season_${season}/groups`), { name: newGroupName.trim(), teams: {} });
+  function openAddGroup() {
     setNewGroupName("");
+    setAddGroupError("");
+    setAddGroupOpen(true);
+  }
+
+  function closeAddGroup() {
+    if (addingGroup) return;
+    setAddGroupOpen(false);
+    setAddGroupError("");
+  }
+
+  async function addGroup() {
+    const name = newGroupName.trim();
+    if (!name) { setAddGroupError("Enter a group name first (e.g. Group A)."); return; }
+    if (groups.some(g => g.name.trim().toLowerCase() === name.toLowerCase())) {
+      setAddGroupError(`"${name}" already exists.`);
+      return;
+    }
+    setAddingGroup(true);
+    setAddGroupError("");
+    try {
+      await push(ref(db, `career_${league}/seasons/season_${season}/groups`), { name, teams: {} });
+      setNewGroupName("");
+      setAddGroupOpen(false);
+    } catch (e) {
+      setAddGroupError("Could not add the group: " + e.message);
+    }
     setAddingGroup(false);
   }
 
@@ -156,13 +182,7 @@ export default function GroupStageModal({ league, season }) {
       {/* Admin: Add Group */}
       {isAdmin && (
         <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
-          <input
-            value={newGroupName}
-            onChange={e => setNewGroupName(e.target.value)}
-            placeholder="Group name (e.g. Group A)"
-            style={{ flex: 1, padding: "10px 14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: 10, color: "#fff", fontFamily: "inherit", fontSize: "0.9rem", outline: "none" }}
-          />
-          <button onClick={addGroup} disabled={addingGroup} style={{ padding: "10px 20px", background: "#FF1493", border: "none", borderRadius: 10, color: "#fff", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+          <button onClick={openAddGroup} style={{ padding: "10px 20px", background: "#FF1493", border: "none", borderRadius: 10, color: "#fff", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
             + Add Group
           </button>
           {isUefaLeague(league) && <button onClick={handleRecalculate} disabled={recalcBusy} style={{ padding: "10px 20px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: 10, color: "#fff", fontWeight: 700, cursor: recalcBusy ? "not-allowed" : "pointer", whiteSpace: "nowrap", opacity: recalcBusy ? 0.6 : 1 }}>
@@ -170,6 +190,28 @@ export default function GroupStageModal({ league, season }) {
           </button>}
         </div>
       )}
+      <Modal active={addGroupOpen} onClose={closeAddGroup}>
+        <h3 style={{ color: "#FF1493", fontFamily: "'Bebas Neue', sans-serif", marginBottom: 20 }}>🗂️ Add Group</h3>
+        <label style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.75rem", display: "block", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.5px" }}>Group name</label>
+        <input
+          autoFocus
+          value={newGroupName}
+          onChange={e => { setNewGroupName(e.target.value); setAddGroupError(""); }}
+          onKeyDown={e => { if (e.key === "Enter") addGroup(); }}
+          placeholder="e.g. Group A"
+          style={{ width: "100%", boxSizing: "border-box", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.4)", borderRadius: 10, color: "#fff", fontFamily: "inherit", outline: "none", marginBottom: 12 }}
+        />
+        {addGroupError && <div style={{ color: "#ff6b6b", fontSize: "1.4rem", marginBottom: 12 }}>{addGroupError}</div>}
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={addGroup} disabled={addingGroup} style={{ flex: 1, background: "#FF1493", border: "none", borderRadius: 12, color: "#fff", fontWeight: 700, cursor: addingGroup ? "not-allowed" : "pointer", opacity: addingGroup ? 0.7 : 1 }}>
+            {addingGroup ? "Adding..." : "Add Group"}
+          </button>
+          <button onClick={closeAddGroup} disabled={addingGroup} style={{ flex: 1, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,20,147,0.3)", borderRadius: 12, color: "#fff", cursor: "pointer" }}>
+            Cancel
+          </button>
+        </div>
+      </Modal>
+
       {isAdmin && isUefaLeague(league) && recalcMsg && (
         <div style={{ marginBottom: 20, padding: "10px 14px", borderRadius: 10, fontSize: "0.85rem", color: recalcMsg.ok ? "#22c55e" : "#FFB347", background: "rgba(255,255,255,0.04)", border: `1px solid ${recalcMsg.ok ? "rgba(34,197,94,0.35)" : "rgba(255,180,0,0.4)"}` }}>
           {recalcMsg.text}
